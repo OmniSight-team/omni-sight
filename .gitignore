@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pyo
+
+# Node
+node_modules/
+.next/
+dist/
+.turbo/
+out/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Data (keep gitkeeps)
+data/raw/*
+data/processed/*
+data/checkpoints/*
+data/outputs/*
+!data/**/.gitkeep
+
+# Models
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+.docker-volumes/
+
+# uv
+uv.lock

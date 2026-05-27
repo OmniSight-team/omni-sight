@@ -1,0 +1,46 @@
+[project]
+name = "omnisight"
+version = "0.1.0"
+description = "Distributed Semantic Video Intelligence & Predictive Reasoning Platform"
+requires-python = ">=3.11"
+
+[tool.uv.workspace]
+members = [
+    "libs/omnisight_common",
+    "libs/omnisight_messaging",
+    "services/ingestion",
+    "services/ai_worker_frame",
+    "services/ai_worker_temporal",
+    "services/query_service",
+    "services/pfm",
+    "services/verification",
+    "services/rag_forensics",
+]
+
+[tool.uv.sources]
+omnisight-common = { workspace = true }
+omnisight-messaging = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pre-commit>=4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "libs/*/tests", "services/*/tests"]
+asyncio_mode = "auto"
