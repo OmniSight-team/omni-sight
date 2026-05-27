@@ -15,6 +15,9 @@ jobs:
           - ai_worker_frame
           - ai_worker_temporal
           - query_service
+          - pfm
+          - verification
+          - rag_forensics
     steps:
       - uses: actions/checkout@v4
 
