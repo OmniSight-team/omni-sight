@@ -4,7 +4,6 @@ import importlib
 
 import pytest
 
-
 WORKSPACE_PACKAGES = [
     "omnisight_common",
     "omnisight_messaging",
