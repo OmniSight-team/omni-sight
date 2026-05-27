@@ -48,5 +48,5 @@ Thumbs.db
 # Docker volumes
 .docker-volumes/
 
-# uv
-uv.lock
+# uv — lock file is intentionally committed (like poetry.lock / package-lock.json)
+# uv.lock
