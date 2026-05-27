@@ -24,7 +24,7 @@ Ahmad Tawil · Cyrine Fahoum · Supervisor: Dr. Reuven Cohen
 
 - [Overview](#overview)
 - [The Problem](#the-problem)
-- [Novel Contribution](#novel-contribution)
+- [empirical contribution](#novel-contribution)
 - [System Architecture](#system-architecture)
 - [Core Capabilities](#core-capabilities)
 - [Algorithms](#algorithms)
