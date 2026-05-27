@@ -267,6 +267,8 @@ omni-sight/
 │   │   └── mcp/                # MCP primitives (Phase B)
 │   ├── pfm/                    # Phase B stub — transformer backbone + domain heads
 │   ├── verification/           # Phase B stub — four-tier agentic cascade
+│   │   ├── tiers/              # tier1_vector_trigger · tier2_pfm_gate · tier3_vlm_causation · tier4_escalation
+│   │   └── pipeline.py         # Algorithm 5 orchestrator
 │   ├── rag_forensics/          # Phase B stub — multimodal RAG dossier engine
 │   └── dashboard/              # Phase A — Next.js 15 web dashboard
 ├── infra/
