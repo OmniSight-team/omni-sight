@@ -15,6 +15,7 @@ members = [
     "services/pfm",
     "services/verification",
     "services/rag_forensics",
+    "services/api_server",
 ]
 
 [tool.uv.sources]

@@ -1,65 +1,87 @@
-import Image from "next/image";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Camera, Layers, Bell, Activity } from "lucide-react"
 
-export default function Home() {
+const STATS = [
+  { label: "Cameras Online", value: "4", sub: "All healthy", icon: Camera },
+  { label: "Frames Indexed", value: "0", sub: "Awaiting upload", icon: Layers },
+  { label: "Alerts Today", value: "2", sub: "1 critical", icon: Bell },
+  { label: "System Health", value: "OK", sub: "All services up", icon: Activity },
+]
+
+const ACTIVITY = [
+  { msg: "Camera 1 — motion detected", time: "09:12" },
+  { msg: "Camera 3 — alert triggered", time: "08:54" },
+  { msg: "ROI sampler — warmup complete", time: "08:30" },
+  { msg: "SigLIP2 model loaded on CPU", time: "08:28" },
+]
+
+const SERVICES = [
+  { name: "api-server", state: "idle", color: "text-yellow-500" },
+  { name: "ai-worker-frame", state: "idle", color: "text-yellow-500" },
+  { name: "qdrant (in-memory)", state: "ready", color: "text-green-500" },
+  { name: "ingestion", state: "idle", color: "text-yellow-500" },
+]
+
+export default function OverviewPage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold">Overview</h1>
+        <p className="text-sm text-muted-foreground">Platform status and recent activity.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {STATS.map(({ label, value, sub, icon: Icon }) => (
+          <Card key={label}>
+            <CardHeader className="pb-0">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-normal text-muted-foreground">
+                  {label}
+                </CardTitle>
+                <Icon className="size-4 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-semibold">{value}</p>
+              <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {ACTIVITY.map(({ msg, time }) => (
+                <li key={msg} className="flex justify-between text-sm">
+                  <span className="text-foreground">{msg}</span>
+                  <span className="text-muted-foreground shrink-0 ml-4">{time}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Services</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {SERVICES.map(({ name, state, color }) => (
+                <li key={name} className="flex justify-between text-sm">
+                  <span className="font-mono text-xs">{name}</span>
+                  <span className={color}>{state}</span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
     </div>
-  );
+  )
 }
