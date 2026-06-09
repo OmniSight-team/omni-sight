@@ -33,10 +33,15 @@ def process_frame(
     camera_id: str,
     timestamp: str,
     domain: str,
+    source_id: str = "",
+    fps: float = 30.0,
 ) -> FrameRecord:
     """Embed one admitted frame and persist it to Qdrant."""
     ensure_collection(client)
     embedding = embed_frame(frame_bgr)
-    frame_id = upsert_frame(client, embedding, frame_bgr, camera_id, timestamp, domain)
+    frame_id = upsert_frame(
+        client, embedding, frame_bgr, camera_id, timestamp, domain,
+        source_id=source_id, fps=fps,
+    )
     logger.info("Processed frame %s (cam=%s)", frame_id, camera_id)
     return FrameRecord(frame_id=frame_id, embedding=embedding)

@@ -117,12 +117,17 @@ def _grid_active_cells(diff: np.ndarray, G: int, tau: float) -> int:
 def roi_aware_sampler(
     source,
     G: int = 8,
-    tau: float = 25.0,
+    tau: float = 10.0,
     k: int = 4,
     delta: int = 15,
+    max_gap: int = 90,
     source_id: str = "default",
 ) -> Iterator[Payload]:
-    """Yields a Payload for each admitted frame; warmup and drops produce no yield."""
+    """Yields a Payload for each admitted frame; warmup and drops produce no yield.
+
+    max_gap: force-admit a frame every this many frames so static scenes
+    (parked cars, empty hallways) are always represented in the index.
+    """
     if not (0 <= tau <= 255):
         raise ValueError(f"tau must be in [0, 255], got {tau}")
     if G < 1:
@@ -133,6 +138,7 @@ def roi_aware_sampler(
         raise ValueError(f"delta must be >= 1, got {delta}")
 
     buf = Buffer(delta)
+    frames_since_admit = 0
 
     for t, f_t in enumerate(source.iter_frames()):
         # 1: append
@@ -151,9 +157,14 @@ def roi_aware_sampler(
         # 4-5: grid activation
         active = _grid_active_cells(diff, G, tau)
 
-        # 6-9: admit or drop
-        if active >= k:
+        # 6-9: admit on motion or max_gap fallback
+        force = frames_since_admit >= max_gap
+        if active >= k or force:
             W = buf.window()
             yield Payload(frame=f_t, window=W, t=t, source_id=source_id)
+            frames_since_admit = 0
+            if force:
+                logger.debug("frame %d: force-admitted (gap=%d)", t, frames_since_admit)
         else:
             logger.debug("frame %d: dropped (active=%d)", t, active)
+            frames_since_admit += 1
