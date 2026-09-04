@@ -1,0 +1,38 @@
+# datasets and model weights — hundreds of GB, never committed.
+# Keep the folder shape and the READMEs, ignore everything inside.
+data/*
+!data/README.md
+data/*/*
+!data/*/.gitkeep
+models/*
+!models/README.md
+!models/*/
+models/*/*
+!models/*/.gitkeep
+
+# secrets
+.env
+*.env
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# node
+node_modules/
+dist/
+build/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# uv.lock IS committed — do not add it here
+
+.pytest_cache/
