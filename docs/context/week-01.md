@@ -359,3 +359,904 @@ just the import.
   instead of duplicating it.
 - All three checklist items and the acceptance criterion for OMNI-104 are
   satisfied.
+
+---
+
+## OMNI-105 · Users table, migration, seeded admin
+
+### Why this ticket exists
+
+FR-10 (authenticate users) needs somewhere real to authenticate against. The
+data model — including the two NFR-9 columns needed later in OMNI-108 — was
+added now rather than in a second migration.
+
+### What was built
+
+**`services/query/app/db.py`** — the SQLAlchemy `Base`, `engine` and
+`SessionLocal`, built from `settings.database_url`:
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+from app.settings import settings
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+engine = create_engine(settings.database_url)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+```
+
+`Settings` gained `postgres_host` (default `"localhost"`) and a
+`database_url` property assembling the connection string — still no
+literals, still sourced from `.env` through the OMNI-104 base.
+
+**`services/query/app/models.py`** — the `User` model, matching the ticket's
+data model exactly:
+
+```python
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[Role] = mapped_column(
+        Enum(Role, name="role", values_callable=lambda enum_cls: [member.value for member in enum_cls]),
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+```
+
+`role` uses `omnisight_common.Role` directly — one enum, shared with the rest
+of the system (OMNI-104). `values_callable` is needed because SQLAlchemy's
+`Enum` defaults to storing a Python enum's *member names*
+(`OPERATOR`/`ANALYST`/`ADMIN`); the ticket's spec calls for lowercase values,
+so the callable tells it to store `.value` instead.
+
+**`services/query/alembic/`** — initialized with `alembic init alembic`, then
+`env.py` edited to:
+- add `services/query` to `sys.path` (so `app.*` imports resolve),
+- set `sqlalchemy.url` from `settings.database_url` instead of `alembic.ini`,
+- point `target_metadata` at `Base.metadata`.
+
+`alembic.ini`'s placeholder `sqlalchemy.url` was commented out with a note
+that it's overridden at runtime, so it can't be mistaken for the real config.
+
+First migration, `create users table`, generated via `alembic revision
+--autogenerate` and applied via `alembic upgrade head`.
+
+**`scripts/seed_admin.py`** — idempotent seed script:
+
+```python
+def seed_admin() -> None:
+    with SessionLocal() as session:
+        existing = session.query(User).filter_by(email=settings.admin_email).first()
+        if existing:
+            print(f"admin account already exists: {existing.email}")
+            return
+
+        admin = User(
+            email=settings.admin_email,
+            password_hash=ph.hash(settings.admin_password),
+            role=Role.ADMIN,
+            is_active=True,
+        )
+        session.add(admin)
+        session.commit()
+        print(f"seeded admin account: {admin.email}")
+```
+
+Checks by email before inserting — running it twice is a no-op the second
+time. Password hashed with `argon2-cffi`'s `PasswordHasher`. `ADMIN_EMAIL` /
+`ADMIN_PASSWORD` added to `.env.example` and `.env`, same pattern as the
+Postgres credentials.
+
+### Two environment issues found along the way
+
+1. **`.env` had CRLF line endings** on the Postgres lines — a Windows-editor
+   artifact. That meant `POSTGRES_PASSWORD` was literally `changeme\r`, not
+   `changeme`. Invisible in most contexts, but `psycopg`/SQLAlchemy sent it
+   verbatim, causing password-authentication failures. Fixed by normalizing
+   `.env` to LF (`sed -i 's/\r$//' .env`) and recreating the Postgres volume
+   so it initialized fresh with the corrected password.
+
+2. **Port 5432 conflict** — even after fixing the line endings, connections
+   from the host still failed authentication, while `docker compose exec ...
+   psql` (which stays inside the container's network namespace) worked fine.
+   `netstat` showed **two** processes listening on `0.0.0.0:5432`: Docker's
+   own proxy, and a native Windows PostgreSQL 15 service
+   (`postgresql-x64-15`, unrelated to this project). Host-side connections to
+   `localhost:5432` were landing on the native instance, not the container.
+   Fixed by stopping that Windows service — the container's own port mapping
+   was already correct.
+
+### Verification performed
+
+1. **Table shape** — `\d users` in `psql` matches the ticket's spec exactly,
+   including `failed_attempts` and `locked_until`.
+2. **Seed idempotency** — ran `scripts/seed_admin.py` twice; the second run
+   printed `admin account already exists` instead of inserting a duplicate.
+3. **Row + hash check**:
+   ```sql
+   SELECT count(*) FROM users WHERE email='admin@omnisight.local';        -- 1
+   SELECT email, role, is_active, left(password_hash, 20), length(password_hash)
+   FROM users;
+   -- admin@omnisight.local | admin | t | $argon2id$v=19$m=655... | 97
+   ```
+   Confirms exactly one row, and `password_hash` is a genuine Argon2 hash
+   (97 characters, `$argon2id$...` prefix), never the plaintext password.
+
+### Result
+
+- The `users` table exists after `alembic upgrade head`, matching the spec.
+- The seeded admin account exists exactly once, with a hashed password.
+- Running the seed script again does not create a duplicate.
+- All checklist items and the acceptance criterion for OMNI-105 are
+  satisfied.
+
+---
+
+## OMNI-106 · Login endpoint, hashing and JWT
+
+### Why this ticket exists
+
+FR-10 — authenticate users before they can reach any system feature. Up to
+now the users table existed but nothing checked a password against it.
+
+### What was built
+
+**`services/query/app/security.py`** — the one place Argon2 hashing and JWT
+handling live:
+
+```python
+def hash_password(password: str) -> str:
+    return _password_hasher.hash(password)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return _password_hasher.verify(password_hash, password)
+    except VerifyMismatchError:
+        return False
+
+
+def create_access_token(user_id: int, role: str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "role": role,
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict:
+    return jwt.decode(token, settings.jwt_secret_key, algorithms=[JWT_ALGORITHM])
+```
+
+`scripts/seed_admin.py` (from OMNI-105) was refactored to call
+`hash_password` from here instead of instantiating its own `PasswordHasher` —
+one hashing implementation, not two.
+
+Settings gained `jwt_secret_key` (a real random secret, generated with
+`secrets.token_urlsafe(48)` and placed in `.env`; only a placeholder in
+`.env.example`) and `access_token_expire_minutes` (default `15` — already the
+NFR-9 value, though the inactivity-based sliding renewal is OMNI-108's job,
+not this ticket's).
+
+**`services/query/app/schemas.py`** — `LoginRequest`, `TokenResponse`,
+`UserResponse`.
+
+**`services/query/app/auth.py`** — the `/auth` router:
+
+- `POST /auth/login` — looks up the user by email, verifies the password,
+  updates `last_login_at`, returns a JWT carrying `sub` (user id) and `role`.
+  On failure (wrong email *or* wrong password), raises the same
+  `401 {"detail": "invalid email or password"}` either way — never reveals
+  which part was wrong.
+- `get_current_user` — a dependency that reads the `Authorization: Bearer`
+  header, decodes the JWT, and loads the user. Uses
+  `HTTPBearer(auto_error=False)` rather than the default `HTTPBearer()`,
+  because FastAPI's default raises `403` for a missing header — the ticket
+  requires `401` for *any* invalid-or-missing token, so the check is done
+  manually.
+- `GET /auth/me` — returns `{id, email, role}` for the current user.
+- `POST /auth/logout` — requires a valid token too (matches real usage even
+  though JWTs are stateless; there's no revocation list, so this is a
+  formality — the client is expected to discard the token).
+
+`app/db.py` gained a `get_db()` generator dependency (yields a `SessionLocal`,
+closes it after the request) used by all of the above.
+
+### Verification performed
+
+1. **Correct credentials** — `POST /auth/login` with the real seeded admin
+   credentials → `200`, JSON containing a JWT and `"role":"admin"`.
+2. **Wrong password vs. wrong email** — both produced the exact same body,
+   byte-identical:
+   ```
+   {"detail":"invalid email or password"}   status:401
+   ```
+3. **`/auth/me`**:
+   - valid token → `200 {"id":1,"email":"admin@omnisight.local","role":"admin"}`
+   - no token → `401 {"detail":"invalid or expired token"}`
+   - garbage token → same `401`
+4. **Expiry is actually checked, not just the signature** — crafted a token
+   signed with the real secret but with `exp` one minute in the past; `/auth/me`
+   still rejected it with `401`.
+5. **`last_login_at`** — queried the row directly after login; timestamp had
+   updated to the login time.
+6. **`/auth/logout`** with a valid token → `200 {"detail":"logged out"}`.
+
+### Result
+
+- `/auth/login`, `/auth/me`, `/auth/logout` all behave as specified.
+- Passwords are never stored in plaintext; hashing lives in one shared module.
+- Both the JWT signature and its expiry are verified on every protected
+  request.
+- All checklist items and the acceptance criterion for OMNI-106 are
+  satisfied.
+
+---
+
+## OMNI-107 · Role enforcement on every protected route
+
+### Why this ticket exists
+
+NFR-7 — 100% of endpoints must reject requests lacking a valid token or
+sufficient role. Explicitly called out as the graded part of the week, so it
+needed one shared mechanism, not a check copy-pasted into each route.
+
+### What was built
+
+**`services/query/app/deps.py`** — the one dependency module every protected
+route depends on. `get_current_user` moved here from `auth.py` (no behavior
+change, just a shared home), and a new `require_role` dependency *factory*:
+
+```python
+def require_role(*allowed_roles: Role):
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=INSUFFICIENT_ROLE_MESSAGE)
+        return current_user
+
+    return dependency
+```
+
+A route declares its allowed roles with `Depends(require_role(Role.ADMIN))` —
+the role check itself lives in exactly one place, and it reads the role off
+the JWT's claims (enforced by `get_current_user`/`decode_access_token`), never
+from anything the client could control unilaterally like a UI state.
+
+**`services/query/app/admin.py`** — the admin-only route the ticket asks for,
+so the 403 path is real and testable:
+
+```python
+@router.get("/ping")
+def admin_ping(current_user: User = Depends(require_role(Role.ADMIN))) -> dict[str, str]:
+    return {"status": "ok", "admin": current_user.email}
+```
+
+`app/auth.py` was updated to import `get_current_user` from `app.deps`
+instead of defining its own copy.
+
+### Verification performed
+
+Needed a non-admin user to exercise the 403 path, so a temporary `operator`
+role account was created directly via `SessionLocal`, used for the tests
+below, then deleted afterward.
+
+**`/admin/ping`**:
+| condition | result |
+|---|---|
+| no token | `401 {"detail":"invalid or expired token"}` |
+| tampered token | `401` (same message) |
+| valid token, operator role | `403 {"detail":"insufficient role"}` |
+| valid token, admin role | `200 {"status":"ok","admin":"admin@omnisight.local"}` |
+
+**`/auth/me`**:
+| condition | result |
+|---|---|
+| no token | `401 {"detail":"invalid or expired token"}` |
+| valid token, operator role | `200` — any authenticated role is allowed here, since `/auth/me` has no role restriction, only `require_role`-gated routes do |
+
+Together the two routes demonstrate all three conditions (401 for
+missing/tampered tokens, 403 for insufficient role, 200 for a valid
+sufficient-role token), matching the acceptance criterion.
+
+### Result
+
+- Role enforcement lives in one dependency (`require_role`), used by every
+  route that needs it — not re-implemented per route.
+- The role travels on the JWT and is checked server-side; nothing about
+  enforcement depends on the UI.
+- All checklist items and the acceptance criterion for OMNI-107 are
+  satisfied.
+
+---
+
+## OMNI-108 · Token expiry and account lockout
+
+### Why this ticket exists
+
+NFR-9: tokens expire after 15 minutes of *inactivity* (not a fixed clock from
+login), and an account locks after 5 consecutive failed logins. Both columns
+for this (`failed_attempts`, `locked_until`) were already added to the table
+back in OMNI-105 for exactly this purpose.
+
+### What was built
+
+**Sliding token expiry**, in `services/query/app/deps.py`. A JWT's `exp`
+claim is still a fixed timestamp (JWTs can't be mutated after issuance), so
+"driven by inactivity" is implemented by renewing the token on every
+successful authenticated request:
+
+```python
+RENEWED_TOKEN_HEADER = "X-Access-Token"
+
+
+def get_current_user(
+    response: Response,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    ...
+    response.headers[RENEWED_TOKEN_HEADER] = create_access_token(user.id, user.role.value)
+    return user
+```
+
+Every protected route already depends on `get_current_user` (OMNI-107), so
+every authenticated request transparently returns a fresh token with a new
+15-minute window in the `X-Access-Token` header. Keep making requests and the
+session never expires; stop, and the last-issued token's `exp` eventually
+passes — the same expiry check from OMNI-106 then rejects it.
+
+**Lockout logic**, in `services/query/app/auth.py`'s `login`:
+
+```python
+if user is not None and user.locked_until is not None and user.locked_until > now:
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_MESSAGE)
+
+if user is None or not verify_password(payload.password, user.password_hash):
+    if user is not None:
+        user.failed_attempts += 1
+        if user.failed_attempts >= settings.max_failed_attempts:
+            user.locked_until = now + timedelta(minutes=settings.account_lockout_minutes)
+        db.commit()
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_MESSAGE)
+
+user.failed_attempts = 0
+user.last_login_at = now
+db.commit()
+```
+
+The lock check runs **before** password verification — a locked account is
+refused even with the correct password, and the failure message is the same
+`INVALID_CREDENTIALS_MESSAGE` used everywhere else in login, so a locked
+account isn't distinguishable from a wrong password from outside.
+
+Settings gained `max_failed_attempts` (default `5`) and
+`account_lockout_minutes` (default `15`) — the lockout *duration* is
+config-driven per the ticket, while the count of 5 itself (an NFR-9 constant)
+was also placed in settings for consistency, though the ticket only required
+the duration to avoid literals.
+
+### Verification performed
+
+Used a temporary `operator`-role test account, deleted afterward.
+
+1. **Lockout**: 5 requests with a wrong password, then a 6th with the
+   *correct* password:
+   ```
+   attempts 1-5 (wrong password): 401 {"detail":"invalid email or password"}
+   attempt 6 (correct password):  401 {"detail":"invalid email or password"}
+   ```
+   DB check: `failed_attempts = 5`, `locked_until` ≈ 15 minutes ahead of
+   `now()`.
+2. **Reset on success** — manually cleared `locked_until`, logged in with the
+   correct password → `200`, and `failed_attempts` back to `0`.
+3. **Sliding renewal** — logged in, then called `/auth/me` twice a few
+   seconds apart; each response's `X-Access-Token` header carried a JWT whose
+   `exp` was later than the previous one by roughly the elapsed time.
+4. **Idle/expired token rejected** — crafted a token (signed with the real
+   secret) whose `exp` was 5 minutes in the past, simulating inactivity past
+   the 15-minute window → `401 {"detail":"invalid or expired token"}`.
+
+### Result
+
+- Five wrong passwords lock the account; the sixth attempt is refused even
+  with the right password.
+- The lock duration and failure threshold both come from settings.
+- Active use slides a token's effective expiry forward; idle tokens still
+  expire on schedule.
+- All checklist items and the acceptance criterion for OMNI-108 are
+  satisfied.
+
+---
+
+## OMNI-109 · Sign-in page, API client, protected routes
+
+### Why this ticket exists
+
+FR-10 has to be visible, not just true in the database — everything through
+OMNI-108 was API-only, reachable with `curl` but not from a browser.
+
+### What was built
+
+**Backend CORS** (needed for the browser to call the API cross-origin at
+all): `services/query/app/main.py` gained `CORSMiddleware`, restricted to
+`settings.frontend_origin` (default `http://localhost:3000`, not hardcoded),
+with `expose_headers=[RENEWED_TOKEN_HEADER]` so the browser's JS is actually
+allowed to read the `X-Access-Token` header from OMNI-108 — browsers hide
+custom response headers cross-origin unless explicitly exposed.
+
+**`frontend/src/lib/api-client.ts`** — the one file every request goes
+through:
+
+```typescript
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const headers = new Headers(options.headers);
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  const renewedToken = response.headers.get("X-Access-Token");
+  if (renewedToken) setToken(renewedToken);
+
+  const data = await response.json().catch(() => null);
+
+  if (response.status === 401) {
+    if (token) {
+      clearToken();
+      if (typeof window !== "undefined") window.location.href = "/sign-in";
+    }
+    throw new ApiError(401, data?.detail ?? "unauthorized");
+  }
+
+  if (!response.ok) throw new ApiError(response.status, data?.detail ?? "request failed");
+  return data as T;
+}
+```
+
+Two design points worth calling out:
+- It also reads `X-Access-Token` on *every* response and re-persists it,
+  which is what actually makes OMNI-108's sliding-expiry renewal work from
+  the browser's side — without this, the backend could renew all it wants
+  but the browser would keep sending the stale, eventually-expiring token.
+- The redirect-on-401 only fires if a token was already attached to the
+  request. A `/auth/login` call with bad credentials also returns 401, but
+  there's no token on that request — so it's left for the caller (the
+  sign-in form) to show inline, instead of being treated as "the session
+  died" and bounced.
+
+Token persistence is `localStorage` (survives a refresh, per the acceptance
+criterion). `login`, `logout`, and `getCurrentUser` are thin wrappers around
+`request` — no other file in the frontend calls `fetch` directly.
+
+**`frontend/src/app/sign-in/page.tsx`** — email/password form; on failure
+shows whatever message `ApiError` carries, which is already the backend's
+byte-identical "invalid email or password" from OMNI-106, so the frontend
+doesn't need its own logic to avoid revealing whether an address exists.
+
+**Protected route wrapper** — `frontend/src/app/(app)/layout.tsx`, a client
+component wrapping a route group (`(app)`, so it doesn't add a URL segment):
+checks `getToken()` on mount and redirects to `/sign-in` immediately if
+there's none. The former default Next.js home page
+(`frontend/src/app/page.tsx`) was deleted and replaced by
+`frontend/src/app/(app)/page.tsx` — the real `/` route, now behind the guard.
+
+This split deliberately does only a *presence* check, not a round-trip to
+`/auth/me`: an expired or tampered token that's still sitting in
+`localStorage` gets past this guard, but the very first API call it makes
+(e.g. `getCurrentUser()` on that page) hits the 401 handling in
+`api-client.ts` and bounces to `/sign-in` anyway. The two checklist items
+("API client redirects on 401" and "protected route wrapper") cover two
+different cases by design: no token at all (instant, client-side) vs. an
+invalid token (caught reactively on first use).
+
+**Design pass** (after initial build): centered sign-in card on a muted
+background with a small indigo logo mark, proper input focus rings, an error
+message rendered as a red pill instead of plain text, and a spinner on the
+submit button while signing in. The post-login page got a real top bar
+(logo + "Sign out") and a card showing the signed-in user with a
+role-colored badge (indigo/amber/emerald for admin/analyst/operator). Both
+pages support light/dark via Tailwind's `dark:` variants. Deliberately left
+minimal beyond that — the full sidebar/topbar/dashboard shell is OMNI-110.
+
+### Verification performed
+
+1. **Backend CORS** — cross-origin `POST /auth/login` with
+   `Origin: http://localhost:3000` returned
+   `access-control-allow-origin: http://localhost:3000` and
+   `access-control-expose-headers: X-Access-Token`.
+2. **`npm run build`** — compiled cleanly both before and after the design
+   pass, with `/`, `/sign-in`, and `/_not-found` all present.
+3. **Manual browser walkthrough**, done by the user directly: signing in
+   with the seeded admin reached the app; refreshing the page kept the
+   session; opening `http://localhost:3000` in a private window bounced to
+   `/sign-in` (no token there); a wrong password showed the one generic
+   error message.
+
+### Result
+
+- The app is reachable end-to-end from a browser: sign in, land inside,
+  survive a refresh, get bounced when unauthenticated.
+- Exactly one file (`api-client.ts`) owns tokens, headers, and 401 handling.
+- All checklist items and the acceptance criterion for OMNI-109 are
+  satisfied.
+
+---
+
+## OMNI-110 · App shell, role-aware sidebar, empty dashboard
+
+### Why this ticket exists
+
+FR-9's frame. Building the shell now means every later slice fills a tile or
+route that's already on screen instead of bolting one on.
+
+### First pass, then a correction
+
+The ticket as originally written didn't list the actual ten product routes —
+that list lives in a separate product document this repo doesn't contain. The
+first pass shipped with a placeholder route/role map invented from the
+README's service descriptions. The user then edited `week-01.md` directly to
+paste in the real route table from that document, plus a requirement that
+hadn't been in the ticket before:
+
+> Put this map in `services/common`, beside the Role enum — not hardcoded in
+> the frontend. The API needs the same map in slice 16 to enforce it
+> server-side, and two copies will drift.
+
+Everything below describes the corrected, final implementation — the
+placeholder version was fully replaced, not left alongside it.
+
+### The real route map
+
+Nine in-app routes (Sign In is the tenth screen, but sits outside the shell):
+
+| Route | Label | operator | analyst | admin |
+|---|---|:--:|:--:|:--:|
+| `/` | Operations Dashboard | ● | ● | ● |
+| `/live` | Live Monitoring | ● | | ● |
+| `/search` | Search | ● | ● | ● |
+| `/alerts` | Alerts | ● | ● | ● |
+| `/reports` | Incident Reports | | ● | ● |
+| `/videos` | Video Archive | ● | ● | ● |
+| `/cameras` | Cameras | ● | | ● |
+| `/integrations` | Integrations | | | ● |
+| `/admin` | Administration | | | ● |
+
+Admin sees all nine, operator six, analyst five.
+
+### What was built
+
+**`services/common/omnisight_common/nav.py`** — the single source of truth:
+
+```python
+@dataclass(frozen=True)
+class NavRoute:
+    path: str
+    label: str
+    roles: tuple[Role, ...]
+
+
+NAV_ROUTES: tuple[NavRoute, ...] = (
+    NavRoute("/", "Operations Dashboard", (Role.OPERATOR, Role.ANALYST, Role.ADMIN)),
+    NavRoute("/live", "Live Monitoring", (Role.OPERATOR, Role.ADMIN)),
+    ...
+)
+```
+
+Exported from `omnisight_common/__init__.py` alongside `Role`.
+
+**`services/query/app/nav.py`** — `GET /nav`, filtered server-side by the
+caller's role (via the existing `get_current_user` dependency):
+
+```python
+@router.get("")
+def get_nav(current_user: User = Depends(get_current_user)) -> list[dict[str, str]]:
+    return [
+        {"path": route.path, "label": route.label}
+        for route in NAV_ROUTES
+        if current_user.role in route.roles
+    ]
+```
+
+This is what makes "not hardcoded in the frontend" concrete: the frontend
+never sees the role/route mapping at all, only the already-filtered list for
+whoever is asking. `frontend/src/lib/nav.ts` shrank to just the `Role` type
+alias; `frontend/src/components/sidebar.tsx` fetches `/nav` on mount instead
+of filtering a local array. The only thing still decided client-side is which
+returned routes are clickable — `/` is the only page that exists yet, so
+everything else renders with a "soon" badge. That's presentation, not a
+role/security decision, so it stayed local to the sidebar rather than going
+into the shared map.
+
+**App shell**, otherwise as originally built:
+- `frontend/src/lib/auth-context.tsx` — `AuthProvider`/`useAuth`, fetches the
+  current user once and does the route guard (redirects to `/sign-in` if
+  there's no token).
+- `frontend/src/components/top-bar.tsx` — logo, notification bell, account
+  menu (email, role, sign out).
+- `frontend/src/components/app-shell.tsx` — composes `TopBar` + `Sidebar` +
+  page content.
+- `frontend/src/app/(app)/page.tsx` — the Operations Dashboard, five empty
+  tiles (alerts needing attention, camera health, activity, recent reports,
+  storage), each labelled with what will fill it (e.g. "Filled in when
+  alerting ships").
+
+### Verification performed
+
+Created temporary operator and analyst test accounts (deleted afterward),
+logged in as each via the real API, and called `/nav` directly:
+
+- **admin** → all 9 routes.
+- **operator** → 6: `/`, `/live`, `/search`, `/alerts`, `/videos`, `/cameras`
+  — matches "operator six" exactly.
+- **analyst** → 5: `/`, `/search`, `/alerts`, `/reports`, `/videos` — matches
+  "analyst five" exactly.
+
+`npm run build` compiled cleanly after the refactor. Browser extension
+automation wasn't available this session, so the final click-through (sign in
+as admin, see all 9; sign in as the temp operator, see 6, different set) was
+done by the user directly against the running dev servers, confirmed working.
+
+### Result
+
+- The route/role map exists in exactly one place, in Python, ready for
+  slice 16 to reuse for server-side enforcement without a second copy to
+  drift.
+- The sidebar renders whatever `/nav` returns — admin, operator, and analyst
+  see verifiably different sets, matching the real product document.
+- All checklist items and the acceptance criterion for OMNI-110 are
+  satisfied.
+
+---
+
+## OMNI-111 · Nginx and TLS in front
+
+### Why this ticket exists
+
+NFR-8 — 100% of traffic encrypted with TLS 1.2+, plaintext bytes = 0. Up to
+now the frontend (`:3000`) and backend (`:8000`) were both plain HTTP dev
+servers, reachable directly.
+
+### What was built
+
+**`scripts/generate-dev-cert.sh`** — self-signed cert via `openssl`, CN
+`localhost` with SANs for both `localhost` and `127.0.0.1`, 365 days, output
+to `infra/nginx/certs/` (gitignored — added `infra/nginx/certs/` to the root
+`.gitignore` before ever running the script, so the key was never at risk of
+being committed).
+
+**`infra/nginx/default.conf`**:
+
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name localhost;
+
+    ssl_certificate     /etc/nginx/certs/dev.crt;
+    ssl_certificate_key /etc/nginx/certs/dev.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    location ~ ^/(auth|admin|nav|health|docs|openapi\.json|redoc)(/|$) {
+        proxy_pass http://host.docker.internal:8000;
+        ...
+    }
+
+    location / {
+        proxy_pass http://host.docker.internal:3000;
+        ...
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+`host.docker.internal` (Docker Desktop's special DNS name for the host
+machine) is what lets the containerized nginx reach the frontend/backend dev
+servers still running directly on Windows, without containerizing them —
+that's a bigger, separate piece of work (real Dockerfiles, the uv workspace
+inside a container) that this ticket doesn't ask for. The path-based dispatch
+(known API prefixes → backend, everything else → frontend) is a second,
+intentional copy of routing knowledge alongside the Next.js rewrite added
+below — acceptable here because it's infra routing, not the kind of
+business-rule map (like OMNI-110's nav/role table) that actually drifts.
+
+**`docker-compose.yml`** gained an `nginx` service: image `nginx:alpine`,
+ports `80:80` and `443:443`, the config and cert directory mounted read-only.
+
+### The bigger fix: making the frontend's own traffic encrypted too
+
+Standing up nginx alone would satisfy the literal checklist, but not NFR-8's
+actual point: if the frontend's page loads over HTTPS while its own JS still
+calls `http://localhost:8000` directly for login, that's still plaintext
+bytes on the wire — the exact thing this ticket exists to eliminate.
+
+Fixed by making all API calls same-origin instead of absolute:
+
+- `frontend/src/lib/api-client.ts` — `API_URL` now defaults to `""`
+  (relative) instead of `http://localhost:8000`. A relative fetch always
+  rides whatever connection the browser already has to the current page's
+  origin — encrypted, if that origin is `https://`.
+- `frontend/next.config.ts` — added `rewrites()` proxying `/auth`, `/admin`,
+  `/nav`, `/health`, `/docs`, `/openapi.json`, `/redoc` to the backend. This
+  is what makes relative paths resolve correctly even in the plain
+  `npm run dev` workflow (bypassing nginx entirely) — Next's own dev server
+  now does the same proxying nginx does, so the frontend code doesn't need
+  to know or care which one is in front of it.
+- `frontend/.env.local` / `.env.example` — `NEXT_PUBLIC_API_URL` changed from
+  an absolute URL to empty (same-origin is now the default).
+
+The CORS middleware from OMNI-109 was left in place (harmless, and still
+useful for anything that calls the API directly rather than through a
+same-origin proxy) rather than removed — not asked for, and removing working
+config isn't free.
+
+### Three real problems hit along the way
+
+1. **Port 80/443 already partly taken.** Same class of issue as OMNI-105's
+   Postgres port conflict: `netstat` showed `wslrelay.exe` (WSL2) already
+   listening on `[::1]:80` and `[::1]:443` — specifically the IPv6 loopback
+   address — with a lot of active traffic on it, clearly something load-
+   bearing, not safe to kill. Since Windows resolves `localhost` to `::1`
+   first, browser requests to `https://localhost` were being routed to
+   `wslrelay`, not to Docker's nginx (bound on the IPv4 wildcard and a
+   *wildcard* IPv6 address, which loses to `wslrelay`'s more specific `::1`
+   binding). Fixed by using `https://127.0.0.1` instead of `https://localhost`
+   — the cert's SAN already covers `127.0.0.1`, so no cert mismatch either.
+
+2. **Missing WebSocket proxying.** The frontend loaded once (HTML/CSS/JS all
+   200'd through nginx), but the browser showed a blank page. Root cause:
+   `location /` had no `Upgrade`/`Connection` headers, so Next.js dev mode's
+   hot-reload WebSocket couldn't connect through the proxy. Added
+   `proxy_http_version 1.1;`, `proxy_set_header Upgrade $http_upgrade;`,
+   `proxy_set_header Connection "upgrade";` to that location block.
+
+3. **Next.js dev-mode cross-origin protection.** Even after the WebSocket
+   fix, the frontend dev log showed:
+   ```
+   ⚠ Blocked cross-origin request to Next.js dev resource /_next/hmr from "127.0.0.1".
+   Cross-origin access to Next.js dev resources is blocked by default for safety.
+   ```
+   Next.js (16.x) blocks dev-only resource requests whose `Host` header
+   doesn't match the dev server's own expected origin — nginx proxies with
+   the original `Host: 127.0.0.1`, which looks foreign to a dev server
+   listening on `:3000`. Fixed by adding
+   `allowedDevOrigins: ["localhost", "127.0.0.1"]` to `next.config.ts`.
+
+A fourth issue turned up during manual testing but wasn't specific to nginx:
+a hydration console warning turned out to be the Grammarly browser
+extension injecting `data-gr-ext-installed`/`data-new-gr-c-s-check-loaded`
+onto `<body>` before React hydrated — a well-known, harmless false positive
+whenever a DOM-modifying extension is active. Silenced with
+`suppressHydrationWarning` on `<body>` in `frontend/src/app/layout.tsx`,
+React's documented fix for exactly this case.
+
+### Verification performed
+
+1. **Redirect** — `curl http://127.0.0.1/` → `301` to `https://127.0.0.1/`.
+2. **TLS version** — default `openssl s_client` connection negotiated
+   `TLSv1.3`; forcing a TLS 1.1 ClientHello (`-tls1_1 -cipher DEFAULT@SECLEVEL=0`,
+   needed since modern OpenSSL clients refuse to even offer TLS 1.1 otherwise)
+   got back a `tlsv1 alert protocol version` — nginx actively rejects
+   anything below TLS 1.2.
+3. **Both proxy targets work** — `POST https://127.0.0.1/auth/login`
+   returned a real token (backend reachable); `GET https://127.0.0.1/sign-in`
+   returned `200` (frontend reachable) — both over the same HTTPS origin.
+4. **Manual browser walkthrough**, done by the user: certificate warning
+   appeared on first visit (expected/self-signed, per acceptance), clicking
+   through landed on a working sign-in page, address bar persistently shows
+   "Not Secure" (expected — browsers never mark a self-signed cert as
+   secure, regardless of the connection actually being encrypted).
+
+### Result
+
+- The app is reachable over HTTPS with a browser-flagged self-signed cert,
+  exactly as the acceptance criterion describes.
+- Plain HTTP redirects to HTTPS.
+- TLS 1.1 and below are actively rejected; 1.2/1.3 negotiate fine.
+- The frontend's own API traffic is same-origin, so going through nginx
+  means the *entire* session — page and API calls alike — is encrypted, not
+  just the initial page load.
+- All checklist items and the acceptance criterion for OMNI-111 are
+  satisfied.
+
+---
+
+## OMNI-112 · Run TC-10 and record it
+
+### Why this ticket exists
+
+TC-10 — protect every endpoint with authentication and role-based
+authorization. Everything since OMNI-106 was verified manually with `curl`;
+this ticket turns that into an automated, repeatable suite and a dated
+record.
+
+### A placement decision: not the root `tests/`
+
+The ticket says "test file under `tests/`", but `tests/README.md` (written
+before this sprint) says: *"Tests for a single service live beside that
+service; what lives here is the cross-service test plan."* TC-10 here only
+exercises `services/query`'s own endpoints — nothing cross-service — so the
+suite went in `services/query/tests/`, following the repo's own documented
+convention over the ticket's shorthand wording.
+
+### What was built
+
+**`services/query/tests/conftest.py`** — one line, adds `services/query` to
+`sys.path` so test files can `import app.*` (the same problem `alembic/env.py`
+and `scripts/seed_admin.py` solved the same way earlier this sprint —
+`package = false` in `services/query`'s `pyproject.toml` means it's never
+installed as an importable distribution, so every entry point that needs
+`app.*` has to do this once).
+
+**`services/query/tests/test_tc10_auth.py`** — 15 tests, using FastAPI's
+`TestClient` against the real app (and the real database — Postgres has to
+be up):
+
+- **Endpoints covered:** `GET /auth/me`, `GET /nav`, `POST /auth/logout`,
+  `GET /admin/ping`. `/auth/login` is deliberately excluded — it's the public
+  entry point, not a protected route. `/health` is excluded too — it's
+  deliberately public.
+- **Condition 1 (valid token, correct role → 200)** — tested for all four.
+- **Condition 2 (valid token, insufficient role → 403)** — only tested
+  against `/admin/ping`, because it's the only route gated to a specific
+  role rather than "any authenticated user." The other three accept any
+  authenticated role by design, so there's no "insufficient" role to test
+  against them — this mirrors exactly why OMNI-107 added `/admin/ping` in
+  the first place: to make the 403 path real and testable somewhere.
+- **Condition 3 (no / expired / tampered → 401)** — three separate cases per
+  endpoint: no `Authorization` header at all; a token with `exp` in the past
+  (signed with the real `jwt_secret_key`, so only the expiry — not the
+  signature — is what's being tested); and a valid token with its last
+  character flipped (tests signature verification specifically).
+
+A `pytest` fixture creates two throwaway accounts
+(`tc10-admin@omnisight.local`, `tc10-operator@omnisight.local`) before the
+module's tests run and deletes them afterward — the same
+create-test-user-then-clean-up pattern used manually throughout OMNI-107 and
+OMNI-108, just automated now.
+
+**`docs/results.md`** — the TC-10 entry: date, suite location, pass count,
+and a table of endpoint × condition results with "n/a" cells explained (no
+role restriction beyond authentication → no 403 case to test).
+
+### Verification performed
+
+1. `uv run pytest services/query/tests/` and the bare `uv run pytest` from
+   repo root both discover and run the suite — **15 passed, 0 failed**.
+2. Queried `users` for `email LIKE 'tc10-%'` after the run — **0 rows**,
+   confirming the fixture's teardown actually ran and left no test data
+   behind.
+
+### Result
+
+- Every protected endpoint in `services/query` is covered by an automated
+  test for all three TC-10 conditions (where applicable).
+- `uv run pytest` passes.
+- `docs/results.md` has a TC-10 entry dated 2026-09-05.
+- All checklist items and the acceptance criterion for OMNI-112 are
+  satisfied.

@@ -187,11 +187,11 @@ failed_attempts INT DEFAULT 0
 locked_until    TIMESTAMPTZ NULL
 ```
 
-- [ ] SQLAlchemy model
-- [ ] `alembic init`, configured to read the database URL from settings
-- [ ] First migration, applied with `alembic upgrade head`
-- [ ] Seed script in `scripts/` creating one admin account
-- [ ] Confirm the row exists and `password_hash` is a hash, not a password
+- [x] SQLAlchemy model
+- [x] `alembic init`, configured to read the database URL from settings
+- [x] First migration, applied with `alembic upgrade head`
+- [x] Seed script in `scripts/` creating one admin account
+- [x] Confirm the row exists and `password_hash` is a hash, not a password
 
 **Acceptance:** the table exists after `alembic upgrade head`; the seeded admin is
 in it; running the seed twice does not create a duplicate.
@@ -211,16 +211,16 @@ POST /auth/logout
 Any request without a valid token -> 401
 ```
 
-- [ ] Passwords hashed with argon2 — plaintext is never stored **[NFR-7]**
-- [ ] `POST /auth/login` verifies and issues a JWT carrying user id, role and an
+- [x] Passwords hashed with argon2 — plaintext is never stored **[NFR-7]**
+- [x] `POST /auth/login` verifies and issues a JWT carrying user id, role and an
       expiry **[FR-10]**
-- [ ] Signature *and* expiry verified on every request — an expired token is
+- [x] Signature *and* expiry verified on every request — an expired token is
       rejected, not merely old
-- [ ] `GET /auth/me` returns the current user from the token
-- [ ] `POST /auth/logout`
-- [ ] One error message for a wrong email and a wrong password, identical in both
+- [x] `GET /auth/me` returns the current user from the token
+- [x] `POST /auth/logout`
+- [x] One error message for a wrong email and a wrong password, identical in both
       cases — it must not reveal whether an address exists
-- [ ] `last_login_at` updated on success
+- [x] `last_login_at` updated on success
 
 **Acceptance:** correct credentials return a token; wrong password returns 401 with
 no token; the two failure messages are byte-identical.
@@ -232,13 +232,13 @@ no token; the two failure messages are byte-identical.
 **Why:** **NFR-7** — *100% of API endpoints and MCP tools reject requests lacking a
 valid token or sufficient role.* This is the graded part of the week.
 
-- [ ] A dependency that every protected route depends on — not a check written
+- [x] A dependency that every protected route depends on — not a check written
       route by route
-- [ ] The role travels on the token and is enforced server-side. Hiding a menu item
+- [x] The role travels on the token and is enforced server-side. Hiding a menu item
       in the UI is not enforcement
-- [ ] Any request without a token, or with an expired or tampered one, returns 401
-- [ ] A valid token with an insufficient role returns 403
-- [ ] Add one admin-only route so the 403 path is real and testable
+- [x] Any request without a token, or with an expired or tampered one, returns 401
+- [x] A valid token with an insufficient role returns 403
+- [x] Add one admin-only route so the 403 path is real and testable
 
 **Acceptance:** all three conditions behave correctly on at least two routes.
 
@@ -249,12 +249,12 @@ valid token or sufficient role.* This is the graded part of the week.
 **Why:** **NFR-9** — *Authentication tokens expire after 15 minutes of inactivity,
 and an account is locked after 5 consecutive failed login attempts.*
 
-- [ ] Token lifetime 15 minutes, driven by inactivity rather than a fixed clock
-- [ ] `failed_attempts` increments on each failed login and resets to zero on
+- [x] Token lifetime 15 minutes, driven by inactivity rather than a fixed clock
+- [x] `failed_attempts` increments on each failed login and resets to zero on
       success
-- [ ] At 5 consecutive failures the account locks — set `locked_until`
-- [ ] A locked account is refused even with the correct password
-- [ ] The lock duration comes from settings, not a literal
+- [x] At 5 consecutive failures the account locks — set `locked_until`
+- [x] A locked account is refused even with the correct password
+- [x] The lock duration comes from settings, not a literal
 
 **Acceptance:** five wrong passwords lock the account; the sixth attempt is refused
 with the right password; an idle session stops working after 15 minutes.
@@ -265,12 +265,12 @@ with the right password; an idle session stops working after 15 minutes.
 
 **Why:** FR-10 has to be visible, not just true in the database.
 
-- [ ] Sign-in screen: email, password, submit, and one error message that never
+- [x] Sign-in screen: email, password, submit, and one error message that never
       reveals whether the address exists
-- [ ] One API client, in one file, that attaches the token to every request and
+- [x] One API client, in one file, that attaches the token to every request and
       redirects to sign-in on any 401 — never a `fetch` call scattered in a component
-- [ ] Token persisted so a refresh keeps the session
-- [ ] Protected route wrapper: an unauthenticated visit to any internal URL lands
+- [x] Token persisted so a refresh keeps the session
+- [x] Protected route wrapper: an unauthenticated visit to any internal URL lands
       on sign-in
 
 **Acceptance:** sign in with the seeded admin and reach the app; refresh and stay
@@ -288,12 +288,36 @@ signed in; open an internal URL in a private window and get bounced to sign-in.
 **Why:** FR-9's frame. Building it now means every later slice fills a tile that is
 already on screen.
 
-- [ ] Top bar: product name, notifications area, account menu
-- [ ] Left sidebar with the ten product routes
-- [ ] Role-aware sidebar: entries a role may not use are not rendered at all
-- [ ] Operations Dashboard as the home screen, with every tile present but empty —
+- [x] Top bar: product name, notifications area, account menu
+- [x] Left sidebar with the nine in-app routes below
+- [x] Role-aware sidebar: entries a role may not use are not rendered at all
+
+**The routes**, from the product document. There are ten screens; Sign In sits
+outside the shell, so the sidebar carries nine.
+
+| Route | Label | operator | analyst | admin |
+|---|---|:--:|:--:|:--:|
+| `/` | Operations Dashboard | ● | ● | ● |
+| `/live` | Live Monitoring | ● | | ● |
+| `/search` | Search | ● | ● | ● |
+| `/alerts` | Alerts | ● | ● | ● |
+| `/reports` | Incident Reports | | ● | ● |
+| `/videos` | Video Archive | ● | ● | ● |
+| `/cameras` | Cameras | ● | | ● |
+| `/integrations` | Integrations | | | ● |
+| `/admin` | Administration | | | ● |
+
+Admin sees nine, operator six, analyst five. `/login` is the tenth screen, reached
+when signed out. The *Used by* lines in the product document mention "managers" for
+reports and "technical staff" for integrations; neither is a role in the data
+model, so both map onto analyst and admin.
+
+- [x] Put this map in `services/common`, beside the Role enum — not hardcoded in
+      the frontend. The API needs the same map in slice 16 to enforce it
+      server-side, and two copies will drift
+- [x] Operations Dashboard as the home screen, with every tile present but empty —
       alerts needing attention, camera health, activity, recent reports, storage
-- [ ] Each empty tile labelled with the slice that will fill it
+- [x] Each empty tile labelled with the slice that will fill it
 
 **Acceptance:** signing in lands on the dashboard; an operator and an admin see
 different sidebars.
@@ -304,12 +328,12 @@ different sidebars.
 
 **Why:** **NFR-8** — *100% of traffic encrypted with TLS 1.2+; plaintext bytes = 0.*
 
-- [ ] `nginx` service in `docker-compose.yml`, config in `infra/nginx/`
-- [ ] Self-signed certificate for development, generated by a script in `scripts/`
+- [x] `nginx` service in `docker-compose.yml`, config in `infra/nginx/`
+- [x] Self-signed certificate for development, generated by a script in `scripts/`
       and gitignored — never commit a key, not even a throwaway one
-- [ ] TLS 1.2 minimum
-- [ ] Nginx proxies to the API and to the frontend
-- [ ] Plain HTTP redirects to HTTPS
+- [x] TLS 1.2 minimum
+- [x] Nginx proxies to the API and to the frontend
+- [x] Plain HTTP redirects to HTTPS
 
 **Acceptance:** the app is reachable over `https://localhost`; plain HTTP redirects;
 the browser's certificate warning is the expected self-signed one.
@@ -321,13 +345,13 @@ the browser's certificate warning is the expected self-signed one.
 **Why:** **TC-10** — *Protect every endpoint with authentication and role-based
 authorization.* Recording it is part of the test, not paperwork after it.
 
-- [ ] Test file under `tests/` hitting **every** protected endpoint under three
+- [x] Test file under `tests/` hitting **every** protected endpoint under three
       conditions:
   1. valid token, correct role → 200
   2. valid token, insufficient role → 403
   3. no token, or expired or invalid → 401
-- [ ] `uv run pytest` passes
-- [ ] Write the result into `docs/results.md` today — date, endpoints covered,
+- [x] `uv run pytest` passes
+- [x] Write the result into `docs/results.md` today — date, endpoints covered,
       pass or fail per condition
 
 **Acceptance:** the suite passes, and `docs/results.md` has a TC-10 entry dated
@@ -337,9 +361,9 @@ this week.
 
 ## OMNI-113 · Verify NFR-9 and record it
 
-- [ ] Test: five failed logins lock the account
-- [ ] Test: a token past its inactivity window is rejected
-- [ ] Record both in `docs/results.md` under NFR-9
+- [x] Test: five failed logins lock the account
+- [x] Test: a token past its inactivity window is rejected
+- [x] Record both in `docs/results.md` under NFR-9
 
 **Acceptance:** both tests pass and are recorded.
 
@@ -353,8 +377,8 @@ Copied from the plan's "Proof it works" — this is what you demonstrate to Cyri
 > rejected with no token issued. Any internal URL without a token returns you to
 > sign-in. A refresh keeps you signed in. TC-10 passes in all three conditions.
 
-- [ ] All of the above is true on a fresh `docker compose up -d`
-- [ ] `docs/results.md` has this week's TC-10 and NFR-9 entries
+- [x] All of the above is true on a fresh `docker compose up -d`
+- [x] `docs/results.md` has this week's TC-10 and NFR-9 entries
 - [ ] Everything committed and pushed
 - [ ] Slice 1 ticked off on the tracker
 
