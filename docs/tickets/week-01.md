@@ -85,8 +85,8 @@ top of untracked work.
       **not** listed
 - [x] `git check-ignore -v data/dota/.gitkeep` reports no match (the folder shape is
       tracked, its contents are not)
-- [ ] First commit: `chore: repository skeleton and uv workspace`
-- [ ] Create the GitHub repo, private for now, and push
+- [x] First commit: `chore: repository skeleton and uv workspace`
+- [-] Create the GitHub repo, private for now, and push
 
 **Acceptance:** `git log` shows one commit; `uv.lock` is in it; no `.venv` files
 are.
@@ -98,11 +98,11 @@ are.
 **Why:** every screen from slice 5 onward lives inside this app. Getting it wrong
 now is expensive later.
 
-- [ ] Run the command at the top of this file
-- [ ] `npm run dev` serves the default page on :3000
-- [ ] `touch frontend/Dockerfile` to restore the placeholder
-- [ ] Confirm `frontend/node_modules/` is ignored by the existing `.gitignore`
-- [ ] Commit: `feat(frontend): scaffold Next.js app`
+- [x] Run the command at the top of this file
+- [x] `npm run dev` serves the default page on :3000
+- [x] `touch frontend/Dockerfile` to restore the placeholder
+- [x] Confirm `frontend/node_modules/` is ignored by the existing `.gitignore`
+- [x] Commit: `feat(frontend): scaffold Next.js app`
 
 **Acceptance:** the app builds and runs; `git status` is clean afterwards.
 
@@ -116,13 +116,13 @@ Next.js. Fix that line in the same commit.
 **Why:** `docker-compose.yml` is the deployment. It starts empty; this is the first
 service in it.
 
-- [ ] Write the `postgres` service into `docker-compose.yml`: image, named volume,
+- [x] Write the `postgres` service into `docker-compose.yml`: image, named volume,
       healthcheck, port
-- [ ] Credentials and database name come from `.env`, never hardcoded
-- [ ] Add the matching keys to `.env.example` with placeholder values
-- [ ] Copy it to your own `.env` and fill it in — `.env` is gitignored, keep it that way
-- [ ] `docker compose up -d` and connect with `psql` to prove it is reachable
-- [ ] Named volume so the data survives `docker compose down`
+- [x] Credentials and database name come from `.env`, never hardcoded
+- [x] Add the matching keys to `.env.example` with placeholder values
+- [x] Copy it to your own `.env` and fill it in — `.env` is gitignored, keep it that way
+- [x] `docker compose up -d` and connect with `psql` to prove it is reachable
+- [x] Named volume so the data survives `docker compose down`
 
 **Acceptance:** `docker compose up -d` starts Postgres; stopping and starting again
 keeps the data.
@@ -134,7 +134,7 @@ keeps the data.
 **Why:** `services/query` is the API behind the dashboard. Everything in later
 slices is added to this service.
 
-- [ ] Add the dependencies to the workspace member, not the root:
+- [x] Add the dependencies to the workspace member, not the root:
 
 ```bash
 uv add fastapi "uvicorn[standard]" sqlalchemy alembic "psycopg[binary]" \
@@ -142,12 +142,12 @@ uv add fastapi "uvicorn[standard]" sqlalchemy alembic "psycopg[binary]" \
 uv add --dev httpx
 ```
 
-- [ ] Application entry point in `services/query/`, with `/health` returning
+- [x] Application entry point in `services/query/`, with `/health` returning
       `{"status": "ok"}`
-- [ ] Settings read from `.env` through pydantic-settings — no literals in code
-- [ ] JSON request logging
-- [ ] A single error handler that returns clean JSON, never an HTML traceback
-- [ ] `uv run uvicorn ...` serves it; `/docs` renders
+- [x] Settings read from `.env` through pydantic-settings — no literals in code
+- [x] JSON request logging
+- [x] A single error handler that returns clean JSON, never an HTML traceback
+- [x] `uv run uvicorn ...` serves it; `/docs` renders
 
 **Acceptance:** `/health` answers 200; a deliberately broken route returns JSON,
 not HTML.
@@ -159,9 +159,9 @@ not HTML.
 **Why:** `services/common` exists so the five services cannot quietly disagree.
 Better to establish it with two types than to retrofit it with twenty.
 
-- [ ] Role enum in `omnisight_common`: `operator`, `analyst`, `admin`
-- [ ] The shared settings base every service reads its `.env` through
-- [ ] Import it from `services/query` and confirm the workspace link resolves
+- [x] Role enum in `omnisight_common`: `operator`, `analyst`, `admin`
+- [x] The shared settings base every service reads its `.env` through
+- [x] Import it from `services/query` and confirm the workspace link resolves
       without any `PYTHONPATH` tricks
 
 **Acceptance:** `from omnisight_common import Role` works inside the query service.
