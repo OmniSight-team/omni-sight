@@ -15,6 +15,7 @@ models/*/*
 *.env
 !.env.example
 infra/nginx/certs/
+infra/mediamtx/clips/
 
 # python
 __pycache__/

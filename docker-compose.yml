@@ -50,6 +50,16 @@ services:
       - ./services/common:/workspace/services/common
       - ./services/ingestion:/workspace/services/ingestion
 
+  # Ten looping RTSP feeds for local development (OMNI-201) — see
+  # docs/rtsp-simulator.md. No port published: only ingestion, inside the
+  # Docker network, ever needs to reach it.
+  mediamtx:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    restart: unless-stopped
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./infra/mediamtx/clips:/clips:ro
+
   frontend:
     build:
       context: ./frontend

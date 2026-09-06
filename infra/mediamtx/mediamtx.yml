@@ -1,0 +1,46 @@
+# Camera simulator for local development (OMNI-201).
+#
+# Ten looping feeds, each on its own path. Every path's runOnInit starts an
+# ffmpeg process that loops a short local clip and republishes it back into
+# that same path over RTSP — the standard MediaMTX pattern for "stream a
+# video in a loop". Requires the `-ffmpeg` variant of the mediamtx image,
+# which bundles ffmpeg for exactly this hook.
+#
+# Clips live in infra/mediamtx/clips/ (gitignored — scaffolding, not project
+# data; see docs/rtsp-simulator.md). Five clips are reused across ten paths;
+# nothing requires the clips themselves to be distinct per path.
+#
+# addresses: rtsp://mediamtx:8554/cam01 ... cam10, reachable only from
+# inside the Docker network — see docs/rtsp-simulator.md.
+
+paths:
+  cam01:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip1.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam02:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip2.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam03:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip3.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam04:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip4.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam05:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip5.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam06:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip1.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam07:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip2.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam08:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip3.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam09:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip4.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam10:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip5.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes

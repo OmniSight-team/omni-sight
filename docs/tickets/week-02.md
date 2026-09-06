@@ -105,14 +105,14 @@ reachable from your browser.
 cameras. Building the simulator now means slices 3, 4 and 5 all have something real
 to point at.
 
-- [ ] MediaMTX service in `docker-compose.yml`, config in `infra/` alongside the
+- [x] MediaMTX service in `docker-compose.yml`, config in `infra/` alongside the
       other supporting tools
-- [ ] Collect a handful of short MP4 clips — anything will do, they are scaffolding,
+- [x] Collect a handful of short MP4 clips — anything will do, they are scaffolding,
       not data. Put them somewhere gitignored; they are not project data
-- [ ] Configure at least **ten distinct looping feeds**, each on its own path:
+- [x] Configure at least **ten distinct looping feeds**, each on its own path:
       `rtsp://mediamtx:8554/cam01` … `cam10`
-- [ ] Confirm with `ffprobe` or VLC that a feed plays and loops
-- [ ] Write the ten addresses into `docs/` so Cyrine can find them without asking
+- [x] Confirm with `ffprobe` or VLC that a feed plays and loops
+- [x] Write the ten addresses into `docs/` so Cyrine can find them without asking
 - [ ] The address a developer types into the Add Camera form is documented in the
       empty state (OMNI-208)
 

@@ -159,3 +159,104 @@ waited for the daemon before any of the below.
   settings field, never a hardcoded string.
 - All checklist items and the acceptance criterion for OMNI-200 are
   satisfied.
+
+---
+
+## OMNI-201 · RTSP simulator with ten looping feeds
+
+### Why this ticket exists
+
+NFR-4 in slice 5 needs ten concurrent camera feeds, and there are no ten real
+cameras to point at. Building the simulator now, in the same slice ingestion
+was born in, means slices 3, 4 and 5 all have something real to test against
+instead of inventing throwaway fixtures each time.
+
+### What was built
+
+**`infra/mediamtx/clips/`** (gitignored — scaffolding, not project data) —
+five 10-second, 640×360 clips generated locally with `ffmpeg`'s synthetic
+`lavfi` sources (`testsrc`, `testsrc2`, `smptebars`, `rgbtestsrc`,
+`mandelbrot`), so each is visually distinct without needing to source or
+license any real footage:
+
+```bash
+ffmpeg -f lavfi -i "testsrc=size=640x360:rate=15" -t 10 -pix_fmt yuv420p \
+       -c:v libx264 -preset veryfast infra/mediamtx/clips/clip1.mp4
+```
+
+**`infra/mediamtx/mediamtx.yml`** — ten explicit paths, `cam01` … `cam10`,
+each reusing one of the five clips across two paths. Every path's
+`runOnInit` starts an `ffmpeg -stream_loop -1` process that republishes the
+clip back into that same path — the standard MediaMTX pattern for looping a
+local file over RTSP:
+
+```yaml
+paths:
+  cam01:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/clip1.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  # ... cam02 … cam10, same shape
+```
+
+**`docker-compose.yml`** — a `mediamtx` service using
+`bluenviron/mediamtx:latest-ffmpeg` (the plain `mediamtx` image has no
+ffmpeg binary, and the `runOnInit` hooks above need one), config and clips
+mounted read-only. **No `ports:` entry** — same internal-only pattern as
+`ingestion` from OMNI-200: nothing outside the Docker network can reach it,
+and nothing needs to except `ingestion` itself.
+
+**`docs/rtsp-simulator.md`** — the ten addresses
+(`rtsp://mediamtx:8554/cam01` … `cam10`), a short explanation of how the
+loop mechanism works, and how to check a feed yourself given that no host
+port is published.
+
+**Left undone, on purpose:** the checklist's last item — *"the address a
+developer types into the Add Camera form is documented in the empty
+state"* — is OMNI-208's own deliverable (the Cameras screen doesn't exist
+yet). Listed here as a forward pointer in the ticket, not something OMNI-201
+itself builds; left unchecked in `week-02.md` rather than checked
+prematurely.
+
+### Verification performed
+
+1. **All ten paths come up** — `docker compose logs mediamtx` shows all of
+   `cam01` through `cam10` reporting `stream is available and online, 1
+   track (H264)`.
+2. **A feed plays** — from inside the `mediamtx` container itself (its own
+   RTSP server, no host port needed):
+   ```bash
+   docker compose exec mediamtx ffprobe -rtsp_transport tcp \
+     -show_entries stream=codec_name,width,height,avg_frame_rate \
+     rtsp://localhost:8554/cam01
+   # codec_name=h264, width=640, height=360, avg_frame_rate=15/1
+   ```
+   Same result against `cam07` (a path reusing a different clip).
+3. **A feed loops** — `ffprobe` against `cam03` with `-read_intervals
+   "%+15"` (15 seconds of packets, longer than the clip's own 10-second
+   duration) kept returning packets past `t=15s` with no interruption or
+   error — proof the stream kept going past where a non-looping file would
+   have ended.
+4. **Reachable from another container, by Docker service name** — the
+   actual pattern OMNI-204 will use. From inside the `ingestion` container:
+   ```python
+   import cv2
+   cap = cv2.VideoCapture("rtsp://mediamtx:8554/cam02")
+   ok, frame = cap.read()
+   # opened: True, frame read: True, shape: (360, 640, 3)
+   ```
+5. **Ingestion is still not reachable from outside** and the rest of the
+   stack still starts together cleanly — `docker compose up -d` (all six
+   services now) came up with `mediamtx` showing no published port in
+   `docker compose ps`, same as `ingestion`'s row.
+6. **Nothing broke** — `uv run pytest` still **17 passed** (this ticket
+   touched no Python).
+
+### Result
+
+- Ten distinct RTSP addresses, each serving a genuinely looping stream,
+  reachable from inside the Docker network by service name — proven from a
+  second container, not just from `mediamtx` itself.
+- The simulator adds no attack surface: no host port, no nginx route.
+- The addresses are written down in `docs/rtsp-simulator.md`.
+- All checklist items but the OMNI-208 forward-reference (not yet buildable)
+  and the acceptance criterion for OMNI-201 are satisfied.
