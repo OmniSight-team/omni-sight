@@ -1260,3 +1260,131 @@ role restriction beyond authentication → no 403 case to test).
 - `docs/results.md` has a TC-10 entry dated 2026-09-05.
 - All checklist items and the acceptance criterion for OMNI-112 are
   satisfied.
+
+---
+
+## OMNI-113 · Verify NFR-9 and record it
+
+### Why this ticket exists
+
+NFR-9 — tokens expire after 15 minutes of inactivity, accounts lock after 5
+consecutive failed logins. OMNI-108 built this; this ticket is the automated
+proof, following the same pattern OMNI-112 just established for TC-10.
+
+### What was built
+
+**`services/query/tests/test_nfr9_lockout_expiry.py`** — two tests, reusing
+the same `conftest.py` path setup as the TC-10 suite:
+
+- **`test_five_failed_logins_lock_the_account`** — a throwaway account
+  (`nfr9-lockout-test@omnisight.local`) attempts login with a wrong password
+  five times in a row, then asserts directly against the database that
+  `failed_attempts == 5` and `locked_until` is set in the future. A sixth
+  attempt with the **correct** password is still asserted as `401` —
+  confirming the lock is checked before password verification, not after
+  (the same ordering OMNI-108 built specifically so a locked account can't
+  be argued past with the right password).
+- **`test_token_past_its_inactivity_window_is_rejected`** — crafts a JWT
+  signed with the real `jwt_secret_key` but with `exp` one minute in the
+  past, and asserts a protected route rejects it with `401`. This is
+  mechanically the same expiry check TC-10's suite already exercises, but
+  recorded here specifically under NFR-9's own acceptance criterion, framed
+  as "a token past its inactivity window" rather than just "an expired
+  token" — same code path, different angle of intent.
+
+A `pytest` fixture creates the throwaway account before the test runs and
+deletes it after, mirroring the pattern from OMNI-112's TC-10 suite exactly.
+
+**`docs/results.md`** — an NFR-9 section added below the TC-10 entry: date,
+suite location, pass count, and the reasoning behind each test (why the lock
+check has to run before password verification; why the crafted-expiry
+technique tests the check itself rather than just waiting out a real
+15-minute window).
+
+### Verification performed
+
+1. `uv run pytest services/query/tests/test_nfr9_lockout_expiry.py` —
+   **2 passed, 0 failed**.
+2. Full suite together (`uv run pytest` from repo root, TC-10 + NFR-9) —
+   **17 passed, 0 failed**.
+3. Queried `users` for `email LIKE 'nfr9-%'` after the run — **0 rows**,
+   confirming the fixture's teardown ran cleanly.
+
+### A gap this ticket's own checklist surfaced
+
+The sprint's "Definition of done" section (below OMNI-113 in `week-01.md`)
+includes *"All of the above is true on a fresh `docker compose up -d`."*
+Checking that honestly meant noticing it wasn't true yet: `docker-compose.yml`
+only managed Postgres and nginx at this point — `frontend` and
+`services/query` were still run manually via `npm run dev` and
+`uv run uvicorn`, with empty placeholder `Dockerfile`s. That gap, and the
+follow-up work to close it (containerizing both), is recorded separately —
+see the note below this ticket's own section, since it wasn't part of any
+numbered ticket.
+
+### Result
+
+- Both NFR-9 behaviors are covered by automated tests.
+- `uv run pytest` passes (2 new tests; 17 total with TC-10).
+- `docs/results.md` has an NFR-9 entry dated 2026-09-05.
+- All checklist items and the acceptance criterion for OMNI-113 are
+  satisfied.
+
+---
+
+## Post-sprint: containerizing `frontend` and `services/query`
+
+Not a numbered ticket — raised by the user after OMNI-113 surfaced that the
+Definition of Done's "fresh `docker compose up -d`" claim wasn't actually
+true yet (see above). Since this was requested directly rather than derived
+from a ticket, and touches the run model for the whole stack, it's recorded
+here rather than folded into OMNI-113's own section.
+
+**What was built:**
+- `services/query/Dockerfile` — Python 3.13-slim + `uv`. Copies the *whole*
+  workspace (`pyproject.toml`, `uv.lock`, all of `services/`) rather than
+  just `services/query` and `services/common`, because `uv sync` validates
+  workspace membership against the filesystem, not just the lockfile — a
+  missing member directory (even an unused one like `services/ai_workers`)
+  would break the sync. Runs `uv sync --frozen --package omnisight-query`,
+  then `uvicorn --reload`.
+- `frontend/Dockerfile` — Node 22 Alpine, `npm install`, `npm run dev`.
+- `docker-compose.yml` — added `query` (port 8000) and `frontend` (port
+  3000) services. Both bind-mount their source from the host, so edits still
+  hot-reload live instead of requiring a rebuild; `frontend_node_modules` is
+  a **named** volume layered over the bind mount, so the container's
+  Linux-native `node_modules` isn't clobbered by the host's Windows one.
+  `query` gets `POSTGRES_HOST=postgres` (container network name, overriding
+  `.env`'s implicit `localhost` default) plus everything else from `.env`
+  via `env_file`. `frontend` gets `API_PROXY_ORIGIN=http://query:8000` so its
+  own `next.config.ts` rewrite (from OMNI-111) targets the query container
+  by name instead of `localhost:8000`.
+- `infra/nginx/default.conf` — `proxy_pass` targets changed from
+  `host.docker.internal:8000`/`:3000` to `query:8000`/`frontend:3000`, since
+  the upstreams are now containers on the same Docker network rather than
+  processes on the host.
+
+**Deliberately left alone:** migrations and seeding. `scripts/seed_admin.py`
+and `alembic upgrade head` still run from the host via `uv run`, against
+Postgres's exposed port `5432` — exactly as before. Containerizing the
+*serving* process doesn't require containerizing one-off admin commands too,
+and automating those into container startup wasn't asked for.
+
+**Verification performed:** stopped every host-run dev server first (so
+their ports were free), then ran the exact sequence the Definition of Done
+describes — `docker compose down` followed by a plain `docker compose up -d`
+(no `--build`, no manual steps). All four containers came up in dependency
+order (postgres → query → frontend → nginx). Confirmed:
+- `http://127.0.0.1` → `301` → `https://127.0.0.1`
+- `POST https://127.0.0.1/auth/login` (through nginx → query container →
+  postgres container) → real JWT, `200`
+- `POST http://localhost:3000/auth/login` (frontend container's own
+  Next.js rewrite to `query:8000`, bypassing nginx entirely) → `200`
+- Full `uv run pytest` suite (17 tests) still passes, unaffected — it talks
+  to Postgres directly via the exposed port, not through either container
+
+**Result:** the Definition of Done's "All of the above is true on a fresh
+`docker compose up -d`" item is now genuinely true, and was ticked in
+`week-01.md` on that basis. Day-to-day workflow simplified to
+`docker compose up -d` / `docker compose down` — no more separately running
+`npm run dev` and `uv run uvicorn` by hand.

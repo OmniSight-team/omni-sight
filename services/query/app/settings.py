@@ -21,6 +21,8 @@ class Settings(CommonSettings):
 
     frontend_origin: str = "http://localhost:3000"
 
+    ingestion_base_url: str = "http://localhost:8001"
+
     @property
     def database_url(self) -> str:
         return (

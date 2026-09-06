@@ -37,3 +37,4 @@ Thumbs.db
 # uv.lock IS committed — do not add it here
 
 .pytest_cache/
+

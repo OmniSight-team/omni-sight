@@ -25,6 +25,7 @@ services:
       - .env
     environment:
       POSTGRES_HOST: postgres
+      INGESTION_BASE_URL: http://ingestion:8000
     ports:
       - "8000:8000"
     volumes:
@@ -33,6 +34,21 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ingestion:
+        condition: service_started
+
+  # No port published and no nginx route — nothing outside the Docker network
+  # can reach this service. Query is the only caller.
+  ingestion:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./services/common:/workspace/services/common
+      - ./services/ingestion:/workspace/services/ingestion
 
   frontend:
     build:
