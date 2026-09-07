@@ -141,15 +141,15 @@ source in {upload, camera, dataset}
 status in {uploaded, extracting, ready, failed}
 ```
 
-- [ ] Four enums in `services/common`, beside the Role enum from last week —
+- [x] Four enums in `services/common`, beside the Role enum from last week —
       `CameraStatus`, `Domain`, `VideoSource`, `VideoStatus`. Both services import
       them, so neither can invent a fifth value
-- [ ] SQLAlchemy models in the query service
-- [ ] One alembic migration for both tables
-- [ ] `group` is a reserved word in SQL — quote it or name the column `group_name`
+- [x] SQLAlchemy models in the query service
+- [x] One alembic migration for both tables
+- [x] `group` is a reserved word in SQL — quote it or name the column `group_name`
       and map it. Decide now, not when the migration fails
-- [ ] Index on `camera_id` and on `created_at`; the archive filters on both
-- [ ] `alembic upgrade head` applies cleanly on a fresh database
+- [x] Index on `camera_id` and on `created_at`; the archive filters on both
+- [x] `alembic upgrade head` applies cleanly on a fresh database
 
 **Acceptance:** both tables exist; a fresh `docker compose down -v && up -d` plus
 migration produces them from nothing.

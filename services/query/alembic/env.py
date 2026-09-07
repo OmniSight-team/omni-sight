@@ -10,7 +10,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db import Base  # noqa: E402
-from app.models import User  # noqa: E402, F401
+from app.models import Camera, User, Video  # noqa: E402, F401
 from app.settings import settings  # noqa: E402
 
 # this is the Alembic Config object, which provides
