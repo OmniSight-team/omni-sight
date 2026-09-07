@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from datetime import datetime
 
-from omnisight_common import Role
+from omnisight_common import CameraStatus, Domain, Role
+from pydantic import BaseModel
 
 
 class LoginRequest(BaseModel):
@@ -18,3 +19,35 @@ class UserResponse(BaseModel):
     id: int
     email: str
     role: Role
+
+
+class CameraCreate(BaseModel):
+    name: str
+    rtsp_url: str
+    location: str
+    group: str
+    domain: Domain
+
+
+class CameraUpdate(BaseModel):
+    name: str | None = None
+    rtsp_url: str | None = None
+    location: str | None = None
+    group: str | None = None
+    domain: Domain | None = None
+    status: CameraStatus | None = None
+
+
+class CameraCreateResponse(BaseModel):
+    id: int
+    status: CameraStatus
+
+
+class CameraOut(BaseModel):
+    id: int
+    name: str
+    location: str
+    group: str
+    domain: Domain
+    status: CameraStatus
+    last_seen_at: datetime | None

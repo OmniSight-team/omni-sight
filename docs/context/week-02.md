@@ -358,3 +358,124 @@ archive filters on (OMNI-207).
   container against a fresh full-stack `up -d`.
 - All checklist items and the acceptance criterion for OMNI-202 are
   satisfied.
+
+---
+
+## OMNI-203 · Camera CRUD, admin-only writes
+
+### Why this ticket exists
+
+FR-1a needs a way to register a camera before OMNI-204 can test it or
+OMNI-208 can list it. NFR-7 needs every write gated by role — this is the
+first resource in the app where that gate actually has teeth, since
+`/admin/ping` from OMNI-107 was a placeholder built to make the gate
+testable, not a real resource.
+
+### What was built
+
+**`services/query/app/cameras.py`** — a new router, `POST`, `GET`, `PATCH`,
+`DELETE` on `/cameras`, mounted in `main.py` next to `auth` and `admin`.
+
+**Role enforcement reuses OMNI-107's existing dependency, unchanged:**
+
+```python
+@router.post("", response_model=CameraCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_camera(
+    payload: CameraCreate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_role(Role.ADMIN)),
+) -> CameraCreateResponse:
+```
+
+`GET /cameras` uses `get_current_user` instead — any authenticated role,
+including operator, can view. `POST`, `PATCH` and `DELETE` all use
+`require_role(Role.ADMIN)`. No new role-checking code was written; this is
+exactly the dependency `/admin/ping` already proved works.
+
+**New cameras always start `registered`** — the create route ignores
+whatever `status` a client might try to send (there's no `status` field on
+`CameraCreate`, only on `CameraUpdate`) and hardcodes
+`CameraStatus.REGISTERED`. `connected` only ever comes from OMNI-204's test.
+
+**Soft delete, reusing the status enum instead of a new column.** The ticket
+asks for delete to be soft when a video already references the camera. Rather
+than add a `deleted_at` column that OMNI-202 didn't define, `DELETE`
+checks for a referencing `Video` row first:
+
+```python
+has_recordings = db.query(Video.id).filter_by(camera_id=camera_id).first() is not None
+if has_recordings:
+    camera.status = CameraStatus.DISABLED
+    db.commit()
+    return {"id": camera.id, "deleted": False, "status": camera.status}
+
+db.delete(camera)
+db.commit()
+return {"id": camera_id, "deleted": True}
+```
+
+`CameraStatus.DISABLED` already existed for exactly this kind of "off but
+still on record" state, so reusing it avoids a schema change this ticket
+didn't ask for. The response tells the caller which branch happened
+(`deleted: false` vs `true`), which OMNI-208 will need to show the right
+message instead of a generic success toast.
+
+**The `group` field crosses the API/DB boundary explicitly.** `CameraCreate`
+and `CameraOut` both use `group` (matching the ticket's literal JSON shape),
+but the ORM attribute is `group_name` (OMNI-202's reserved-word decision).
+The router does the mapping by hand at both edges — `group_name=payload.group`
+on create, `group=camera.group_name` building the response on the way out —
+rather than teaching Pydantic an alias, since it's two lines and doesn't need
+a general mechanism.
+
+**Tests:** `tests/test_camera_crud.py`, following the existing
+`SessionLocal`-fixture pattern from `test_tc10_auth.py` — admin and operator
+users created per module, cameras and videos cleaned up per test. Covers
+both halves of the acceptance criterion directly: admin create/list/patch,
+hard delete with no recordings, soft delete when a video references the
+camera, and three operator 403s (create, patch, delete) plus an operator 200
+on list.
+
+`/cameras` was also added to `test_tc10_auth.py`'s `PROTECTED_GET_ROUTES` —
+that file's whole job is "every protected endpoint rejects bad auth," so a
+new protected endpoint belongs on its list, not just in the new ticket's own
+test file.
+
+### Verification performed
+
+1. **`uv run pytest`** — **30 passed** (17 from before this ticket, 9 new in
+   `test_camera_crud.py`, 4 new parametrized cases in `test_tc10_auth.py`
+   from adding `/cameras`). All run against the real Postgres container, not
+   a mock.
+2. **Operator gets 403 on create, patch, delete; 200 on list** — proven by
+   `test_operator_create_returns_403`, `test_operator_patch_returns_403`,
+   `test_operator_delete_returns_403`, `test_operator_list_returns_200`, all
+   passing.
+3. **Admin can register and remove a camera** —
+   `test_admin_create_camera_starts_registered` confirms the created row's
+   `status` is `registered` and its DB column is `group_name`, not `group`;
+   `test_admin_hard_deletes_camera_with_no_recordings` confirms the row is
+   actually gone from the database afterward, not just hidden.
+4. **Soft delete confirmed at the database, not just the response** —
+   `test_admin_delete_soft_deletes_camera_referenced_by_a_video` creates a
+   `Video` row against the camera first, calls `DELETE`, then re-queries the
+   camera directly through `SessionLocal` and asserts it still exists with
+   `status == CameraStatus.DISABLED`.
+5. **Nothing broke** — `uv run ruff check` clean on every hand-written file
+   this ticket touched; the `Depends(...)` in-argument-default findings
+   (`B008`) it reports on `cameras.py` are the same pattern already present
+   in `auth.py` and `admin.py` — FastAPI's own idiom, not something this
+   ticket introduced, left alone for the same reason OMNI-200 left
+   pre-existing findings alone.
+
+### Result
+
+- `/cameras` supports create, list, edit and delete, with writes gated to
+  admin by the same dependency `/admin/ping` already used.
+- New cameras start `registered`; a camera with a recording attached is
+  disabled instead of deleted, so no video is ever left pointing at a
+  vanished camera.
+- The 403 for an operator is proven by four passing tests, not by clicking
+  through the (nonexistent) UI.
+- All checklist items and the acceptance criterion for OMNI-203 are
+  satisfied.

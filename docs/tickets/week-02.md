@@ -173,16 +173,16 @@ PATCH  /cameras/{id}
 DELETE /cameras/{id}
 ```
 
-- [ ] Stream address stored as configuration on the record — never hardcoded
+- [x] Stream address stored as configuration on the record — never hardcoded
       anywhere **[FR-1a]**
-- [ ] Camera grouping by site or zone, the field the camera wall uses in slice 5
-- [ ] **Only administrators may create, edit or delete. Operators may view** —
+- [x] Camera grouping by site or zone, the field the camera wall uses in slice 5
+- [x] **Only administrators may create, edit or delete. Operators may view** —
       enforced by the role dependency from OMNI-107, not by a new check **[NFR-7]**
-- [ ] New cameras start at `registered`, not `connected` — nothing is connected
+- [x] New cameras start at `registered`, not `connected` — nothing is connected
       until the test in OMNI-204 says so
-- [ ] Delete is soft where a video already references the camera; hard delete would
+- [x] Delete is soft where a video already references the camera; hard delete would
       orphan recordings
-- [ ] Tests: an operator token gets 403 on create and delete, 200 on list
+- [x] Tests: an operator token gets 403 on create and delete, 200 on list
 
 **Acceptance:** an admin can register and remove a camera; an operator can see them
 and nothing else. The 403 is proven by a test, not by clicking.

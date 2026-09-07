@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.admin import router as admin_router
 from app.auth import router as auth_router
+from app.cameras import router as cameras_router
 from app.deps import RENEWED_TOKEN_HEADER
 from app.logging_conf import configure_logging
 from app.nav import router as nav_router
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(cameras_router)
 app.include_router(nav_router)
 
 
