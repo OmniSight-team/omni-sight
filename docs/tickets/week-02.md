@@ -223,18 +223,18 @@ POST /cameras/{id}/test -> {reachable, resolution, fps, error?}
 POST /videos/upload (multipart) -> {id, filename, duration_s, size_mb, fps, status}
 ```
 
-- [ ] Named Docker volume for video storage, mounted into query and ingestion at
+- [x] Named Docker volume for video storage, mounted into query and ingestion at
       the same path **[NFR-5]**
-- [ ] Multipart upload written to that volume; **only the path goes in the
+- [x] Multipart upload written to that volume; **only the path goes in the
       database, never the bytes** **[FR-1a]**
-- [ ] Stored filename is generated, not taken from the client. A user-supplied name
+- [x] Stored filename is generated, not taken from the client. A user-supplied name
       reaching the filesystem is a path-traversal bug; keep the original in
       `filename` for display
-- [ ] Reject anything that is not a video, and anything over a size limit from
+- [x] Reject anything that is not a video, and anything over a size limit from
       settings — with a message saying which of the two it was
-- [ ] Stream the upload to disk rather than reading it into memory; these are large
+- [x] Stream the upload to disk rather than reading it into memory; these are large
       files
-- [ ] Row created with status `uploaded` before probing starts
+- [x] Row created with status `uploaded` before probing starts
 
 **Acceptance:** a 200 MB MP4 uploads without the container's memory spiking; a
 `.txt` renamed to `.mp4` is rejected with a clear reason.

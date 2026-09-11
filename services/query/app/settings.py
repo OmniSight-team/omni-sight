@@ -23,6 +23,9 @@ class Settings(CommonSettings):
 
     ingestion_base_url: str = "http://localhost:8001"
 
+    video_storage_path: str = "/data/videos"
+    max_upload_size_mb: int = 500
+
     @property
     def database_url(self) -> str:
         return (

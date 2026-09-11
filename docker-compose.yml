@@ -31,6 +31,10 @@ services:
     volumes:
       - ./services/common:/workspace/services/common
       - ./services/query:/workspace/services/query
+      # Uploaded video bytes land here, mounted into ingestion at the same
+      # path (OMNI-205) so OMNI-206 can probe by path, never by re-sending
+      # the file.
+      - video_storage:/data/videos
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,6 +53,7 @@ services:
     volumes:
       - ./services/common:/workspace/services/common
       - ./services/ingestion:/workspace/services/ingestion
+      - video_storage:/data/videos
 
   # Ten looping RTSP feeds for local development (OMNI-201) — see
   # docs/rtsp-simulator.md. No port published: only ingestion, inside the
@@ -90,3 +95,4 @@ services:
 volumes:
   postgres_data:
   frontend_node_modules:
+  video_storage:

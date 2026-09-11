@@ -12,6 +12,7 @@ from app.deps import RENEWED_TOKEN_HEADER
 from app.logging_conf import configure_logging
 from app.nav import router as nav_router
 from app.settings import settings
+from app.videos import router as videos_router
 
 configure_logging()
 logger = logging.getLogger("app.request")
@@ -29,6 +30,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(cameras_router)
 app.include_router(nav_router)
+app.include_router(videos_router)
 
 
 @app.middleware("http")

@@ -634,3 +634,142 @@ time this camera was confirmed alive," not "last time someone tried."
   result — verified against the real database, not mocked.
 - All checklist items and the acceptance criterion for OMNI-204 are
   satisfied.
+
+---
+
+## OMNI-205 · Video storage volume and upload endpoint
+
+### Why this ticket exists
+
+FR-1a's other half — uploaded files, not just live cameras — and the storage
+half of NFR-5: zero video or stored data lost on any failure or crash.
+OMNI-206 (probe the upload) and OMNI-209 (the archive screen) both assume
+this endpoint already writes real files to a real shared path and creates
+one truthful row per file.
+
+### What was built
+
+**A named volume, `video_storage`, mounted at `/data/videos` in both `query`
+and `ingestion`** — the exact path the plan's own architecture diagram uses.
+`ingestion` doesn't read from it yet (that's OMNI-206), but the mount is
+provisioned now, the same "wire the topology before the ticket that uses it"
+pattern OMNI-200 used for `ingestion_base_url`.
+
+**`services/query/app/videos.py`**, `POST /videos/upload`. Three things the
+ticket called out by name had to be real, not just claimed:
+
+**1. Streaming without blocking the event loop.** The obvious FastAPI
+pattern — `async def` with `await file.read(chunk)` — turned out to be
+wrong here: writing each chunk to disk is a *blocking* call, and doing
+blocking I/O inside `async def` stalls every other request on that worker
+while a large upload is in flight (`ruff`'s `ASYNC230` caught this). The fix
+is a plain `def` route instead, reading straight from `UploadFile.file` (the
+underlying spooled file object) — FastAPI runs a sync route in its
+threadpool automatically, so neither the reads nor the writes block the
+event loop:
+
+```python
+def upload_video(request: Request, file: UploadFile = File(...), ...):
+    source = file.file
+    with open(staging_path, "wb") as out:
+        out.write(header)
+        while chunk := source.read(CHUNK_SIZE):
+            ...
+            out.write(chunk)
+```
+
+**2. "Not a video" has to mean the bytes, not the filename.** The
+acceptance criterion is explicit: a `.txt` renamed to `.mp4` must still be
+rejected. Trusting the client's extension can't catch that, so
+`_detect_video_extension()` sniffs the first 64 bytes for real container
+magic (`ftyp` for mp4/mov, the EBML header for webm/mkv, `RIFF...AVI ` for
+avi) and the *detected* format — never the client's claimed one — decides
+the stored extension too.
+
+**3. The stored filename is fully generated — `uuid4().hex` plus the
+*detected* extension — closing the path-traversal hole the ticket calls
+"the one genuine security bug available in this slice."** A filename like
+`../../../../etc/passwd.mp4` never touches the filesystem; only
+`f"{uuid.uuid4().hex}{extension}"` does, and the client's original name is
+kept solely in the `filename` column for display.
+
+**Crash-safety, for NFR-5.** The file is written under a `.part` name first
+and only `Path.replace()`d into its final name once the write completes
+successfully; a database row is only created *after* that rename succeeds.
+A crash mid-upload leaves at worst an orphaned `.part` file — never a row
+pointing at a partial or missing one. Any exception during the write (an
+over-size abort included) deletes the `.part` file before re-raising, so a
+rejected upload leaves nothing behind either.
+
+**Two distinct rejections, both with the reason named**, matching the
+ticket's "a message saying which of the two it was": `400` +
+`"file is not a recognized video format"` for content that doesn't match a
+known container, `413` + `"file exceeds the N MB upload limit"` for size —
+checked twice, once cheaply from the `Content-Length` header before any
+bytes are read, and again from the running total as chunks arrive (in case
+`Content-Length` is absent or understates the truth).
+
+Row fields: `source=upload`, `status=uploaded`, `camera_id=NULL` (the model
+already allows this from OMNI-202). `duration_s`, `fps`, `width`, `height`
+stay `NULL` — this ticket only stores the file, OMNI-206 is what probes it.
+
+### Verification performed
+
+1. **`uv run pytest`** — **43 passed** (37 from before this ticket, 6 new in
+   `test_video_upload.py`). These monkeypatch `settings.video_storage_path`
+   to a pytest `tmp_path` rather than the real `/data/videos` — that Linux
+   volume only exists inside the containers, not on the Windows host this
+   suite runs on directly, and this file is proving the endpoint's own logic
+   (sniffing, generated names, atomic rename, size limits, path-traversal
+   safety), not the volume wiring. Covers: a valid upload creates an
+   `uploaded` row with the real bytes on disk; the stored filename is a
+   36-character generated name, never the client's; a `../../etc/passwd.mp4`
+   filename cannot leave the storage directory; plain text renamed to
+   `.mp4` is rejected by content, not extension; an oversized file is
+   rejected with the MB limit named, and leaves no `.part` file behind;
+   no token returns 401.
+2. **The real volume, live** — from both containers at once:
+   `docker compose exec query sh -c "touch /data/videos/probe.txt"`, then
+   `docker compose exec ingestion sh -c "ls /data/videos"` — the file showed
+   up instantly in the other container. Confirms the same named volume,
+   not two separate ones that happen to share a path string.
+3. **The 200 MB / no-memory-spike acceptance criterion, live, twice —
+   and the second time is the one that actually counts.** The first attempt
+   used FastAPI's `TestClient` (the same in-process tool every other test in
+   this suite uses) and showed the query container's memory climbing by
+   ~350 MB during a 200 MB upload — which looked like a real problem, but
+   turned out to be an artifact of `TestClient`'s own ASGI transport
+   buffering the whole request body in memory before the app ever sees it,
+   not this endpoint's behavior. Re-tested with a genuine end-to-end
+   request — `httpx` streaming a real ~191 MB file over a real TCP
+   connection to the actually-running `uvicorn` server on the published
+   `localhost:8000` — while sampling `docker stats` for the `query`
+   container every 0.5s: memory went from a **180.9 MiB** baseline to a
+   **190.3 MiB** peak, a ~10 MB rise for a ~191 MB file, and settled back to
+   ~180 MiB immediately after. That's what "streamed to disk, not held in
+   memory" actually looks like; the first measurement is recorded here too,
+   as a reminder that an in-process test client is not a substitute for a
+   real socket when the thing under test *is* the streaming behavior.
+4. **The `.txt`-renamed-to-`.mp4` acceptance criterion, live** — the same
+   real request, with a plain-text body named `notes.mp4`: `400`,
+   `{"detail": "file is not a recognized video format"}`.
+5. **Nothing broke** — `uv run ruff check` clean on every hand-written file
+   this ticket touched, once the `ASYNC230` finding above was fixed at the
+   root cause rather than suppressed; remaining findings are the same
+   pre-existing `B008` (`Depends`/`File` in argument defaults) pattern used
+   everywhere else in `services/query/app`.
+
+### Result
+
+- `POST /videos/upload` streams a multipart file straight to the shared
+  `/data/videos` volume in fixed-size chunks, on a route that FastAPI runs
+  off the event loop — proven with a real socket and real memory sampling,
+  not assumed from reading the code.
+- The stored filename is always generated from the file's own detected
+  content type, never the client's name or its claimed extension — closing
+  the path-traversal hole the ticket flags as this slice's one real security
+  bug, with a test that tries exactly that attack.
+- A crash mid-write leaves an orphaned `.part` file at worst, never a
+  database row pointing at a partial or missing one.
+- All checklist items and the acceptance criterion for OMNI-205 are
+  satisfied.

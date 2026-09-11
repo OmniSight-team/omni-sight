@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from omnisight_common import CameraStatus, Domain, Role
+from omnisight_common import CameraStatus, Domain, Role, VideoStatus
 from pydantic import BaseModel
 
 
@@ -58,3 +58,12 @@ class CameraTestResponse(BaseModel):
     resolution: str | None = None
     fps: float | None = None
     error: str | None = None
+
+
+class VideoUploadResponse(BaseModel):
+    id: int
+    filename: str
+    duration_s: float | None
+    size_mb: float
+    fps: float | None
+    status: VideoStatus
