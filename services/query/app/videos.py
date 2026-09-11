@@ -1,3 +1,4 @@
+import logging
 import uuid
 from pathlib import Path
 
@@ -7,9 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.ingestion_client import IngestionUnavailableError
+from app.ingestion_client import probe_file as ingestion_probe_file
 from app.models import User, Video
-from app.schemas import VideoUploadResponse
+from app.schemas import VideoDetailResponse, VideoUploadResponse
 from app.settings import settings
+
+logger = logging.getLogger("app.videos")
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -101,6 +106,8 @@ def upload_video(
     db.commit()
     db.refresh(video)
 
+    probe_error = _probe_and_finalize(video, db)
+
     return VideoUploadResponse(
         id=video.id,
         filename=video.filename,
@@ -108,4 +115,65 @@ def upload_video(
         size_mb=round(video.size_bytes / (1024 * 1024), 2),
         fps=video.fps,
         status=video.status,
+        error=probe_error,
+    )
+
+
+def _probe_and_finalize(video: Video, db: Session) -> str | None:
+    """Probe the file that's already safely on disk and update the row from
+    the result. A file ingestion can't decode is a real, permanent failure
+    (status -> failed); ingestion itself being unreachable is not — the
+    video stays `uploaded` so a later retry has something to retry."""
+    try:
+        result = ingestion_probe_file(video.path)
+    except IngestionUnavailableError as exc:
+        logger.warning(
+            "video probe skipped, ingestion unavailable",
+            extra={"extra_fields": {"video_id": video.id, "error": str(exc)}},
+        )
+        return "ingestion service unavailable"
+
+    if result["ok"]:
+        video.duration_s = result["duration_s"]
+        video.fps = result["fps"]
+        video.width = result["width"]
+        video.height = result["height"]
+        video.status = VideoStatus.READY
+        db.commit()
+        return None
+
+    error = result.get("error") or "probe failed"
+    logger.warning(
+        "video probe failed",
+        extra={"extra_fields": {"video_id": video.id, "error": error}},
+    )
+    video.status = VideoStatus.FAILED
+    db.commit()
+    return error
+
+
+@router.get("/{video_id}", response_model=VideoDetailResponse)
+def get_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> VideoDetailResponse:
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="video not found")
+
+    return VideoDetailResponse(
+        id=video.id,
+        filename=video.filename,
+        camera_id=video.camera_id,
+        source=video.source,
+        duration_s=video.duration_s,
+        fps=video.fps,
+        width=video.width,
+        height=video.height,
+        size_bytes=video.size_bytes,
+        status=video.status,
+        retention_until=video.retention_until,
+        created_at=video.created_at,
+        segments_count=0,
     )

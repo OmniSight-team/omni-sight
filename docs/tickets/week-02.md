@@ -246,13 +246,13 @@ POST /videos/upload (multipart) -> {id, filename, duration_s, size_mb, fps, stat
 **Why:** **FR-3** — *Store each analyzed segment with its details (time, source
 camera, representative image) for later retrieval.* The details start here.
 
-- [ ] Ingestion endpoint `POST /probe/file {path}` returning duration, fps, width,
+- [x] Ingestion endpoint `POST /probe/file {path}` returning duration, fps, width,
       height **[FR-3]**
-- [ ] Query calls it after the upload lands and fills the row
-- [ ] Status moves `uploaded` → `ready`, or → `failed` with the reason recorded
-- [ ] A corrupt or truncated file fails cleanly and stays visible as `failed` —
+- [x] Query calls it after the upload lands and fills the row
+- [x] Status moves `uploaded` → `ready`, or → `failed` with the reason recorded
+- [x] A corrupt or truncated file fails cleanly and stays visible as `failed` —
       it does not vanish and it does not 500
-- [ ] `GET /videos/{id}` returns the full record plus `segments_count` (zero this
+- [x] `GET /videos/{id}` returns the full record plus `segments_count` (zero this
       week; slice 3 fills it)
 
 **Acceptance:** upload an MP4 of known length and the stored duration matches within

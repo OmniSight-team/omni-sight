@@ -773,3 +773,140 @@ stay `NULL` — this ticket only stores the file, OMNI-206 is what probes it.
   database row pointing at a partial or missing one.
 - All checklist items and the acceptance criterion for OMNI-205 are
   satisfied.
+
+---
+
+## OMNI-206 · Probe an uploaded file with OpenCV
+
+### Why this ticket exists
+
+FR-3 needs each stored recording's real details — duration, fps, resolution
+— not just the size and filename OMNI-205 already captures. This is also
+the first time a video's `status` actually moves past `uploaded`, so it's
+what makes OMNI-207's listing and OMNI-209's archive screen show something
+meaningful instead of every row stuck the same.
+
+### What was built
+
+**`services/ingestion/app/file_probe.py`**, `probe_file(path)` — opens a
+local file (not a network stream, so none of `/probe/stream`'s
+timeout/thread machinery from OMNI-204 is needed here), reads one frame,
+and computes duration from `frame_count / fps`:
+
+```python
+ok, frame = capture.read()
+if not ok or frame is None:
+    raise FileProbeError("could not read a frame from file")
+
+fps = float(capture.get(cv2.CAP_PROP_FPS))
+frame_count = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+if fps <= 0 or frame_count <= 0:
+    raise FileProbeError("could not determine video duration")
+
+height, width = frame.shape[:2]
+duration_s = frame_count / fps
+```
+
+Width and height come from the actually-decoded `frame.shape`, not the
+container's metadata properties — the same choice `probe_stream` made in
+OMNI-204, for the same reason: it reflects what really decoded, not just
+what the header claims. `FileProbeError` is caught by the route and turned
+into `{"ok": false, "error": ...}`, never a 500 — matching the ticket's "it
+does not vanish and it does not 500" line exactly.
+
+**`services/query/app/videos.py`** calls `/probe/file` with the video's own
+stored path — the same path both containers already share from OMNI-205's
+volume — right after the row is created, inside the same upload request.
+The status-transition logic makes one distinction the ticket doesn't spell
+out but the acceptance criteria imply: a **file** ingestion genuinely
+couldn't decode is a real, permanent problem (`status -> failed`), but
+ingestion itself being unreachable is an infrastructure hiccup, not a claim
+about the file — so that case leaves the video at `uploaded` instead,
+mirroring the same "don't mislabel an infra problem as a content problem"
+choice `/cameras/{id}/test` made in OMNI-204:
+
+```python
+def _probe_and_finalize(video: Video, db: Session) -> str | None:
+    try:
+        result = ingestion_probe_file(video.path)
+    except IngestionUnavailableError as exc:
+        ...
+        return "ingestion service unavailable"   # status left untouched
+
+    if result["ok"]:
+        video.duration_s = result["duration_s"]
+        ...
+        video.status = VideoStatus.READY
+        return None
+
+    video.status = VideoStatus.FAILED             # a real, permanent failure
+    return result.get("error") or "probe failed"
+```
+
+The failure reason isn't persisted as a new column — `VideoStatus` has no
+slot for free text, and OMNI-202 didn't add one. It's logged (structured
+JSON, same as every other service log) and returned in that upload
+response's new `error` field, the same shape `CameraTestResponse` already
+used in OMNI-204. "The reason recorded" is satisfied the same way it was
+there: returned to the caller and logged at the moment it happened, not
+retained forever on the row.
+
+**`GET /videos/{id}`** returns the full record — including `width`,
+`height`, `size_bytes`, `retention_until`, `created_at` — plus
+`segments_count: 0`, hardcoded exactly as the ticket says ("zero this week;
+slice 3 fills it"). The raw filesystem `path` is deliberately left out of
+the response; nothing external needs a server-side path, and there's no
+reason to expose one.
+
+### Verification performed
+
+1. **A known-length file probes to the exact duration, live, against the
+   real `ingestion` container** — a 3-second, 10 fps, 320×240 clip generated
+   with `ffmpeg` and copied onto the real shared `/data/videos` volume, then
+   probed directly:
+   ```python
+   probe_file("/data/videos/omni206_good.mp4")
+   # {'duration_s': 3.0, 'fps': 10.0, 'width': 320, 'height': 240}
+   ```
+   Exact match, not just "within a second."
+2. **A truncated file fails cleanly, live** — the same clip cut to its first
+   5 KB (before ffmpeg's `moov` atom, which it writes at the end for a
+   non-faststart file) → `FileProbeError: could not open file`, not a crash,
+   not a hang.
+3. **The full real chain, end to end, through the actual running `query`
+   container** — real `curl` uploads (not `TestClient`, for the same reason
+   OMNI-205 learned not to trust it for this) against the live stack:
+   - the good clip: `{"duration_s":3.0,"fps":10.0,"status":"ready","error":null}`
+   - the truncated one: `{"duration_s":null,"fps":null,"status":"failed","error":"could not open file"}`
+   - `GET /videos/{id}` for both afterward returned the full stored record,
+     `segments_count: 0` on each, and a missing id returned a real `404`.
+4. **`uv run pytest`** — **49 passed** (43 from before this ticket, 6 new in
+   `test_video_probe.py`). These monkeypatch `ingestion_client.probe_file`
+   rather than hitting the real OpenCV path — proving the route's own
+   status-transition logic (`ok` → `ready` with the fields filled;
+   not-`ok` → `failed` with the reason returned; `IngestionUnavailableError`
+   → left at `uploaded`, not `failed`) and `GET /videos/{id}`'s shape,
+   which is exactly what a fast, deterministic test should cover; the real
+   OpenCV behavior was proven live in steps 1–3. `test_video_upload.py`'s
+   own tests (OMNI-205, storage-layer only) now explicitly stub probing to
+   "ingestion unavailable" rather than leaving that as an accidental
+   side effect of no ingestion server being reachable from a bare host-side
+   test run — a silent coincidence isn't a test.
+5. **Nothing broke** — `uv run ruff check` clean on every hand-written file
+   this ticket touched; the only findings left are the same pre-existing
+   `B008` pattern already present everywhere else in `services/query/app`.
+
+### Result
+
+- `ingestion`'s `/probe/file` reports duration, fps, width and height from a
+  file it actually decoded — verified against a clip of known length, not
+  just against happy-path assumptions.
+- A video's `status` now genuinely reflects reality: `ready` when it probed
+  cleanly, `failed` (with a reason, logged and returned, never a 500) when
+  the file itself is bad, and left at `uploaded` — not incorrectly
+  `failed` — when the reason was ingestion being unreachable rather than
+  anything wrong with the file.
+- `GET /videos/{id}` returns the full record any future screen needs,
+  `segments_count` reserved at zero for slice 3.
+- All checklist items and the acceptance criterion for OMNI-206 are
+  satisfied.

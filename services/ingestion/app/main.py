@@ -4,8 +4,14 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.file_probe import FileProbeError, probe_file
 from app.logging_conf import configure_logging
-from app.schemas import StreamProbeRequest, StreamProbeResponse
+from app.schemas import (
+    FileProbeRequest,
+    FileProbeResponse,
+    StreamProbeRequest,
+    StreamProbeResponse,
+)
 from app.settings import settings
 from app.streaming import ProbeError, probe_stream
 
@@ -55,3 +61,12 @@ def probe_stream_route(payload: StreamProbeRequest) -> StreamProbeResponse:
     except ProbeError as exc:
         return StreamProbeResponse(reachable=False, error=exc.reason)
     return StreamProbeResponse(reachable=True, resolution=result["resolution"], fps=result["fps"])
+
+
+@app.post("/probe/file", response_model=FileProbeResponse)
+def probe_file_route(payload: FileProbeRequest) -> FileProbeResponse:
+    try:
+        result = probe_file(payload.path)
+    except FileProbeError as exc:
+        return FileProbeResponse(ok=False, error=exc.reason)
+    return FileProbeResponse(ok=True, **result)

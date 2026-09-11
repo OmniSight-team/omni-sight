@@ -9,6 +9,12 @@ the volume mount itself is wired up. The volume mount and the acceptance
 criteria that need it for real (a 200 MB upload with no memory spike, the
 same check against the live containers) were verified live; see
 docs/context/week-02.md.
+
+The autoprobe step OMNI-206 added is stubbed to "ingestion unavailable" for
+every test here, on purpose — this file is about the storage layer, not
+probing, so every upload below lands as `uploaded` and stays that way. The
+probing behavior itself (ready, failed, and the unavailable case this stub
+exercises for real) is covered in test_video_probe.py.
 """
 
 from pathlib import Path
@@ -16,6 +22,7 @@ from pathlib import Path
 import pytest
 from app import videos as videos_module
 from app.db import SessionLocal
+from app.ingestion_client import IngestionUnavailableError
 from app.main import app
 from app.models import User, Video
 from app.security import hash_password
@@ -68,6 +75,14 @@ def isolated_storage(tmp_path, monkeypatch):
     with SessionLocal() as session:
         session.query(Video).delete()
         session.commit()
+
+
+@pytest.fixture(autouse=True)
+def stub_probe_unavailable(monkeypatch):
+    def _unavailable(path):
+        raise IngestionUnavailableError("stubbed unavailable for storage-layer tests")
+
+    monkeypatch.setattr(videos_module, "ingestion_probe_file", _unavailable)
 
 
 def test_upload_valid_video_creates_uploaded_row(auth_headers):
