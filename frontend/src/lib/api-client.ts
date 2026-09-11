@@ -5,6 +5,10 @@ import type { Role } from "@/lib/nav";
 // connection the browser already secured. Only set NEXT_PUBLIC_API_URL to an
 // absolute URL if the frontend and API are genuinely on different origins.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+// Every call goes through /api/* (OMNI-208) — a bare resource path like
+// /cameras would collide with the frontend's own /cameras screen, since
+// that's both an API path and a page path on the same origin.
+const API_PREFIX = "/api";
 const TOKEN_KEY = "omnisight_access_token";
 
 export function getToken(): string | null {
@@ -35,7 +39,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const response = await fetch(`${API_URL}${API_PREFIX}${path}`, { ...options, headers });
 
   const renewedToken = response.headers.get("X-Access-Token");
   if (renewedToken) setToken(renewedToken);
@@ -104,4 +108,57 @@ export interface NavRoute {
 // map lives once, in omnisight_common, not duplicated here.
 export async function getNavRoutes(): Promise<NavRoute[]> {
   return request<NavRoute[]>("/nav");
+}
+
+export type CameraStatus = "registered" | "connected" | "unreachable" | "disabled";
+export type CameraDomain = "surveillance" | "sports" | "traffic";
+
+export interface Camera {
+  id: number;
+  name: string;
+  location: string;
+  group: string;
+  domain: CameraDomain;
+  status: CameraStatus;
+  last_seen_at: string | null;
+}
+
+export interface CameraInput {
+  name: string;
+  rtsp_url: string;
+  location: string;
+  group: string;
+  domain: CameraDomain;
+}
+
+export interface CameraTestResult {
+  reachable: boolean;
+  resolution: string | null;
+  fps: number | null;
+  error: string | null;
+}
+
+export async function listCameras(): Promise<Camera[]> {
+  return request<Camera[]>("/cameras");
+}
+
+export async function createCamera(input: CameraInput): Promise<{ id: number; status: CameraStatus }> {
+  return request("/cameras", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateCamera(
+  id: number,
+  input: Partial<CameraInput> & { status?: CameraStatus },
+): Promise<Camera> {
+  return request<Camera>(`/cameras/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function deleteCamera(
+  id: number,
+): Promise<{ id: number; deleted: boolean; status?: CameraStatus }> {
+  return request(`/cameras/${id}`, { method: "DELETE" });
+}
+
+export async function testCameraConnection(id: number): Promise<CameraTestResult> {
+  return request<CameraTestResult>(`/cameras/${id}/test`, { method: "POST" });
 }

@@ -1039,3 +1039,134 @@ from the database, so the database is what has to stay trustworthy.
   rare case the file removal itself fails.
 - All checklist items and the acceptance criterion for OMNI-207 are
   satisfied.
+
+---
+
+## OMNI-208 · Cameras screen
+
+### Why this ticket exists
+
+The first real screen built on top of the camera CRUD and connection-test
+endpoints from OMNI-203/204 — proof, for a human, that "register a camera
+against the simulator and see it turn connected" is actually true, not just
+true in a `pytest` assertion.
+
+### What was built
+
+**`frontend/src/app/(app)/cameras/page.tsx`** — list, add/edit form, status
+badges, per-row Test/Edit/Disable/Delete actions, an empty state, and
+role-based rendering, all in one client component following this app's
+existing pattern (no state library — `useState`/`useEffect`, matching
+`sidebar.tsx` and `sign-in/page.tsx`'s style exactly, down to the rounded-2xl
+card and zinc/indigo palette).
+
+**OMNI-208 needed zero backend changes.** Every capability the screen
+needed (create, list, patch, delete, test) was already built and tested in
+OMNI-203/204. This ticket is purely `frontend/` plus the routing fix below.
+
+**"Test Connection … before saving" met the backend's actual shape
+head-on.** `POST /cameras/{id}/test` needs an id — there's no way to test an
+address that doesn't have a row yet. Rather than invent a new
+test-without-persisting endpoint (real scope creep past what OMNI-204
+built), the form's "Test Connection" button creates the camera on first use
+(or patches the existing draft if the user edited fields since), then tests
+it, and shows the result inline — the form stays open either way, so the
+user sees the result *before* closing it, which is what "before saving"
+means from the browser's side even though the row exists in the database a
+moment earlier than that phrase might suggest literally. Documented here so
+the reasoning is visible, not just the code:
+
+```ts
+async function saveDraft(): Promise<number> {
+  if (formCameraId !== null) {
+    await updateCamera(formCameraId, patchPayload());
+    return formCameraId;
+  }
+  const created = await createCamera(form);
+  setFormCameraId(created.id);
+  return created.id;
+}
+```
+
+**A routing bug found before it ever reached a browser.** Wiring `/cameras`
+into nginx and `next.config.ts` rewrites the same way OMNI-111 wired
+`/auth`, `/admin` and `/nav` would have been wrong: `/cameras` is *both* the
+camera-list API path *and* the Cameras screen's own page path, and neither
+`/auth`, `/admin` nor `/nav` have a matching frontend page, so this
+collision never existed before. Under the naive copy of the existing
+pattern, a real browser navigating to `/cameras` would have hit nginx's API
+rule first and gotten raw JSON back instead of the page. Caught by
+literally reading what the rule would do to that exact URL before touching
+a browser — confirmed for real once fixed (see verification below).
+
+The fix: every API call now goes under `/api/*`
+(`infra/nginx/default.conf`, `frontend/next.config.ts`,
+`frontend/src/lib/api-client.ts`'s `request()`), with nginx stripping the
+prefix before proxying to `query`. `query`'s own routes are completely
+unchanged — every already-tested OMNI-203–207 endpoint still lives at
+literally `/cameras`, `/videos`, etc.; only this edge layer knows `/api`
+exists. This isn't a workaround scoped to `/cameras` alone — it fixes the
+same latent collision for `/videos` (OMNI-209 will need a page there too)
+and any future screen whose name matches its resource, instead of
+special-casing collisions one at a time as they're discovered.
+
+**Role gating matches the API's real boundary, not just the ticket's
+literal wording.** The checklist says "create and delete are not rendered
+for an operator" — Edit isn't mentioned, but `PATCH /cameras/{id}` is
+*also* admin-only per OMNI-203, so showing an Edit or Disable button to an
+operator would just be a guaranteed-403 button. All four admin actions
+(Add, Edit, Disable, Delete) are gated on `user?.role === "admin"` together,
+matching what the API will actually allow, not just the two verbs the
+ticket named.
+
+### Verification performed
+
+1. **`npx tsc --noEmit`** — clean.
+2. **`npx eslint`** on every file this ticket touched — one real finding,
+   `react-hooks/set-state-in-effect` on the initial-load `useEffect`
+   (`refresh()` called directly in the effect body). Fixed by matching
+   `sidebar.tsx`'s already-working pattern — an inline `.then()`/`.catch()`
+   for the initial load — rather than suppressing the rule; the shared
+   `refresh()` helper stays for the event handlers, which the rule doesn't
+   flag. Zero remaining findings in new code; the one remaining warning
+   (`no-location-assign-relative-destination` on `api-client.ts:52`) is on a
+   line from OMNI-105/109, untouched by this ticket.
+3. **The routing collision, proven for real, live** — `curl` against the
+   running stack, before and after the `/api` fix:
+   ```
+   GET https://localhost/cameras     -> <!DOCTYPE html>...        (the page)
+   GET https://localhost/api/health  -> {"status":"ok"}            (the API)
+   GET https://localhost/api/cameras (no token) -> 401             (the API, auth-gated)
+   ```
+4. **The full screen's flow, live, through the exact network path a browser
+   would use** (nginx TLS → `/api/*` → `query`) — everything the page's
+   buttons do, called directly in the same sequence a click would trigger:
+   create → test (reachable, real resolution/fps, status flips to
+   `connected`) → list → edit → disable → delete, each one checked against
+   the real response. Then a second camera with a bad address, tested the
+   same way: `{"reachable": false, "error": "unreachable"}` — the
+   acceptance criterion's "specific error for a bad address," proven
+   end-to-end.
+5. **What was *not* verified: actually looking at the page.** The Claude in
+   Chrome browser extension wasn't connected in this environment, so the
+   rendered screen — badge colors, the modal, button states, the empty
+   state's real appearance — was never visually confirmed, only proven
+   correct at the network layer above. The code was written to match this
+   app's established Tailwind conventions exactly (same classes, same
+   patterns as `sign-in/page.tsx` and `sidebar.tsx`), and `tsc`/`eslint`
+   confirm it compiles and follows React's rules, but that is not the same
+   claim as "a human looked at it in a browser." **This should be opened in
+   a real browser and clicked through before being treated as fully done.**
+
+### Result
+
+- The Cameras screen lists, creates, tests, edits, disables and deletes
+  cameras against the real backend, gated to admin for every write action
+  the API itself restricts.
+- A real routing bug — `/cameras` colliding between the API and the page —
+  was caught and fixed before it ever reached a browser, with a general fix
+  (`/api/*`) rather than a one-off patch, closing the same latent bug for
+  `/videos` ahead of OMNI-209.
+- Every checklist item is implemented and verified at the network level;
+  visual/interactive confirmation in an actual browser is the one piece
+  still outstanding, flagged explicitly rather than assumed.

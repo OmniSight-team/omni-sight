@@ -281,14 +281,14 @@ the filtering visible in the SQL, not the response size.
 
 ## OMNI-208 · Cameras screen
 
-- [ ] List: name, location, group, status badge, last-seen time
-- [ ] Add-camera form with a **Test Connection button that reports what it found
+- [x] List: name, location, group, status badge, last-seen time
+- [x] Add-camera form with a **Test Connection button that reports what it found
       before saving** — resolution and frame rate, or the specific failure
-- [ ] Status as a coloured badge so an unreachable camera is obvious at a glance
-- [ ] Edit, disable and delete, with delete confirmed
-- [ ] Empty state explaining how to register the first camera, **including the
+- [x] Status as a coloured badge so an unreachable camera is obvious at a glance
+- [x] Edit, disable and delete, with delete confirmed
+- [x] Empty state explaining how to register the first camera, **including the
       simulator address** so Cyrine can start without reading a ticket
-- [ ] Create and delete are not rendered for an operator — and the API refuses them
+- [x] Create and delete are not rendered for an operator — and the API refuses them
       anyway (OMNI-203)
 
 **Acceptance:** register a camera against the simulator from the browser, see it
