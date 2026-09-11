@@ -51,3 +51,10 @@ class CameraOut(BaseModel):
     domain: Domain
     status: CameraStatus
     last_seen_at: datetime | None
+
+
+class CameraTestResponse(BaseModel):
+    reachable: bool
+    resolution: str | None = None
+    fps: float | None = None
+    error: str | None = None

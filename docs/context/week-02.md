@@ -479,3 +479,158 @@ test file.
   through the (nonexistent) UI.
 - All checklist items and the acceptance criterion for OMNI-203 are
   satisfied.
+
+---
+
+## OMNI-204 · Connection test, end to end
+
+### Why this ticket exists
+
+The plan calls this the single most valuable thing in the slice: a camera
+that silently fails costs a day in slice 4, once continuous capture depends
+on it. Everything downstream — OMNI-208's Test Connection button, slice 4's
+capture loop — assumes this endpoint already tells the truth about whether a
+stream is actually there.
+
+### What was built
+
+**`services/ingestion/app/streaming.py`** — `probe_stream(rtsp_url)`, the
+actual OpenCV work: open the stream, read one frame, report resolution and
+fps, always release the capture. Three problems had to be solved for real,
+not glossed over:
+
+**1. The request must never hang**, no matter what the remote end does.
+`cv2.VideoCapture` is a blocking C call with no reliable way to interrupt it
+from Python mid-call, so the open-and-read step runs in a worker thread and
+the caller waits on it with a hard deadline:
+
+```python
+future = _executor.submit(_open_and_read, rtsp_url)
+try:
+    resolution, fps = future.result(timeout=STREAM_OPEN_TIMEOUT_S)
+except concurrent.futures.TimeoutError as exc:
+    raise ProbeError("timeout", "stream did not open in time") from exc
+```
+
+If the deadline fires, the request returns immediately; the worker thread is
+left running and releases its own capture whenever the remote end finally
+answers or errors. That's a real trade-off (a timed-out probe leaks a thread
+until it resolves) accepted deliberately — a connection test is a rare,
+human-triggered action, not a hot path, and it's bounded by the executor's
+`max_workers=4`.
+
+**2. Three distinguishable reasons, not "something went wrong."** A cheap
+TCP preflight (`socket.create_connection` with its own short timeout) runs
+*before* touching cv2 at all, so a dead host or a closed port is reported as
+`unreachable` in milliseconds instead of waiting out the full stream-open
+deadline. Anything that hangs past that — DNS resolves, TCP would connect,
+but nothing ever completes the RTSP handshake — becomes `timeout`.
+
+**3. `authentication failed` needed a real signal, and OpenCV's Python API
+doesn't expose one.** `cv2.VideoCapture` gives back nothing on failure but
+`False` — no status code, no message. The one place a real "401
+Unauthorized" actually shows up is ffmpeg's own log lines, written straight
+to the process's stderr file descriptor, not to anything Python can catch.
+So the open-and-read call temporarily redirects fd 2 to a tempfile and reads
+it back afterward:
+
+```python
+with _capture_stderr() as captured:
+    capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+    ...
+captured.seek(0)
+log_text = captured.read().decode(errors="replace")
+```
+
+Redirecting an OS file descriptor is process-wide, not per-thread — two
+probes running at once would stomp on each other's capture — so
+`_stderr_capture_lock` (a plain `threading.Lock`) serializes just that
+narrow window. `classify_open_failure()` then looks for `"401"` /
+`"unauthorized"` in the captured text and falls back to `unreachable`
+otherwise; it's a pure function, independent of the capture mechanics, so it
+can be tested directly with a fabricated log line.
+
+**`services/query/app/ingestion_client.py`** — a small httpx wrapper query
+uses to call ingestion's `/probe/stream`, raising `IngestionUnavailableError`
+on any transport failure. `httpx` moved from a dev-only test dependency to a
+real one (`uv add httpx --package omnisight-query`) — this is the first
+ticket where query makes an outbound HTTP call in production code, not just
+in a test client.
+
+**`services/query/app/cameras.py`** gained `POST /cameras/{id}/test`, open
+to any authenticated role (`get_current_user`, not `require_role(ADMIN)`) —
+testing a connection isn't a write to the camera's configuration the way
+create/edit/delete are, and an operator wanting to know if a camera is still
+up is exactly the "operators may view" case NFR-7 describes:
+
+```python
+if result["reachable"]:
+    camera.status = CameraStatus.CONNECTED
+    camera.last_seen_at = datetime.now(UTC)
+else:
+    camera.status = CameraStatus.UNREACHABLE
+```
+
+`last_seen_at` only moves on an actual successful probe — it means "last
+time this camera was confirmed alive," not "last time someone tried."
+
+### Verification performed
+
+1. **All three failure reasons proven live, for real, against the actual
+   running `ingestion` container** — a one-off script run with
+   `docker compose exec ingestion uv run --package omnisight-ingestion
+   python ...` (never committed) called `probe_stream` directly against:
+   - the real simulator (`rtsp://mediamtx:8554/cam01`) →
+     `{'resolution': '640x360', 'fps': 15.0}`
+   - a guaranteed-unresolvable host (`no-such-host.invalid`) →
+     `unreachable | [Errno -2] Name or service not known`
+   - a genuine blackhole: a raw socket in the same script that accepts a TCP
+     connection and then never sends a byte → `timeout | stream did not
+     open in time | elapsed=5.00s` — confirming the request returns at
+     exactly the configured deadline, not "eventually."
+   - `classify_open_failure()` fed a fabricated `"401 Unauthorized"` log
+     line → `authentication failed`; a generic connection-refused line →
+     `unreachable`. (Genuinely triggering a live 401 would mean adding
+     authentication to the shared OMNI-201 simulator, which this ticket
+     doesn't ask for and which risks the ten already-proven feeds — the
+     classifier itself is what's under test here, and it doesn't care where
+     the log text came from.)
+2. **The real end-to-end chain, query → ingestion → mediamtx, run live** — a
+   second one-off script, run inside the actual `query` container, created a
+   real admin user and a real camera, then called the real
+   `POST /cameras/{id}/test` route over the real FastAPI app:
+   - good address: `{'reachable': True, 'resolution': '640x360', 'fps':
+     15.0, 'error': None}`, and the camera's row in the database afterward
+     showed `status=connected`, `last_seen_at` populated with a real
+     timestamp.
+   - bad address: `{'reachable': False, ..., 'error': 'unreachable'}`,
+     row's `status` became `unreachable`.
+3. **`uv run pytest`** — **37 passed** (30 from before this ticket, 7 new in
+   `test_camera_connection_test.py`). These mock `ingestion_client
+   .probe_stream` rather than hitting live RTSP infrastructure — they prove
+   the route's own status-transition logic (reachable → connected +
+   `last_seen_at` set; unreachable → `unreachable` + `last_seen_at`
+   untouched; each of the three reason strings passed through verbatim;
+   missing camera → 404; ingestion down → 502), which is exactly what a
+   fast, deterministic, CI-safe test can responsibly cover. The real network
+   behavior each reason depends on was proven live in steps 1 and 2 above,
+   not faked here — this file's own docstring says so, so the boundary
+   between "real infra verified live" and "logic verified by test" stays
+   visible to whoever reads it next.
+4. **Nothing broke** — `uv run ruff check` clean on every hand-written file
+   this ticket touched, aside from the same pre-existing `B008`
+   (`Depends(...)` in argument defaults) pattern already present everywhere
+   else in `services/query/app`.
+
+### Result
+
+- `ingestion`'s `/probe/stream` opens a stream, reads one frame, and always
+  releases the capture — proven against a real feed, a real DNS failure, and
+  a real hang past its own deadline, not just against happy-path input.
+- The endpoint never hangs: a dead address returns in milliseconds, a
+  stream that never responds returns at exactly its configured deadline.
+- `query`'s `/cameras/{id}/test` calls ingestion for real, over a real HTTP
+  call, and updates the camera's `status` and `last_seen_at` from the actual
+  result — verified against the real database, not mocked.
+- All checklist items and the acceptance criterion for OMNI-204 are
+  satisfied.

@@ -1,11 +1,21 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from omnisight_common import CameraStatus, Role
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user, require_role
+from app.ingestion_client import IngestionUnavailableError
+from app.ingestion_client import probe_stream as ingestion_probe_stream
 from app.models import Camera, User, Video
-from app.schemas import CameraCreate, CameraCreateResponse, CameraOut, CameraUpdate
+from app.schemas import (
+    CameraCreate,
+    CameraCreateResponse,
+    CameraOut,
+    CameraTestResponse,
+    CameraUpdate,
+)
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
@@ -98,3 +108,35 @@ def delete_camera(
     db.delete(camera)
     db.commit()
     return {"id": camera_id, "deleted": True}
+
+
+@router.post("/{camera_id}/test", response_model=CameraTestResponse)
+def test_camera_connection(
+    camera_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> CameraTestResponse:
+    camera = db.get(Camera, camera_id)
+    if camera is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
+
+    try:
+        result = ingestion_probe_stream(camera.rtsp_url)
+    except IngestionUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="ingestion service unavailable"
+        ) from exc
+
+    if result["reachable"]:
+        camera.status = CameraStatus.CONNECTED
+        camera.last_seen_at = datetime.now(UTC)
+    else:
+        camera.status = CameraStatus.UNREACHABLE
+    db.commit()
+
+    return CameraTestResponse(
+        reachable=result["reachable"],
+        resolution=result.get("resolution"),
+        fps=result.get("fps"),
+        error=result.get("error"),
+    )

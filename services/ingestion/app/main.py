@@ -5,7 +5,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.logging_conf import configure_logging
+from app.schemas import StreamProbeRequest, StreamProbeResponse
 from app.settings import settings
+from app.streaming import ProbeError, probe_stream
 
 configure_logging()
 logger = logging.getLogger("app.request")
@@ -44,3 +46,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/probe/stream", response_model=StreamProbeResponse)
+def probe_stream_route(payload: StreamProbeRequest) -> StreamProbeResponse:
+    try:
+        result = probe_stream(payload.rtsp_url)
+    except ProbeError as exc:
+        return StreamProbeResponse(reachable=False, error=exc.reason)
+    return StreamProbeResponse(reachable=True, resolution=result["resolution"], fps=result["fps"])

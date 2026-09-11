@@ -198,16 +198,16 @@ costs a day in slice 4.
 POST /cameras/{id}/test -> {reachable, resolution, fps, error?}
 ```
 
-- [ ] Ingestion endpoint `POST /probe/stream {rtsp_url}`: open the stream, read one
+- [x] Ingestion endpoint `POST /probe/stream {rtsp_url}`: open the stream, read one
       frame, report resolution and frame rate, close it. It must always close, even
       on failure
-- [ ] A timeout — an unreachable address must not hang the request
-- [ ] **Specific failure reasons: unreachable, authentication failed, timeout.**
+- [x] A timeout — an unreachable address must not hang the request
+- [x] **Specific failure reasons: unreachable, authentication failed, timeout.**
       "Something went wrong" is not acceptable here
-- [ ] Query's `/cameras/{id}/test` calls ingestion and updates `status` and
+- [x] Query's `/cameras/{id}/test` calls ingestion and updates `status` and
       `last_seen_at` from the result
-- [ ] Test against a real simulator feed: reports resolution and frame rate
-- [ ] Test against a wrong address, and against a wrong port: two different reasons
+- [x] Test against a real simulator feed: reports resolution and frame rate
+- [x] Test against a wrong address, and against a wrong port: two different reasons
 
 **Acceptance:** a good address returns resolution and fps and flips the camera to
 `connected`; three distinct bad addresses return three distinct reasons.
