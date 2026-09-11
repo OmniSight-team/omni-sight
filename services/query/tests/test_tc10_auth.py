@@ -27,7 +27,7 @@ OPERATOR_EMAIL = "tc10-operator@omnisight.local"
 # Every route gated by get_current_user or require_role. /auth/login isn't
 # here — it's the public entry point, not a protected route. /health isn't
 # either — it's deliberately public.
-PROTECTED_GET_ROUTES = ["/auth/me", "/nav", "/admin/ping", "/cameras"]
+PROTECTED_GET_ROUTES = ["/auth/me", "/nav", "/admin/ping", "/cameras", "/videos"]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -88,7 +88,7 @@ def _expired_token() -> str:
 # --- Condition 1: valid token, correct role -> 200 ---
 
 
-@pytest.mark.parametrize("path", ["/auth/me", "/nav", "/cameras"])
+@pytest.mark.parametrize("path", ["/auth/me", "/nav", "/cameras", "/videos"])
 def test_valid_token_any_role_returns_200(path, operator_token):
     resp = client.get(path, headers={"Authorization": f"Bearer {operator_token}"})
     assert resp.status_code == 200

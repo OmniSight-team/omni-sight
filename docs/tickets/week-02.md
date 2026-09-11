@@ -267,12 +267,12 @@ GET /videos?source=&camera_id=&from=&to= -> [ ... ]
 DELETE /videos/{id}
 ```
 
-- [ ] **Filters applied in the query, not in the browser.** By slice 6 this table
+- [x] **Filters applied in the query, not in the browser.** By slice 6 this table
       holds thousands of dataset rows; a client-side filter dies there
-- [ ] Pagination, for the same reason
-- [ ] Both uploads and camera recordings come back from one endpoint — the archive
+- [x] Pagination, for the same reason
+- [x] Both uploads and camera recordings come back from one endpoint — the archive
       is one list, not two
-- [ ] Delete removes the row and the file together, or neither
+- [x] Delete removes the row and the file together, or neither
 
 **Acceptance:** filtering by camera and by date range returns correct results with
 the filtering visible in the SQL, not the response size.

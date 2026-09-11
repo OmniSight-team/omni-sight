@@ -1,8 +1,18 @@
 import logging
 import uuid
+from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from omnisight_common import VideoSource, VideoStatus
 from sqlalchemy.orm import Session
 
@@ -152,16 +162,7 @@ def _probe_and_finalize(video: Video, db: Session) -> str | None:
     return error
 
 
-@router.get("/{video_id}", response_model=VideoDetailResponse)
-def get_video(
-    video_id: int,
-    db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> VideoDetailResponse:
-    video = db.get(Video, video_id)
-    if video is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="video not found")
-
+def _to_detail(video: Video) -> VideoDetailResponse:
     return VideoDetailResponse(
         id=video.id,
         filename=video.filename,
@@ -177,3 +178,78 @@ def get_video(
         created_at=video.created_at,
         segments_count=0,
     )
+
+
+VIDEO_NOT_FOUND_MESSAGE = "video not found"
+
+
+@router.get("", response_model=list[VideoDetailResponse])
+def list_videos(
+    source: VideoSource | None = None,
+    camera_id: int | None = None,
+    from_: datetime | None = Query(None, alias="from"),
+    to: datetime | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[VideoDetailResponse]:
+    # Every filter and the pagination itself are applied to the query before
+    # it runs — the WHERE clauses do the filtering, not a Python loop over
+    # rows already pulled into memory. By slice 6 this table holds thousands
+    # of dataset rows; a client- or app-side filter would not survive that.
+    query = db.query(Video)
+    if source is not None:
+        query = query.filter(Video.source == source)
+    if camera_id is not None:
+        query = query.filter(Video.camera_id == camera_id)
+    if from_ is not None:
+        query = query.filter(Video.created_at >= from_)
+    if to is not None:
+        query = query.filter(Video.created_at <= to)
+
+    videos = query.order_by(Video.created_at.desc()).offset(offset).limit(limit).all()
+    return [_to_detail(video) for video in videos]
+
+
+@router.get("/{video_id}", response_model=VideoDetailResponse)
+def get_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> VideoDetailResponse:
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
+
+    return _to_detail(video)
+
+
+@router.delete("/{video_id}")
+def delete_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
+
+    file_path = Path(video.path)
+    # The database row is the source of truth every other endpoint reads
+    # from, so it's deleted (and committed) first. Only once that succeeds
+    # is the file removed — the failure mode this ordering avoids is a row
+    # that claims a video exists while its file is already gone; an
+    # orphaned file with no row is wasted disk, not a data-integrity bug.
+    db.delete(video)
+    db.commit()
+
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "video file could not be removed after its row was deleted",
+            extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
+        )
+
+    return {"id": video_id, "deleted": True}

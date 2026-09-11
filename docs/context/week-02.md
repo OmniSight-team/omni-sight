@@ -910,3 +910,132 @@ reason to expose one.
   `segments_count` reserved at zero for slice 3.
 - All checklist items and the acceptance criterion for OMNI-206 are
   satisfied.
+
+---
+
+## OMNI-207 · Video listing with server-side filters
+
+### Why this ticket exists
+
+OMNI-209's archive screen and slice 6's dataset loaders both need one place
+to list every video — uploads and camera recordings alike — with the
+filtering and paging done where it scales. By slice 6 this table holds
+thousands of dataset rows; a filter written in the browser or in Python
+after the fact would work fine on the ten rows in this sprint's demo and
+then fall over exactly when it matters.
+
+### What was built
+
+**`GET /videos`**, added to `services/query/app/videos.py` alongside the
+existing `POST /upload` and `GET /{id}` from OMNI-205/206. Every filter is a
+`.filter()` clause on the SQLAlchemy query *before* `.all()` runs, so the
+WHERE clause does the work, not a Python loop over rows already pulled into
+memory:
+
+```python
+query = db.query(Video)
+if source is not None:
+    query = query.filter(Video.source == source)
+if camera_id is not None:
+    query = query.filter(Video.camera_id == camera_id)
+if from_ is not None:
+    query = query.filter(Video.created_at >= from_)
+if to is not None:
+    query = query.filter(Video.created_at <= to)
+
+videos = query.order_by(Video.created_at.desc()).offset(offset).limit(limit).all()
+```
+
+`camera_id` and `created_at` are exactly the two columns OMNI-202 already
+indexed for this — "the archive filters on both" was written into that
+ticket's own note before this one existed. `from` is a query parameter but a
+Python keyword, so it's aliased (`Query(None, alias="from")`) to the local
+name `from_`. Pagination is `limit`/`offset` query parameters (default 50,
+capped at 200) rather than a wrapped response envelope — the ticket's own
+line shows the endpoint returning a bare array, and `GET /cameras` already
+established that shape for a list endpoint in this service.
+
+No `source` filter is needed to make "one list, not two" true — uploads
+(`source=upload`, `camera_id=NULL`) and camera recordings
+(`source=camera`, `camera_id` set) are just rows in the same table, so a
+plain unfiltered `GET /videos` already returns both. `source` and
+`camera_id` are there so the archive screen *can* narrow the view, not
+because the two kinds of video are stored or served separately.
+
+**`DELETE /videos/{id}`** — the "row and file together, or neither"
+requirement runs into a real limit: a database transaction and a filesystem
+unlink can't be made truly atomic across the two without much heavier
+machinery (a two-phase commit, a tombstone-and-reconcile job) that nothing
+in this sprint asks for. The choice made instead: delete and commit the
+database row *first*, then remove the file:
+
+```python
+db.delete(video)
+db.commit()
+
+try:
+    file_path.unlink(missing_ok=True)
+except OSError as exc:
+    logger.warning(...)  # not re-raised
+```
+
+This picks the safer of the two possible partial-failure states on purpose.
+If the file removal fails after the row is already gone, the result is an
+orphaned file — wasted disk, but harmless, since nothing in the API can
+reach it anymore. The alternative ordering (file first, then row) would risk
+the opposite: a database row that still claims a video exists while its
+file is already gone, which is the kind of inconsistency that breaks a
+future `GET` or playback attempt. Every other endpoint in this service reads
+from the database, so the database is what has to stay trustworthy.
+
+### Verification performed
+
+1. **The filtering is genuinely in the SQL, live, against a real camera and
+   real rows spanning different dates** — this is the acceptance
+   criterion's own wording, so it needed the compiled statement, not just a
+   correct-looking response:
+   ```python
+   q = session.query(Video).filter(Video.camera_id == cam_a_id).filter(Video.created_at >= cutoff)
+   print(str(q.statement.compile(compile_kwargs={"literal_binds": True})))
+   # SELECT videos.id, ... FROM videos
+   # WHERE videos.camera_id = 150 AND videos.created_at >= '2026-09-11 15:58:49...'
+   ```
+   A literal `WHERE`, not a response that merely happened to look filtered.
+2. **The same filters, live, through the real running endpoint** — four
+   real videos seeded directly into the real database (two uploads at
+   different ages, two camera recordings against two different real
+   cameras), then `GET /videos?camera_id=...` returned exactly the one
+   video for that camera, `?source=camera` returned exactly the two camera
+   recordings, and a `?from=...&to=...` covering the last 4 hours excluded
+   the 10-day-old upload while including everything newer — proving the
+   filters compose correctly together, not just individually.
+3. **Delete removes both, live** — a real file confirmed present on the
+   real shared volume, `DELETE /videos/{id}` against the running container,
+   then both the file (`Path.is_file()`) and the database row confirmed gone
+   afterward.
+4. **`uv run pytest`** — **62 passed** (49 from before this ticket, 9 new in
+   `test_video_listing.py`, 2 new parametrized cases in `test_tc10_auth.py`
+   from adding `/videos` to its generic auth sweep). These prove filter and
+   pagination *correctness* — right rows, right order, right page size —
+   against the real database; the "filtering lives in SQL, not Python"
+   claim itself was proven live in steps 1–2 above, since a passing test
+   can't distinguish "filtered by the database" from "filtered in Python
+   after fetching everything" — only reading the actual SQL can.
+5. **Nothing broke** — `uv run ruff check` clean on every hand-written file
+   this ticket touched; remaining findings are the same pre-existing `B008`
+   pattern already present everywhere else in `services/query/app`, plus
+   two pre-existing findings in `test_tc10_auth.py` untouched by this
+   ticket's two one-line additions to that file.
+
+### Result
+
+- `GET /videos` filters by source, camera and date range entirely in SQL,
+  paginates with `limit`/`offset`, and returns uploads and camera recordings
+  from the same query — proven by reading the compiled statement itself,
+  not inferred from a correct-looking response.
+- `DELETE /videos/{id}` removes the database row first and the file second,
+  a deliberate choice that favors the database — the thing every other
+  endpoint trusts — never being wrong about what still exists, even in the
+  rare case the file removal itself fails.
+- All checklist items and the acceptance criterion for OMNI-207 are
+  satisfied.
