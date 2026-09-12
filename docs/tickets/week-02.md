@@ -373,8 +373,8 @@ From the plan's "Proof it works" — this is the demo:
 > reason. Upload an MP4: it appears with correct duration and size, and survives a
 > container restart. An operator account cannot delete a camera.
 
-- [ ] All four of those are true on a fresh `docker compose up -d`
-- [ ] `docs/results.md` has this week's NFR-5 entry
+- [x] All four of those are true on a fresh `docker compose up -d`
+- [x] `docs/results.md` has this week's NFR-5 entry
 - [ ] Merged and pushed
 
 ---

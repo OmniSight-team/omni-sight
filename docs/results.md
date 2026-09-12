@@ -127,3 +127,30 @@ timed the kill programmatically instead of by reflex.
 **Requires:** Postgres, `query` and `ingestion` running
 (`docker compose up -d`); Docker CLI access on the host to actually kill and
 restart containers.
+
+## Definition of done — the plan's own demo, fresh — 2026-09-12
+
+**Method:** `docker compose down -v` (wiped `postgres_data`, `video_storage`
+and `frontend_node_modules` — a genuinely empty state, not a reused dev
+database), `docker compose up -d`, `alembic upgrade head`, two freshly
+seeded accounts (one admin, one operator), then the plan's own four-part
+demo run end to end.
+
+| Demo step | Result |
+|---|:--:|
+| Register a camera against the simulator, Test Connection reports resolution and fps | pass — `640x360 @ 15.0 fps`, status `connected` |
+| An invalid address reports a specific reason | pass — `error: "unreachable"` |
+| Upload an MP4: correct duration and size | pass — 7.000s source, `duration_s: 7.0` exact; `size_mb: 0.03` matching the real file |
+| Same upload survives a container restart | pass — file checksum and full record identical before/after `docker compose restart` |
+| An operator account cannot delete a camera | pass — `403 {"detail":"insufficient role"}`, camera still present afterward |
+
+All four ran against real containers, real ffmpeg-generated video, and a
+real RTSP address served by the OMNI-201 simulator — not mocked, and not
+reusing state left over from earlier tickets' verification.
+
+`uv run pytest` afterward — **62 passed** — confirms the wipe and reseed
+didn't leave the application itself in a state the rest of the suite
+disagrees with.
+
+**Not covered by this entry:** "Merged and pushed" — a git action, out of
+scope for a results entry and not done as part of this check.
