@@ -320,13 +320,13 @@ correct duration and size.
 **Why:** **NFR-5** — *On any failure or crash, video or stored data lost = 0.* This
 is the storage half; fault injection comes in slice 17.
 
-- [ ] `docker compose restart`, then confirm every uploaded file and row is still
+- [x] `docker compose restart`, then confirm every uploaded file and row is still
       there
-- [ ] `docker compose down` then `up -d` — same check. Named volumes, not bind
+- [x] `docker compose down` then `up -d` — same check. Named volumes, not bind
       mounts to a temp directory
-- [ ] Kill the query container mid-upload. The result must be either a complete
+- [x] Kill the query container mid-upload. The result must be either a complete
       file with a row, or no file and no row — never a row pointing at a partial file
-- [ ] Record the result in `docs/results.md` under NFR-5, dated
+- [x] Record the result in `docs/results.md` under NFR-5, dated
 
 **Acceptance:** both restart checks pass; the interrupted upload leaves no orphan
 row.

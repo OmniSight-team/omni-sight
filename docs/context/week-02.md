@@ -1344,3 +1344,109 @@ at this in a browser — is closed, and it's exactly what caught this bug.
 never reaches the proxied service's own logs — only nginx's. When a request
 this app's own service logs know nothing about needs debugging, check the
 edge (nginx) first, not just query and ingestion.
+
+---
+
+## OMNI-210 · Prove nothing is lost on restart
+
+### Why this ticket exists
+
+NFR-5 — *on any failure or crash, video or stored data lost = 0* — has been
+a design constraint since OMNI-205 (the staging-file-then-atomic-rename
+pattern, the choice to delete the database row before the file on
+`DELETE /videos/{id}`), but a constraint that shaped the code isn't the same
+claim as proof the code actually holds it. This ticket is that proof,
+against the real containers, not a review of the reasoning.
+
+### What was done
+
+No code changed — this ticket is entirely live verification, the same
+shape as OMNI-201's simulator checks: real actions against the real running
+stack, results written up in `docs/results.md` (a new `## NFR-5` section)
+rather than a test file, because what's being proven is container and
+volume behavior, not application logic a unit test can exercise.
+
+**Two straightforward restart checks** — a real uploaded video's row and
+file, checksummed before and after, survived both a `docker compose
+restart` and a full `docker compose down` + `up -d` (confirmed
+`docker compose ps -a` showed zero containers in between, so this was a
+genuine teardown, not a restart in disguise). `docker volume ls` confirmed
+`postgres_data` and `video_storage` survived the `down` untouched — the
+entire point of OMNI-205 choosing named volumes over a bind mount to a temp
+directory.
+
+**The kill-mid-upload check needed two attempts, and the first attempt's
+failure is itself worth recording.** The first try sent a slow client
+through `nginx`; killing `query` produced correctly no database row, but
+also no partial file at all — because nginx buffers a client's entire
+request body before forwarding it upstream by default
+(`proxy_request_buffering on`, the nginx default, never touched by this
+sprint). The slow client only ever fooled nginx; `query` itself hadn't
+received a single byte when it died, so there was nothing for it to have
+written yet. Correct result, wrong reason — this wasn't actually testing
+what the ticket asked for.
+
+Second attempt went directly at `query`'s own published port, bypassing
+nginx, with a real 480 MB upload and no artificial client-side pacing —
+Docker Desktop's networking is fast enough locally that a manually-timed
+`docker kill` from a separate command couldn't land reliably either (a
+first, smaller 450 MB attempt completed the entire round trip — write,
+rename, insert, probe, response — before a manual kill even landed). The
+fix: trigger the kill from *inside* the same Python process sending the
+upload, off the client's own running byte-counter, removing any dependency
+on guessing timing across separate tool calls:
+
+```python
+def read(self, n=-1):
+    ...
+    self.sent += len(piece)
+    if self.sent >= KILL_AT_BYTES and not killed_event.is_set():
+        killed_event.set()
+        subprocess.run(["docker", "kill", "phase-b-query-1"])
+    return piece
+```
+
+This landed the kill at a reproducible, known point (40% sent — 201,326,632
+of 503,316,480 bytes) and the client's own request ended in a genuine
+`ConnectionAbortedError`, confirming `query` really died mid-transfer, not
+after. Afterward: no row for the interrupted filename, and no orphaned
+`.part` file either. Both outcomes are consistent with
+`services/query/app/videos.py`'s actual design — the database row is only
+ever created *after* `staging_path.replace(final_path)` succeeds — an
+interruption anywhere before that point, whether during the network
+receive or during query's own copy-to-volume step, can only ever produce
+"nothing," never a row pointing at something incomplete.
+
+### Verification performed
+
+Recorded in full, with exact byte counts and checksums, in
+`docs/results.md` under `## NFR-5`. Summary:
+
+| Check | Result |
+|---|:--:|
+| `docker compose restart` — row and file survive, checksum unchanged | pass |
+| `docker compose down` + `up -d` — same, plus both named volumes confirmed to survive | pass |
+| Kill `query` mid-upload (real, verified interruption) — no orphan row, no orphan file | pass |
+
+`uv run pytest` — **62 passed** — re-run after all of the above to confirm
+none of the restarts, kills, or manual DB pokes around this verification
+left the application itself in a bad state.
+
+Also cleaned up genuinely orphaned files this session found sitting in
+`/data/videos` with no corresponding row — leftovers from OMNI-206's
+verification that a Windows bind-mount quirk (noted back in that ticket's
+own context) had kept `rm` from actually removing. Left the current
+reviewer's own real uploaded video (`row 248`, referenced from the manual
+OMNI-208/209 browser check) completely untouched — cross-checked against
+the database first, not deleted on sight.
+
+### Result
+
+- Every uploaded file and its database row survive both a `docker compose
+  restart` and a full `down`/`up -d` cycle, checksum-verified, not just
+  status-code-verified.
+- A `query` container killed genuinely mid-upload — proven by a real
+  connection-abort on the client side, not assumed from timing — never
+  leaves a row pointing at a file that doesn't exist or isn't complete.
+- All checklist items and the acceptance criterion for OMNI-210 are
+  satisfied, recorded in `docs/results.md` under NFR-5, dated 2026-09-12.

@@ -63,3 +63,67 @@ created before the test and deleted after — confirmed no `nfr9-*` rows
 remain in `users` afterward.
 
 **Requires:** Postgres running (`docker compose up -d`).
+
+## NFR-5 · On any failure or crash, video or stored data lost = 0 — 2026-09-12
+
+**Method:** live checks against the running stack (`docker compose up -d`),
+not a `pytest` suite — this is proving real container/volume behavior, not
+application logic. All three checks used a real uploaded video, not a
+fixture.
+
+| Check | Result |
+|---|:--:|
+| `docker compose restart` — row and file survive | pass |
+| `docker compose down` + `up -d` — row and file survive | pass |
+| Kill `query` mid-upload — no orphan row | pass |
+
+**`docker compose restart`:** uploaded a real 5-second, 21,086-byte MP4
+(`sha256: 36afef16…b895f`), confirmed via `GET /videos/{id}` and a checksum
+of the file on disk. Restarted every container in place. Checksum after
+restart: identical. `GET /videos/{id}` after restart: identical record,
+same id, same `size_bytes`, same `duration_s`.
+
+**`docker compose down` + `up -d`:** same video, same checks, this time
+after fully removing and recreating every container (not just restarting
+them) — `docker compose ps -a` showed zero containers between the two
+commands, confirming this genuinely tore down and rebuilt the stack, not a
+no-op. `docker volume ls` confirmed `phase-b_postgres_data` and
+`phase-b_video_storage` — the two volumes this check cares about — survived
+the teardown untouched, which is the entire reason OMNI-205 used named
+volumes rather than a bind mount to a temp directory. Checksum after:
+identical. Login with an existing account and `GET /videos/{id}` both
+succeeded with the same record, confirming both volumes (`postgres_data`
+for the user row surviving login, `video_storage` for the file) came back
+correctly, not just one of the two.
+
+**Kill `query` mid-upload:** the real test, and the one that needed two
+attempts to actually exercise. The first attempt sent a request through
+nginx with an artificially slow client; killing `query` produced no
+database row (correct) but also no partial file at all, because nginx
+buffers a client's entire request body before forwarding it upstream by
+default (`proxy_request_buffering on`) — the slow client only fooled nginx,
+`query` itself had received nothing yet when it died. Second attempt went
+directly to `query`'s own published port (bypassing nginx entirely) with a
+real, unthrottled 480 MB upload, killing the container from inside the same
+Python process that was sending it — timed off the client's own
+byte-counter (`docker kill` fired automatically at 40% sent, 201,326,632 of
+503,316,480 bytes), removing any dependency on guessing timing across
+separate tool calls. The client's request ended with a genuine
+`ConnectionAbortedError` (`WinError 10053`), confirming `query` really did
+die mid-transfer, not after. After restarting `query`: zero rows for the
+interrupted filename, and no orphaned `.part` file either — the row is only
+ever created after `services/query/app/videos.py`'s
+`staging_path.replace(final_path)` succeeds (OMNI-205), so an interruption
+before that point — during either the network receive or query's own
+copy-to-volume step — can only ever produce "nothing," never a row pointing
+at something incomplete. A first attempt at 450 MB (a smaller multiplier,
+sent without instrumented timing) actually completed — write, rename,
+insert, probe, response — in well under the ~1–2 seconds it took to react
+and issue `docker kill` manually from a separate command, which is itself a
+data point: on this stack, a sub-500 MB upload can complete faster than an
+operator can interrupt it by hand, which is exactly why the second attempt
+timed the kill programmatically instead of by reflex.
+
+**Requires:** Postgres, `query` and `ingestion` running
+(`docker compose up -d`); Docker CLI access on the host to actually kill and
+restart containers.
