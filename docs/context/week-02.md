@@ -1170,3 +1170,177 @@ ticket named.
 - Every checklist item is implemented and verified at the network level;
   visual/interactive confirmation in an actual browser is the one piece
   still outstanding, flagged explicitly rather than assumed.
+
+---
+
+## OMNI-209 · Video Archive screen
+
+### Why this ticket exists
+
+The last ticket before the sprint's own cut line. With this screen done,
+FR-1a is demonstrably complete in both halves from a browser — a camera
+registered and tested (OMNI-208), a file uploaded and probed (this ticket)
+— and the plan's own "Proof it works" demo becomes something that can
+actually be shown, not just curled.
+
+### What was built
+
+**`frontend/src/app/(app)/videos/page.tsx`** — recordings table, filters,
+and an upload control, following the same conventions OMNI-208 already
+established (no state library, `useState`/`useEffect`, the same card and
+badge styling). Like OMNI-208, this needed zero backend changes — OMNI-205
+through 207 already built upload, probing, listing and delete.
+
+**Upload progress needed a different tool than the rest of the app uses.**
+Every other call in `api-client.ts` goes through one shared `request()`
+helper built on `fetch()` — but `fetch()` has no cross-browser way to
+observe how much of a request body has been sent, so there is no way to
+show upload progress through it. `uploadVideo()` is the one function in
+this file that uses `XMLHttpRequest` instead, specifically for
+`xhr.upload.onprogress`:
+
+```ts
+xhr.upload.onprogress = (event) => {
+  if (onProgress && event.lengthComputable) {
+    onProgress(Math.round((event.loaded / event.total) * 100));
+  }
+};
+```
+
+It duplicates `request()`'s token-attachment, token-renewal and 401-redirect
+handling by hand rather than sharing that logic, since `fetch`-based
+`request()` and XHR-based upload don't share an underlying transport to
+factor the common parts through cleanly — noted here so it doesn't read as
+an accidental copy the next person "fixes" by merging back in.
+
+**Camera names, not raw ids.** `GET /videos` (OMNI-207) only ever returns
+`camera_id`, matching the plan's own field list — no join, no camera name.
+The ticket wants "camera" shown per row, so the page also loads
+`listCameras()` once on mount and resolves `camera_id -> name` client-side:
+
+```ts
+const cameraNames = new Map(cameras.map((camera) => [camera.id, camera.name]));
+...
+{video.camera_id != null ? (cameraNames.get(video.camera_id) ?? `#${video.camera_id}`) : "—"}
+```
+
+An upload (`camera_id: null`) shows `—`; a camera recording falls back to
+`#<id>` only if that camera's own row can't be found (e.g. it was since
+deleted) — never a blank cell.
+
+**Filters call the real query parameters OMNI-207 already built and
+proved run in SQL** — `source`, `camera_id`, `from`, `to` — as controlled
+inputs whose `useEffect` dependency array re-fetches on every change. The
+date inputs are date-only (`<input type="date">`); `from` is widened to
+that day's `00:00:00.000Z` and `to` to `23:59:59.999Z` so picking one day
+includes the whole day, not an instant of it.
+
+**The same `set-state-in-effect` lint rule from OMNI-208 applied here
+too**, and got the same fix: the initial/filter-driven load is an inline
+`listVideos(...).then(...).catch(...)` inside the effect (mirroring
+`sidebar.tsx`'s already-working pattern), while a separate `refreshVideos()`
+helper — safe to call directly, since it's invoked from event handlers, not
+from inside an effect body — is what upload and delete call afterward.
+
+### Verification performed
+
+1. **`npx tsc --noEmit`** — clean.
+2. **`npx eslint`** on every file this ticket touched — zero errors. Two
+   warnings, both `no-location-assign-relative-destination`: one
+   pre-existing (`api-client.ts:56`, from OMNI-105/109, untouched here), one
+   new at the same file's `uploadVideo()` 401 handler — same justification
+   as the pre-existing one: `uploadVideo` is a plain module function, not a
+   component or hook, so `useRouter()` isn't reachable from it, same real
+   constraint the existing code already lives with.
+3. **No `/videos` routing collision** — the same class of bug OMNI-208 found
+   and fixed generally (the `/api/*` prefix) was checked again for this
+   ticket's own route, live:
+   ```
+   GET https://localhost/videos     -> <!DOCTYPE html>...   (the page)
+   GET https://localhost/api/videos (no token) -> 401        (the API)
+   ```
+4. **The full upload flow, live, through the exact network path a browser
+   would use** — a real 4-second, 320×240 clip generated with `ffmpeg`,
+   uploaded with `curl` (a genuine multipart POST over a real socket, the
+   same request shape `XMLHttpRequest` sends) against the running stack
+   through `https://localhost/api/videos/upload`:
+   ```
+   {"id":181,"filename":"omni209_good.mp4","duration_s":4.0,"size_mb":0.02,
+    "fps":10.0,"status":"ready","error":null}
+   ```
+   Exact duration match — this is the acceptance criterion's own "correct
+   duration and size," proven against a file of genuinely known length, not
+   assumed from a passing status code. Then confirmed the same video shows
+   up in `GET /api/videos` (unfiltered) and in `?source=upload`, and that
+   `DELETE /api/videos/{id}` removes it.
+5. **What was *not* verified, same as OMNI-208: actually watching it
+   happen in a browser.** The Claude in Chrome extension was still not
+   connected in this environment. The upload's real progress bar — the
+   whole reason `uploadVideo()` uses `XMLHttpRequest` instead of `fetch` —
+   is inherently something only a real browser's network stack can drive;
+   `curl` proves the server side handles a real streamed multipart upload
+   correctly (matching OMNI-205's own memory-spike finding: a real socket
+   is the only trustworthy way to prove streaming behavior), but nothing
+   server-side can prove the *client's* progress callback actually fires
+   and updates the bar on screen. **This should be opened in a real
+   browser — including an upload of a large-enough file to actually watch
+   the bar move — before being treated as fully done.**
+
+### Result
+
+- The Video Archive screen lists uploads and camera recordings in one
+  table with resolved camera names, filters that drive the real SQL query
+  parameters OMNI-207 already proved, and status badges for all four
+  `VideoStatus` values.
+- Upload has a real progress bar, backed by `XMLHttpRequest` specifically
+  because `fetch` can't report upload progress across browsers — verified
+  as a genuine streamed multipart upload against the live stack, though not
+  watched happen on screen.
+- A known-length file uploaded through the real endpoint probed to its
+  exact duration, matching the acceptance criterion precisely rather than
+  approximately.
+- Every checklist item is implemented and verified at the network level,
+  and — after the fix below — confirmed for real in a browser: a real
+  20m 8s, 35.9 MB MP4 uploaded, landed `ready` with the correct duration and
+  size, showed the correct upload timestamp, and deleted cleanly.
+
+### Addendum: the manual browser check found a real bug
+
+Exactly the outcome that caveat above was flagged for. A real 3.35 MB, one
+minute clip uploaded from the browser came back "upload failed" — but
+`query`'s own request log had no `POST /videos/upload` line at all for it.
+`nginx`'s log did:
+
+```
+[error] client intended to send too large body: 3515728 bytes,
+request: "POST /api/videos/upload HTTP/1.1"
+-> 413
+```
+
+`client_max_body_size` was never set in `infra/nginx/default.conf`, so
+nginx was silently enforcing its own built-in default — 1 MB — in front of
+`query`'s configured 500 MB (`settings.max_upload_size_mb`, OMNI-205). Every
+`curl`/`httpx` upload this whole sprint's verification used, including
+OMNI-209's own "live" check, happened to stay under 1 MB (a few KB to
+~18 KB), so nothing before this ever exercised the path that would have
+caught it — a real gap in how this ticket was verified, not just bad luck.
+
+Fixed with one line, `client_max_body_size 500m;` on the server block,
+matching `query`'s own limit so the two stay in the same place a future
+change to `MAX_UPLOAD_SIZE_MB` would need updating too. Re-ran the exact
+failing size (3,515,728 bytes) against the fixed config: `201`, not `413`,
+`query`'s log now shows the request. (The reprobed file itself then landed
+as `status: failed` — expected, since the repro used synthetic filler
+bytes, not a real decodable video; a real clip that size lands `ready`.)
+
+Confirmed fixed for real straight after: a genuine 20m 8s, 35.9 MB MP4
+uploaded from the browser, progress bar watched moving, landed `ready` with
+the correct duration and size, correct upload timestamp shown, delete
+worked. The one gap OMNI-208/209 both flagged — nobody had actually looked
+at this in a browser — is closed, and it's exactly what caught this bug.
+
+**Lesson for next time this pattern comes up:** an nginx-level rejection
+(body size, but the same is true of timeouts, header limits, buffer sizes)
+never reaches the proxied service's own logs — only nginx's. When a request
+this app's own service logs know nothing about needs debugging, check the
+edge (nginx) first, not just query and ingestion.

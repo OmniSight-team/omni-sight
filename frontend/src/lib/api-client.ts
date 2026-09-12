@@ -162,3 +162,110 @@ export async function deleteCamera(
 export async function testCameraConnection(id: number): Promise<CameraTestResult> {
   return request<CameraTestResult>(`/cameras/${id}/test`, { method: "POST" });
 }
+
+export type VideoSource = "upload" | "camera" | "dataset";
+export type VideoStatus = "uploaded" | "extracting" | "ready" | "failed";
+
+export interface Video {
+  id: number;
+  filename: string;
+  camera_id: number | null;
+  source: VideoSource;
+  duration_s: number | null;
+  fps: number | null;
+  width: number | null;
+  height: number | null;
+  size_bytes: number;
+  status: VideoStatus;
+  retention_until: string | null;
+  created_at: string;
+  segments_count: number;
+}
+
+export interface VideoListFilters {
+  source?: VideoSource;
+  camera_id?: number;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function listVideos(filters: VideoListFilters = {}): Promise<Video[]> {
+  const params = new URLSearchParams();
+  if (filters.source) params.set("source", filters.source);
+  if (filters.camera_id != null) params.set("camera_id", String(filters.camera_id));
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.limit != null) params.set("limit", String(filters.limit));
+  if (filters.offset != null) params.set("offset", String(filters.offset));
+  const query = params.toString();
+  return request<Video[]>(`/videos${query ? `?${query}` : ""}`);
+}
+
+export async function deleteVideo(id: number): Promise<{ id: number; deleted: boolean }> {
+  return request(`/videos/${id}`, { method: "DELETE" });
+}
+
+export interface VideoUploadResult {
+  id: number;
+  filename: string;
+  duration_s: number | null;
+  size_mb: number;
+  fps: number | null;
+  status: VideoStatus;
+  error: string | null;
+}
+
+// fetch() has no cross-browser way to report upload progress, so this one
+// call uses XMLHttpRequest instead of the shared request() helper — the
+// only reason it can't reuse that helper.
+export function uploadVideo(file: File, onProgress?: (percent: number) => void): Promise<VideoUploadResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const token = getToken();
+    xhr.open("POST", `${API_URL}${API_PREFIX}/videos/upload`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      const renewedToken = xhr.getResponseHeader("X-Access-Token");
+      if (renewedToken) setToken(renewedToken);
+
+      let data: unknown = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // No JSON body (e.g. a proxy-level error page) — data stays null,
+        // the fallback message below covers it.
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as VideoUploadResult);
+        return;
+      }
+
+      if (xhr.status === 401) {
+        clearToken();
+        window.location.href = "/sign-in";
+      }
+
+      const detail =
+        data && typeof data === "object" && "detail" in data
+          ? String((data as { detail: unknown }).detail)
+          : "upload failed";
+      reject(new ApiError(xhr.status, detail));
+    };
+
+    xhr.onerror = () => reject(new ApiError(0, "network error during upload"));
+
+    const formData = new FormData();
+    formData.append("file", file);
+    xhr.send(formData);
+  });
+}

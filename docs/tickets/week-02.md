@@ -298,12 +298,12 @@ turn connected, and get a specific error for a bad address.
 
 ## OMNI-209 · Video Archive screen
 
-- [ ] Recordings with filename, camera, duration, size, status and upload time
-- [ ] Upload control with progress and a clear success or failure message
-- [ ] Status badges so `ready` and `failed` are distinguishable at a glance
-- [ ] Filters for source, camera and date range, driving the API query parameters
-- [ ] Empty state prompting the first upload
-- [ ] Both uploads and camera recordings appear in the same list
+- [x] Recordings with filename, camera, duration, size, status and upload time
+- [x] Upload control with progress and a clear success or failure message
+- [x] Status badges so `ready` and `failed` are distinguishable at a glance
+- [x] Filters for source, camera and date range, driving the API query parameters
+- [x] Empty state prompting the first upload
+- [x] Both uploads and camera recordings appear in the same list
 
 **Acceptance:** upload a file from the browser, watch progress, and see it land with
 correct duration and size.
