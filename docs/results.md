@@ -154,3 +154,78 @@ disagrees with.
 
 **Not covered by this entry:** "Merged and pushed" — a git action, out of
 scope for a results entry and not done as part of this check.
+
+---
+
+## 2026-09-20 — SM-3 dataset change and target revision
+
+**Decision: DoTA is replaced by CCD (Car Crash Dataset), and SM-3's target is
+re-derived from the data rather than fixed at 15 seconds.**
+
+### DoTA is unobtainable
+
+All three Google Drive links in the DoTA repository return 404 — the 55 GB frame
+archive, the split archives, and the extras folder. GitHub issue #43 shows several
+researchers requesting access since, with no reply from the authors.
+
+The repository still carries `DoTA_urls.txt`, the 184 source YouTube videos the
+4,677 clips were cut from. Probed every one with `yt-dlp --simulate` on
+2026-09-20:
+
+```
+0 alive / 184 dead  (0%)
+```
+
+Control URL on the same machine and yt-dlp version resolved normally, so this is
+the dataset, not the tooling. DoTA cannot be rebuilt.
+
+### SM-3's 15-second target was never reachable on DoTA
+
+The DoTA annotations survive in the repository, so the clip timings can still be
+analysed even though the video cannot. Across all 4,677 clips, at the dataset's
+10 fps:
+
+| Measure | Value |
+|---|---|
+| Median clip length | 9.9 s |
+| Mean footage before the anomaly | 3.8 s |
+| **Median footage before the anomaly** | **3.6 s** |
+| 90th percentile | 5.8 s |
+| Maximum | 23.0 s |
+| Clips with ≥ 5 s before the anomaly | 903 / 4,677 (19.3%) |
+| Clips with ≥ 10 s before the anomaly | 41 / 4,677 (0.9%) |
+| **Clips with ≥ 15 s before the anomaly** | **8 / 4,677 (0.2%)** |
+
+Phase A §4.1 sets SM-3 at "warnings fire at least 15 seconds before the event
+begins". The dataset Phase A assigned to that metric contains 15 seconds of
+pre-event footage in 0.2% of its clips. The target could not have been met on
+DoTA under any model.
+
+This is not specific to DoTA. Dash-cam accident datasets are trimmed tight around
+the crash: CCD's clips are 5 seconds end to end, DADA-2000's around 10. Published
+work in accident anticipation reports time-to-accident in the low single digits.
+
+### The revision
+
+SM-3 keeps its intent — warn early enough to be actionable — and loses the
+specific number.
+
+- **Dataset:** CCD (Car Crash Dataset). 1,500 crash clips plus 3,000 normal clips,
+  distributed as video files, with per-frame accident labels. Purpose-built for
+  accident anticipation.
+- **Metric:** mean Time-to-Accident (mTTA), the standard in this literature, so
+  the result is comparable to published work rather than to an internal target.
+- **Target:** set in slice 6 from the measured distribution of pre-event footage
+  in CCD, **before any model is trained**, so it cannot be chosen to flatter the
+  result. The full distribution is reported alongside the mean.
+
+Phase A's original 15-second target, this analysis, and the revised target all
+belong in the Phase B book. The measurement above was taken in week 4, before any
+forecasting code was written.
+
+### Knock-on changes
+
+- CCD replaces DoTA as the traffic domain for SM-2, SM-5 and TC-5
+- `data/dota/` renamed to `data/ccd/`
+- `docs/datasets.md`, `docs/dataset-layout.md` and the slice plan updated
+- Slice 6 gains a task: measure CCD's pre-event distribution and record it here
