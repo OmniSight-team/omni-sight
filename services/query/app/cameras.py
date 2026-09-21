@@ -8,7 +8,7 @@ from app.db import get_db
 from app.deps import get_current_user, require_role
 from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import probe_stream as ingestion_probe_stream
-from app.models import Camera, User, Video
+from app.models import Camera, Segment, User, Video
 from app.schemas import (
     CameraCreate,
     CameraCreateResponse,
@@ -97,9 +97,13 @@ def delete_camera(
     if camera is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
 
-    # A video already referencing this camera would be orphaned by a hard
-    # delete, so the camera is disabled in place instead of removed.
-    has_recordings = db.query(Video.id).filter_by(camera_id=camera_id).first() is not None
+    # A video or a stored live frame already referencing this camera would be
+    # orphaned by a hard delete (and the segments foreign key would reject it),
+    # so the camera is disabled in place instead of removed.
+    has_recordings = (
+        db.query(Video.id).filter_by(camera_id=camera_id).first() is not None
+        or db.query(Segment.id).filter_by(camera_id=camera_id).first() is not None
+    )
     if has_recordings:
         camera.status = CameraStatus.DISABLED
         db.commit()

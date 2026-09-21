@@ -20,7 +20,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import probe_file as ingestion_probe_file
-from app.models import User, Video
+from app.models import Segment, User, Video
 from app.schemas import VideoDetailResponse, VideoUploadResponse
 from app.settings import settings
 
@@ -241,21 +241,30 @@ def delete_video(
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
 
-    file_path = Path(video.path)
-    # The database row is the source of truth every other endpoint reads
-    # from, so it's deleted (and committed) first. Only once that succeeds
-    # is the file removed — the failure mode this ordering avoids is a row
+    # The segment rows go with the video (ON DELETE CASCADE), but the frame and
+    # thumbnail files they point at do not — the paths have to be read before
+    # the rows disappear.
+    file_paths = [Path(video.path)]
+    for frame_path, thumb_path in db.query(Segment.frame_path, Segment.thumb_path).filter_by(
+        video_id=video_id
+    ):
+        file_paths.extend([Path(frame_path), Path(thumb_path)])
+
+    # The database rows are the source of truth every other endpoint reads
+    # from, so they're deleted (and committed) first. Only once that succeeds
+    # are the files removed — the failure mode this ordering avoids is a row
     # that claims a video exists while its file is already gone; an
     # orphaned file with no row is wasted disk, not a data-integrity bug.
     db.delete(video)
     db.commit()
 
-    try:
-        file_path.unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "video file could not be removed after its row was deleted",
-            extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
-        )
+    for file_path in file_paths:
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "file could not be removed after its row was deleted",
+                extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
+            )
 
     return {"id": video_id, "deleted": True}
