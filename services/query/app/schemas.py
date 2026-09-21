@@ -81,6 +81,12 @@ class VideoDetailResponse(BaseModel):
     height: int | None
     size_bytes: int
     status: VideoStatus
+    error: str | None = None
     retention_until: datetime | None
     created_at: datetime
     segments_count: int = 0
+
+
+class ExtractResponse(BaseModel):
+    video_id: int
+    status: VideoStatus

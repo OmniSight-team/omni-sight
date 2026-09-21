@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -14,14 +15,16 @@ from fastapi import (
     status,
 )
 from omnisight_common import VideoSource, VideoStatus
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
+from app.extraction import remove_segment_files, run_extraction, segment_file_paths
 from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import probe_file as ingestion_probe_file
 from app.models import Segment, User, Video
-from app.schemas import VideoDetailResponse, VideoUploadResponse
+from app.schemas import ExtractResponse, VideoDetailResponse, VideoUploadResponse
 from app.settings import settings
 
 logger = logging.getLogger("app.videos")
@@ -168,7 +171,7 @@ def _probe_and_finalize(video: Video, db: Session) -> str | None:
     return error
 
 
-def _to_detail(video: Video) -> VideoDetailResponse:
+def _to_detail(video: Video, segments_count: int) -> VideoDetailResponse:
     return VideoDetailResponse(
         id=video.id,
         filename=video.filename,
@@ -180,13 +183,15 @@ def _to_detail(video: Video) -> VideoDetailResponse:
         height=video.height,
         size_bytes=video.size_bytes,
         status=video.status,
+        error=video.error,
         retention_until=video.retention_until,
         created_at=video.created_at,
-        segments_count=0,
+        segments_count=segments_count,
     )
 
 
 VIDEO_NOT_FOUND_MESSAGE = "video not found"
+EXTRACTION_RUNNING_MESSAGE = "an extraction is already running for this video"
 
 
 @router.get("", response_model=list[VideoDetailResponse])
@@ -215,7 +220,15 @@ def list_videos(
         query = query.filter(Video.created_at <= to)
 
     videos = query.order_by(Video.created_at.desc()).offset(offset).limit(limit).all()
-    return [_to_detail(video) for video in videos]
+
+    # One grouped query for the whole page, not one count per row.
+    counts = dict(
+        db.query(Segment.video_id, func.count(Segment.id))
+        .filter(Segment.video_id.in_([video.id for video in videos]))
+        .group_by(Segment.video_id)
+        .all()
+    )
+    return [_to_detail(video, counts.get(video.id, 0)) for video in videos]
 
 
 @router.get("/{video_id}", response_model=VideoDetailResponse)
@@ -228,7 +241,45 @@ def get_video(
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
 
-    return _to_detail(video)
+    segments_count = db.query(func.count(Segment.id)).filter(Segment.video_id == video_id).scalar()
+    return _to_detail(video, segments_count)
+
+
+@router.post(
+    "/{video_id}/extract", response_model=ExtractResponse, status_code=status.HTTP_202_ACCEPTED
+)
+def extract_video(
+    video_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> ExtractResponse:
+    """Start extracting frames from a stored video. Returns at once; the video
+    is `extracting` until the background job finishes, then `ready` (with its
+    segments) or `failed` (with the reason in `error`). Poll GET /videos/{id}."""
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
+
+    # The status check and the change to `extracting` are one UPDATE, so two
+    # requests at once cannot both start an extraction.
+    claimed = (
+        db.query(Video)
+        .filter(Video.id == video_id, Video.status.in_([VideoStatus.READY, VideoStatus.FAILED]))
+        .update({"status": VideoStatus.EXTRACTING, "error": None}, synchronize_session=False)
+    )
+    db.commit()
+    if not claimed:
+        db.refresh(video)
+        detail = (
+            EXTRACTION_RUNNING_MESSAGE
+            if video.status == VideoStatus.EXTRACTING
+            else f"video is {video.status.value}, so it cannot be extracted yet"
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+    background_tasks.add_task(run_extraction, video_id)
+    return ExtractResponse(video_id=video_id, status=VideoStatus.EXTRACTING)
 
 
 @router.delete("/{video_id}")
@@ -241,14 +292,15 @@ def delete_video(
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
 
+    if video.status == VideoStatus.EXTRACTING:
+        # The background job would write frames for a video that no longer exists.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EXTRACTION_RUNNING_MESSAGE)
+
     # The segment rows go with the video (ON DELETE CASCADE), but the frame and
     # thumbnail files they point at do not — the paths have to be read before
     # the rows disappear.
-    file_paths = [Path(video.path)]
-    for frame_path, thumb_path in db.query(Segment.frame_path, Segment.thumb_path).filter_by(
-        video_id=video_id
-    ):
-        file_paths.extend([Path(frame_path), Path(thumb_path)])
+    segment_paths = segment_file_paths(db, video_id)
+    file_path = Path(video.path)
 
     # The database rows are the source of truth every other endpoint reads
     # from, so they're deleted (and committed) first. Only once that succeeds
@@ -258,13 +310,13 @@ def delete_video(
     db.delete(video)
     db.commit()
 
-    for file_path in file_paths:
-        try:
-            file_path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning(
-                "file could not be removed after its row was deleted",
-                extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
-            )
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "video file could not be removed after its row was deleted",
+            extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
+        )
+    remove_segment_files(video_id, segment_paths)
 
     return {"id": video_id, "deleted": True}

@@ -35,6 +35,8 @@ services:
       # path (OMNI-205) so OMNI-206 can probe by path, never by re-sending
       # the file.
       - video_storage:/data/videos
+      - frame_storage:/data/frames
+      - thumb_storage:/data/thumbs
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,6 +56,8 @@ services:
       - ./services/common:/workspace/services/common
       - ./services/ingestion:/workspace/services/ingestion
       - video_storage:/data/videos
+      - frame_storage:/data/frames
+      - thumb_storage:/data/thumbs
 
   # Ten looping RTSP feeds for local development (OMNI-201) — see
   # docs/rtsp-simulator.md. No port published: only ingestion, inside the
@@ -96,3 +100,5 @@ volumes:
   postgres_data:
   frontend_node_modules:
   video_storage:
+  frame_storage:
+  thumb_storage:

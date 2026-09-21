@@ -23,6 +23,9 @@ class Settings(CommonSettings):
     frontend_origin: str = "http://localhost:3000"
 
     ingestion_base_url: str = "http://localhost:8001"
+    # Extraction decodes a whole video inside one request to ingestion, so it
+    # gets far longer than a probe does.
+    ingestion_extract_timeout_s: float = Field(900.0, gt=0)
 
     video_storage_path: str = "/data/videos"
     max_upload_size_mb: int = 500

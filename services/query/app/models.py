@@ -85,6 +85,9 @@ class Video(Base):
     height: Mapped[int | None] = mapped_column(Integer)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[VideoStatus] = mapped_column(_enum_column(VideoStatus, "video_status"), nullable=False)
+    # Why the video is `failed`. Set by extraction, which runs after the request
+    # that started it has already returned, so there is nowhere else to say why.
+    error: Mapped[str | None] = mapped_column(String)
     retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True

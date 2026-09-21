@@ -1,12 +1,18 @@
 import logging
 import time
+from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.file_probe import FileProbeError, probe_file
 from app.logging_conf import configure_logging
+from app.pipeline import ExtractError, extract_file
 from app.schemas import (
+    ExtractedSegment,
+    FileExtractRequest,
+    FileExtractResponse,
     FileProbeRequest,
     FileProbeResponse,
     StreamProbeRequest,
@@ -70,3 +76,32 @@ def probe_file_route(payload: FileProbeRequest) -> FileProbeResponse:
     except FileProbeError as exc:
         return FileProbeResponse(ok=False, error=exc.reason)
     return FileProbeResponse(ok=True, **result)
+
+
+@app.post("/extract/file", response_model=FileExtractResponse)
+def extract_file_route(payload: FileExtractRequest) -> FileExtractResponse:
+    # A plain (not async def) route: decoding a video is blocking work, so
+    # FastAPI runs it in its threadpool instead of stalling the event loop.
+    folder = str(payload.video_id)
+    try:
+        records = extract_file(
+            payload.path,
+            source_type=payload.source_type.value,
+            video_id=payload.video_id,
+            camera_id=payload.camera_id,
+            interval_s=settings.extract_interval_s,
+            frames_dir=Path(settings.frames_path) / folder,
+            thumbs_dir=Path(settings.thumbs_path) / folder,
+            thumb_width=settings.thumb_width_px,
+            frame_quality=settings.frame_jpeg_quality,
+            thumb_quality=settings.thumb_jpeg_quality,
+        )
+    except ExtractError as exc:
+        logger.warning(
+            "extraction failed",
+            extra={"extra_fields": {"video_id": payload.video_id, "error": exc.reason}},
+        )
+        return FileExtractResponse(ok=False, error=exc.reason)
+    return FileExtractResponse(
+        ok=True, segments=[ExtractedSegment(**asdict(record)) for record in records]
+    )
