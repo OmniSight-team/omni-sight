@@ -1,4 +1,5 @@
 from omnisight_common import CommonSettings
+from pydantic import Field
 
 
 class Settings(CommonSettings):
@@ -25,6 +26,10 @@ class Settings(CommonSettings):
 
     video_storage_path: str = "/data/videos"
     max_upload_size_mb: int = 500
+
+    # ge=1: the slice-16 retention job deletes footage past this date, so a
+    # zero or negative value would mark every new upload as already expired.
+    video_retention_days: int = Field(30, ge=1)
 
     @property
     def database_url(self) -> str:

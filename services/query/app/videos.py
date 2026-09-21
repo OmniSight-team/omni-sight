@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import (
@@ -105,12 +105,18 @@ def upload_video(
 
     staging_path.replace(final_path)
 
+    # created_at and retention_until come from one timestamp and go in with
+    # the same INSERT, so no row ever exists without a retention date and the
+    # gap between them is exactly the configured number of days.
+    created_at = datetime.now(UTC)
     video = Video(
         filename=file.filename or stored_name,
         path=str(final_path),
         source=VideoSource.UPLOAD,
         size_bytes=total_bytes,
         status=VideoStatus.UPLOADED,
+        created_at=created_at,
+        retention_until=created_at + timedelta(days=settings.video_retention_days),
     )
     db.add(video)
     db.commit()

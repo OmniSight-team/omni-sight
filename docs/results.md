@@ -229,3 +229,44 @@ forecasting code was written.
 - `data/dota/` renamed to `data/ccd/`
 - `docs/datasets.md`, `docs/dataset-layout.md` and the slice plan updated
 - Slice 6 gains a task: measure CCD's pre-event distribution and record it here
+
+---
+
+## 2026-09-21 — Dataset footage through the normal upload path (OMNI-300)
+
+**Claim under test:** slice 6 loads three datasets through the normal pipeline, so
+a dataset clip must pass through the same upload → probe → `ready` path as a
+hand-uploaded one, with correct metadata.
+
+**Method:** one clip from each dataset, from the local subset in `data/`, uploaded
+through the Video Archive screen on the running stack. Each clip's source values
+were taken first with `ffprobe`; the stored row was then read back from the
+`videos` table and compared.
+
+| Dataset | Clip | Status | Duration (stored / source) | fps | Resolution | Bytes (stored = source) | Codec |
+|---|---|:--:|---|---|---|---|---|
+| CCD | `Crash-1500/000413.mp4` | ready | 5.000 s / 5.000 s | 10 | 640×360 | 232,123 | MPEG-4 Part 2 |
+| UCF-Crime | `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` | ready | 12.867 s / 12.867 s | 30 | 320×240 | 3,142,046 | H.264 Baseline, + AAC + PNG stream |
+| VIRAT | `videos_original/VIRAT_S_010208_07_000768_000791.mp4` | ready | 19.232 s / 19.232 s | 23.97 | 1280×720 | 1,362,385 | H.264 Main |
+
+All three landed `ready`; duration, fps, width, height and byte count equal the
+`ffprobe` values on the source. No probe failures.
+
+**Differences from a hand-uploaded clip that slice 6 needs to know:**
+
+- **CCD is MPEG-4 Part 2, not H.264.** It probes and decodes fine in the ingestion
+  container. Browsers generally do not play it, and playback was not tested (the
+  archive screen has no player), so any playback feature needs a transcode step.
+- **VIRAT is 23.97 fps, not 30.** Frame and window arithmetic must use the stored
+  `fps`.
+- **The local clips are shorter than expected** — VIRAT 19 s, UCF-Crime 12.9 s,
+  against "minutes". The local subset was built from the smallest files; the full
+  Drive copy was not checked.
+- **The archive table handles long filenames badly.** With the VIRAT name, the
+  Size and Uploaded cells wrap onto several lines at a 1114 px window and the page
+  gets a horizontal scrollbar.
+
+**Not covered:** one clip per dataset only, all short. Nothing was measured on
+long files, on variable-frame-rate files (duration is `frame_count / fps`, exact
+here but an estimate for some containers), or at bulk-load scale. Full write-up in
+`docs/context/week-03-04.md`.
