@@ -90,6 +90,16 @@ class Video(Base):
     # that started it has already returned, so there is nowhere else to say why.
     error: Mapped[str | None] = mapped_column(String)
     retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The Algorithm 1 parameters that produced the video's *current* segment
+    # rows — set by extraction (from ingestion's settings) and updated by
+    # re-gating (OMNI-306, from whatever the caller supplied). NULL until the
+    # first successful extraction. This is what "records the parameters used,
+    # so a result can be reproduced" means: one video, one set of numbers that
+    # explains its current `admitted` flags, not a log of every run tried.
+    gate_stride_s: Mapped[float | None] = mapped_column(Float)
+    gate_grid_size: Mapped[int | None] = mapped_column(Integer)
+    gate_cell_threshold: Mapped[float | None] = mapped_column(Float)
+    gate_min_active_cells: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

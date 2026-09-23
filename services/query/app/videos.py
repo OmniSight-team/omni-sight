@@ -18,13 +18,25 @@ from omnisight_common import VideoSource, VideoStatus
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.deps import get_current_user
-from app.extraction import remove_segment_files, run_extraction, segment_file_paths
+from app.extraction import (
+    GateError,
+    remove_segment_files,
+    run_extraction,
+    run_gate,
+    segment_file_paths,
+)
 from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import probe_file as ingestion_probe_file
 from app.models import Segment, User, Video
-from app.schemas import ExtractResponse, VideoDetailResponse, VideoUploadResponse
+from app.schemas import (
+    ExtractResponse,
+    GateRequest,
+    GateResponse,
+    VideoDetailResponse,
+    VideoUploadResponse,
+)
 from app.settings import settings
 
 logger = logging.getLogger("app.videos")
@@ -280,6 +292,73 @@ def extract_video(
 
     background_tasks.add_task(run_extraction, video_id)
     return ExtractResponse(video_id=video_id, status=VideoStatus.EXTRACTING)
+
+
+NOT_READY_FOR_GATING_MESSAGE = "video must be ready (already extracted) before it can be re-gated"
+
+
+def _revert_to_ready(video_id: int) -> None:
+    with SessionLocal() as db:
+        db.query(Video).filter_by(id=video_id).update(
+            {"status": VideoStatus.READY}, synchronize_session=False
+        )
+        db.commit()
+
+
+@router.post("/{video_id}/gate", response_model=GateResponse)
+def gate_video(
+    video_id: int,
+    payload: GateRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> GateResponse:
+    """Re-run Algorithm 1 against a video's existing segments with new
+    parameters and return the new counts immediately — unlike /extract, this
+    is synchronous, matching the ticket's own `-> {admitted, discarded}`
+    response shape. No row is created or deleted; existing rows are updated
+    in place (OMNI-306's own acceptance criterion)."""
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
+
+    # Only claimable from `ready` — a video with no completed extraction has
+    # no segments to re-gate yet (unlike /extract, which also accepts
+    # `failed` as a starting point, since that ticket is instead building the
+    # first set of segments from nothing).
+    claimed = (
+        db.query(Video)
+        .filter(Video.id == video_id, Video.status == VideoStatus.READY)
+        .update({"status": VideoStatus.EXTRACTING}, synchronize_session=False)
+    )
+    db.commit()
+    if not claimed:
+        db.refresh(video)
+        detail = (
+            EXTRACTION_RUNNING_MESSAGE
+            if video.status == VideoStatus.EXTRACTING
+            else NOT_READY_FOR_GATING_MESSAGE
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+    try:
+        counts = run_gate(
+            video_id,
+            stride_s=payload.stride_s,
+            grid_size=payload.grid_size,
+            cell_threshold=payload.cell_threshold,
+            min_active_cells=payload.min_active_cells,
+        )
+    except GateError as exc:
+        # The video's existing segments were never touched — put it back
+        # exactly where it was, not `failed`, which would claim something is
+        # wrong with data that is actually still fine.
+        _revert_to_ready(video_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.reason) from exc
+    except Exception:
+        _revert_to_ready(video_id)
+        raise
+
+    return GateResponse(**counts)
 
 
 @router.delete("/{video_id}")

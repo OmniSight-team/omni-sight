@@ -83,19 +83,34 @@ def extract_file_route(payload: FileExtractRequest) -> FileExtractResponse:
     # A plain (not async def) route: decoding a video is blocking work, so
     # FastAPI runs it in its threadpool instead of stalling the event loop.
     folder = str(payload.video_id)
+
+    # Any override left None falls back to this service's own settings — a
+    # normal extraction (OMNI-303) sends none of these and gets the
+    # configured defaults; a re-gate (OMNI-306) sends whichever it's tuning.
+    stride_s = payload.stride_s if payload.stride_s is not None else settings.motion_stride_s
+    grid_size = payload.grid_size if payload.grid_size is not None else settings.motion_grid_size
+    cell_threshold = (
+        payload.cell_threshold if payload.cell_threshold is not None else settings.motion_cell_threshold
+    )
+    min_active_cells = (
+        payload.min_active_cells
+        if payload.min_active_cells is not None
+        else settings.motion_min_active_cells
+    )
+
     # A fresh gate per extraction: its buffer of earlier frames, and the
     # heartbeat wrapper's "next one due" clock, must never carry over between
     # videos.
     gate = HeartbeatGate(
         MotionGate(
-            grid_size=settings.motion_grid_size,
-            cell_threshold=settings.motion_cell_threshold,
-            min_active_cells=settings.motion_min_active_cells,
-            stride_s=settings.motion_stride_s,
+            grid_size=grid_size,
+            cell_threshold=cell_threshold,
+            min_active_cells=min_active_cells,
+            stride_s=stride_s,
             blur_kernel=settings.motion_blur_kernel,
         ),
         heartbeat_interval_s=settings.heartbeat_interval_s,
-        stride_s=settings.motion_stride_s,
+        stride_s=stride_s,
     )
     try:
         records = extract_file(
@@ -117,5 +132,10 @@ def extract_file_route(payload: FileExtractRequest) -> FileExtractResponse:
         )
         return FileExtractResponse(ok=False, error=exc.reason)
     return FileExtractResponse(
-        ok=True, segments=[ExtractedSegment(**asdict(record)) for record in records]
+        ok=True,
+        segments=[ExtractedSegment(**asdict(record)) for record in records],
+        stride_s=stride_s,
+        grid_size=grid_size,
+        cell_threshold=cell_threshold,
+        min_active_cells=min_active_cells,
     )

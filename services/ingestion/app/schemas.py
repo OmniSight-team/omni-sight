@@ -31,6 +31,13 @@ class FileExtractRequest(BaseModel):
     path: str
     source_type: SegmentSourceType
     camera_id: int | None = None
+    # Gate parameter overrides (OMNI-306's re-gating). Any left None falls
+    # back to this service's own settings — a normal extraction (OMNI-303)
+    # omits all four and gets the configured defaults.
+    stride_s: float | None = None
+    grid_size: int | None = None
+    cell_threshold: float | None = None
+    min_active_cells: int | None = None
 
 
 class ExtractedSegment(BaseModel):
@@ -57,3 +64,11 @@ class FileExtractResponse(BaseModel):
     ok: bool
     segments: list[ExtractedSegment] = []
     error: str | None = None
+    # The gate parameters actually used — the resolved values after any
+    # override was applied, not just an echo of what the caller sent. This is
+    # what lets query record "the parameters used" without duplicating
+    # ingestion's own settings defaults.
+    stride_s: float | None = None
+    grid_size: int | None = None
+    cell_threshold: float | None = None
+    min_active_cells: int | None = None

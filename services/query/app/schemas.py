@@ -90,3 +90,17 @@ class VideoDetailResponse(BaseModel):
 class ExtractResponse(BaseModel):
     video_id: int
     status: VideoStatus
+
+
+class GateRequest(BaseModel):
+    # All four optional (OMNI-306): whatever is left out falls back to
+    # ingestion's own configured default, same as a plain extraction.
+    stride_s: float | None = None
+    grid_size: int | None = None
+    cell_threshold: float | None = None
+    min_active_cells: int | None = None
+
+
+class GateResponse(BaseModel):
+    admitted: int
+    discarded: int

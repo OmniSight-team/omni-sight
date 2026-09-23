@@ -412,3 +412,45 @@ and a 300-second scheduling trace (`services/ingestion/tests/test_heartbeat.py`)
 both demonstrate the same property at smaller scale. `HEARTBEAT_INTERVAL_S`'s
 default (1.0 s) was not tuned for this ticket, only wired to something that reads
 it for the first time. Full write-up in `docs/context/week-03-04.md`.
+
+---
+
+## 2026-09-23 — Re-runnable gating re-decodes, in both directions (OMNI-306)
+
+**Claim under test:** `POST /videos/{id}/gate` re-scores a video's frames from a
+fresh decode of the source, updating existing segment rows in place — never
+deleting or creating rows — and can move the admitted set in either direction,
+not just narrow it.
+
+**Method:** a real CCD clip, extracted then re-gated twice through the real
+running stack, via a throwaway operator account (deleted afterward).
+
+| Step | `min_active_cells` | Admitted | Rows | Same row IDs as before? | Time |
+|---|---|---|---|---|---|
+| Initial extraction | 3 (default) | 26 | 50 | — | — |
+| Re-gate #1 | 60 (near-impossible) | 4 | 50 | yes | 0.3 s |
+| Re-gate #2 | 1 (lenient) | 32 | 50 | yes | — |
+
+**Result: re-gating genuinely re-scores, in both directions, with no new
+rows.** The lenient run (32 admitted) admits *more* frames than the original
+extraction (26) — not merely returning to it, exceeding it — which is only
+possible because the endpoint re-decodes the source rather than re-scoring
+whatever happened to already have a JPEG (most rows don't have one; only
+admitted frames do, since OMNI-303's rework). Row `id`s and `created_at`
+timestamps were identical across all three states, confirmed by direct
+comparison, not inferred from a stable row count. File count on disk after the
+final run (32) matched the admitted count exactly.
+
+**The decision this measures:** the ticket asked for a deliberate choice
+between re-decoding (correct, slower) and re-scoring only the frames already on
+disk (fast, but can only ever discard more, never reveal a previously-discarded
+frame). Re-decoding was chosen because the alternative cannot satisfy OMNI-310's
+own acceptance criterion (dragging a slider must reveal more frames going one
+way, not just fewer going the other) in one direction at all — not a
+performance trade-off, a correctness one. Full reasoning in
+`docs/context/week-03-04.md`.
+
+**Not covered:** 0.3 s is on a 5-second clip; nothing about how re-decoding
+scales to a 10-minute recording was measured, which is what will actually
+determine whether this endpoint stays fast enough for OMNI-310's "about a
+second" feel on realistic clip lengths.
