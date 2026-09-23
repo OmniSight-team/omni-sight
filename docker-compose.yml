@@ -92,6 +92,10 @@ services:
     volumes:
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./infra/nginx/certs:/etc/nginx/certs:ro
+      # OMNI-307: thumbnails, read-only, served straight off this volume by
+      # the `location /thumbs/` block. Deliberately not frame_storage — only
+      # the small thumbnails are reachable this way, never full frames.
+      - thumb_storage:/data/thumbs:ro
     depends_on:
       - query
       - frontend

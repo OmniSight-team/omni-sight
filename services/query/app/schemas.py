@@ -1,6 +1,13 @@
 from datetime import datetime
 
-from omnisight_common import CameraStatus, Domain, Role, VideoSource, VideoStatus
+from omnisight_common import (
+    AdmissionReason,
+    CameraStatus,
+    Domain,
+    Role,
+    VideoSource,
+    VideoStatus,
+)
 from pydantic import BaseModel
 
 
@@ -104,3 +111,18 @@ class GateRequest(BaseModel):
 class GateResponse(BaseModel):
     admitted: int
     discarded: int
+
+
+class FrameOut(BaseModel):
+    segment_id: int
+    frame_index: int
+    timestamp_s: float
+    motion_score: float | None
+    admitted: bool
+    # None on a segment with no file (most rows, since OMNI-303's rework —
+    # only admitted frames get one).
+    thumb_url: str | None
+    # Not in the ticket's own sketch, added deliberately: OMNI-305 left this
+    # exact note — "admission_reason is on the row and returned once a frames
+    # API exists to show it." This is that API.
+    admission_reason: AdmissionReason | None = None

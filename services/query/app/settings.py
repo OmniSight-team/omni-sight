@@ -34,6 +34,14 @@ class Settings(CommonSettings):
     # zero or negative value would mark every new upload as already expired.
     video_retention_days: int = Field(30, ge=1)
 
+    # OMNI-307: the URL path Nginx serves thumbnails from, straight off the
+    # `thumb_storage` volume — never through this API. Must match
+    # infra/nginx/default.conf's `location /thumbs/` block; nginx.conf has no
+    # templating in this project, so the two are kept in sync by convention,
+    # the same way the `/api` prefix already is across nginx, next.config.ts
+    # and api-client.ts.
+    thumb_url_prefix: str = "/thumbs"
+
     @property
     def database_url(self) -> str:
         return (

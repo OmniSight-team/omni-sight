@@ -454,3 +454,38 @@ performance trade-off, a correctness one. Full reasoning in
 scales to a 10-minute recording was measured, which is what will actually
 determine whether this endpoint stays fast enough for OMNI-310's "about a
 second" feel on realistic clip lengths.
+
+---
+
+## 2026-09-23 — Thumbnail URLs are not covered by NFR-7 (OMNI-307)
+
+**Claim under test:** none directly — this is a gap found while building the
+frames API, worth measuring against NFR-7's own standard ("100% of endpoints
+must reject requests lacking a valid token") even though a static file route
+is not an "endpoint" in the sense TC-10 (`docs/results.md`, 2026-09-05)
+already covers.
+
+**Method:** `GET /videos/{id}/frames` returns a `thumb_url` served by Nginx
+directly off the `thumb_storage` volume (`location /thumbs/`), bypassing
+`query` — the design OMNI-307 explicitly asks for, so thumbnails don't route
+through the API on every grid load. Fetched a real thumbnail URL live, with no
+`Authorization` header at all:
+
+```
+GET https://127.0.0.1/thumbs/1479/000030.jpg   (no token)
+200, content-type: image/jpeg, 8,489 bytes
+```
+
+**Result: 0% of thumbnail requests require authentication, against 100% for
+every route TC-10 covers.** Every other path in this system that touches
+recorded footage goes through `query`, which enforces a valid JWT on every
+request (OMNI-107, verified by TC-10). Thumbnails are the first exception:
+Nginx's static-file route has no concept of the token this app otherwise
+requires everywhere. Anyone who has or guesses a thumbnail URL — a short,
+predictable `/thumbs/{video_id}/{frame_index:06d}.jpg` — can view it.
+
+**Not fixed:** no signed URLs, no auth-checking proxy in front of the static
+route. Not asked for by OMNI-307 or any other ticket in this sprint; recorded
+as a real, live-demonstrated gap for whoever scopes access control on frame
+data next, not treated as covered by TC-10 just because it wasn't tripped by
+it. Full context in `docs/context/week-03-04.md`.

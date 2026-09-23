@@ -2,6 +2,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -32,6 +33,7 @@ from app.ingestion_client import probe_file as ingestion_probe_file
 from app.models import Segment, User, Video
 from app.schemas import (
     ExtractResponse,
+    FrameOut,
     GateRequest,
     GateResponse,
     VideoDetailResponse,
@@ -255,6 +257,53 @@ def get_video(
 
     segments_count = db.query(func.count(Segment.id)).filter(Segment.video_id == video_id).scalar()
     return _to_detail(video, segments_count)
+
+
+def _thumb_url(thumb_path: str | None) -> str | None:
+    """A URL Nginx's `location /thumbs/` block (OMNI-307) can serve straight
+    off the shared volume, never through this API. None when there is no
+    file — most rows, since OMNI-303's rework only writes one for an admitted
+    frame."""
+    if thumb_path is None:
+        return None
+    return settings.thumb_url_prefix + thumb_path.removeprefix(settings.thumbs_path)
+
+
+@router.get("/{video_id}/frames", response_model=list[FrameOut])
+def list_frames(
+    video_id: int,
+    admitted: Literal["true", "false", "all"] = "all",
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[FrameOut]:
+    """List a video's gated frames — every one, not just admitted ones, so
+    the threshold slider (OMNI-310) and a "discarded" view both have
+    something to read. Filtering and ordering happen in the query, not after
+    the rows are pulled into memory, the same rule OMNI-207 set for
+    `GET /videos`."""
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
+
+    query = db.query(Segment).filter(Segment.video_id == video_id)
+    if admitted != "all":
+        query = query.filter(Segment.admitted == (admitted == "true"))
+
+    segments = query.order_by(Segment.timestamp_s).offset(offset).limit(limit).all()
+    return [
+        FrameOut(
+            segment_id=segment.id,
+            frame_index=segment.frame_index,
+            timestamp_s=segment.timestamp_s,
+            motion_score=segment.motion_score,
+            admitted=segment.admitted,
+            thumb_url=_thumb_url(segment.thumb_path),
+            admission_reason=segment.admission_reason,
+        )
+        for segment in segments
+    ]
 
 
 @router.post(
