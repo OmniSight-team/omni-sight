@@ -10,10 +10,12 @@ argument, which keeps this module independent of the service around it.
 """
 
 import shutil
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 
 class ExtractError(Exception):
@@ -70,6 +72,77 @@ class FrameGate:
 
     def evaluate(self, frame) -> GateDecision:
         return GateDecision(motion_score=None, admitted=False)
+
+
+class MotionGate(FrameGate):
+    """Algorithm 1 from the Phase A book: grid-cell motion detection.
+
+    1. Compare the current frame to an **earlier buffered** frame, `buffer_frames`
+       samples back — never the one immediately before, which consecutive
+       frames barely differ from
+    2. Divide the absolute-difference image into a `grid_size` x `grid_size` grid
+    3. A cell "shows meaningful change" when its mean difference exceeds
+       `cell_threshold`; `motion_score` is how many cells do
+    4. Admit when that count reaches `min_active_cells`
+
+    One instance per extraction: it holds a buffer of earlier frames, so it
+    carries state across calls the way a stateless function could not.
+    """
+
+    def __init__(
+        self,
+        *,
+        grid_size: int,
+        cell_threshold: float,
+        min_active_cells: int,
+        buffer_frames: int,
+        blur_kernel: int,
+    ):
+        self._grid_size = grid_size
+        self._cell_threshold = cell_threshold
+        self._min_active_cells = min_active_cells
+        self._blur_kernel = blur_kernel
+        # maxlen holds exactly `buffer_frames` frames; appending past that
+        # silently drops the oldest, which is what makes "compare to the frame
+        # buffer_frames back" a matter of reading index 0 before appending.
+        self._buffer: deque = deque(maxlen=buffer_frames)
+
+    def _preprocess(self, frame):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Blurring first is what keeps sensor noise from being read as
+        # motion: two frames of a perfectly still scene still differ pixel by
+        # pixel from sensor noise alone, and a blur smooths that out before
+        # the comparison is even made.
+        return cv2.GaussianBlur(gray, (self._blur_kernel, self._blur_kernel), 0)
+
+    def evaluate(self, frame) -> GateDecision:
+        processed = self._preprocess(frame)
+
+        # Buffer not yet full: there is no frame buffer_frames samples back
+        # to compare against, so this frame genuinely cannot be scored yet —
+        # the same "not scored yet" NULL every segment starts with.
+        if len(self._buffer) < self._buffer.maxlen:
+            self._buffer.append(processed)
+            return GateDecision(motion_score=None, admitted=False)
+
+        earlier = self._buffer[0]
+        diff = cv2.absdiff(processed, earlier)
+        self._buffer.append(processed)  # pushes `earlier` out automatically
+
+        # np.array_split tolerates a frame whose dimensions don't divide the
+        # grid evenly (some cells end up a pixel larger) rather than assuming
+        # a resolution that happens to divide cleanly.
+        active_cells = sum(
+            1
+            for row in np.array_split(diff, self._grid_size, axis=0)
+            for cell in np.array_split(row, self._grid_size, axis=1)
+            if cell.mean() > self._cell_threshold
+        )
+
+        return GateDecision(
+            motion_score=float(active_cells),
+            admitted=active_cells >= self._min_active_cells,
+        )
 
 
 def _write_jpeg(path: Path, image, quality: int) -> None:

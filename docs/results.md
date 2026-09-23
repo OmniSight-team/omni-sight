@@ -270,3 +270,53 @@ All three landed `ready`; duration, fps, width, height and byte count equal the
 long files, on variable-frame-rate files (duration is `frame_count / fps`, exact
 here but an estimate for some containers), or at bulk-load scale. Full write-up in
 `docs/context/week-03-04.md`.
+
+---
+
+## 2026-09-23 — Algorithm 1 motion gating on real dataset footage (OMNI-304)
+
+**Claim under test:** FR-1b's motion gate — compare each sampled frame to one
+`motion_buffer_frames` samples earlier, score it by counting grid cells with
+meaningful change, admit above a threshold — produces a real, inspectable
+distinction between still and moving footage, on real recordings, with the
+defaults the running service actually uses (`motion_grid_size=8`,
+`motion_cell_threshold=25.0`, `motion_min_active_cells=3`,
+`motion_buffer_frames=5`, `motion_blur_kernel=21`, `extract_interval_s=1.0`).
+
+**Method:** three clips uploaded and extracted through the real running stack —
+two real dataset clips (CCD, UCF-Crime) and the synthetic clip used to verify
+extraction in OMNI-303, for comparison. `segments.motion_score` and `.admitted`
+read back per frame.
+
+| Clip | Rows | Unscored (warm-up) | Scored | Admitted | Scored score range |
+|---|---|---|---|---|---|
+| OMNI-303's synthetic 2-minute clip (ffmpeg `testsrc2`) | 120 | 5 | 115 | 115 | 4–6 |
+| CCD `Crash-1500/000413.mp4` (5 s, 10 fps) | 5 | **5** | 0 | 0 | — |
+| UCF-Crime `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` (12.9 s, 30 fps) | 13 | 5 | 8 | 5 | 0–36 |
+
+**Result: the gate discriminates on real footage, with no test data built to
+produce it.** UCF-Crime's clip scores 31–36 (of 64 cells) and is admitted from
+t=5–9s, then drops to exactly `0` and is not admitted from t=10–12s — a real
+scene going from motion to stillness, caught by the numbers alone.
+
+**Finding that affects slice 6: CCD clips currently produce zero gated frames.**
+A 5-second CCD clip yields only 5 sampled segments at the default 1-second
+extraction interval (recorded in OMNI-300/303). With the default
+`motion_buffer_frames` of 5, **all five of those segments fall inside the
+warm-up window** — the gate never has an earlier buffered frame to compare
+against, so none of CCD's 4,500 clips will ever produce a scored or admitted
+frame under today's defaults. Before slice 6 loads CCD, either
+`EXTRACT_INTERVAL_S` or `MOTION_BUFFER_FRAMES` needs a CCD-specific value (both
+are settings, not literals, so this is a config change, not a code change).
+
+**A clip that is not useful evidence for this metric:** OMNI-303's synthetic
+`testsrc2` clip admits 115 of 115 scored frames — it animates continuously, so
+it never holds still long enough to demonstrate discrimination. It remains
+valid evidence that extraction itself works (its original purpose); it should
+not be read as evidence about gating.
+
+**Not covered:** VIRAT was not run through gating live (OMNI-300/303 already
+established it decodes and extracts correctly; extrapolated from UCF-Crime's
+result rather than measured separately here). No threshold sweep was run across
+the dataset — the defaults were chosen to be legible in a test, not tuned
+against real footage at scale. Full write-up in `docs/context/week-03-04.md`.
