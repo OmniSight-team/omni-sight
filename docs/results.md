@@ -379,3 +379,36 @@ UCF-Crime (386 rows) both confirm rows-equal-decoded-frames exactly, which is
 the same proportional claim at smaller scale. VIRAT was not re-run live after the
 rework (established separately that it decodes correctly, OMNI-300/303). No
 threshold sweep at dataset scale.
+
+---
+
+## 2026-09-23 — Heartbeat frames (OMNI-305): a static clip, and CCD's real coverage gain
+
+**Claim under test:** Algorithm 1 step 5 — a frame is admitted at least once every
+`HEARTBEAT_INTERVAL_S` even when the motion gate finds nothing, so a recording
+with no detected motion anywhere in it does not contribute zero admitted frames.
+
+**Method:** two real clips, uploaded and extracted through the real running
+stack with the real defaults (`heartbeat_interval_s=1.0`, `motion_stride_s=0.5`,
+`motion_grid_size=8`, `motion_cell_threshold=25.0`, `motion_min_active_cells=3`).
+
+| Clip | Rows | Admitted | By reason |
+|---|---|---|---|
+| Freshly encoded, genuinely static, 8 s / 10 fps | 80 | 7 | 7 heartbeat, 0 motion |
+| CCD `Crash-1500/000413.mp4` (5 s, 10 fps) | 50 | **26** | 24 motion, **2 heartbeat** |
+
+**Result: heartbeat does the one thing it exists to do, on real footage in both
+directions.** The static clip — which the motion gate alone admits nothing from,
+by construction — gets 7 admitted frames, one every second from t=1s to t=7s,
+matching the ticket's acceptance shape exactly ("a completely static clip still
+produces a handful of admitted frames rather than none"). CCD, which already had
+real motion coverage from the OMNI-303/304 rework (24 admitted, recorded above),
+gains **2 more admitted frames it did not have before** — two moments where
+motion never crossed threshold, now represented anyway. CCD's admitted count
+went from 24/50 to 26/50 with no change to the motion gate itself.
+
+**Not covered:** no literal 5-minute static clip was run — the 8-second live clip
+and a 300-second scheduling trace (`services/ingestion/tests/test_heartbeat.py`)
+both demonstrate the same property at smaller scale. `HEARTBEAT_INTERVAL_S`'s
+default (1.0 s) was not tuned for this ticket, only wired to something that reads
+it for the first time. Full write-up in `docs/context/week-03-04.md`.

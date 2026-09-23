@@ -1,3 +1,4 @@
+from omnisight_common.admission_reason import AdmissionReason
 from omnisight_common.camera_status import CameraStatus
 from omnisight_common.domain import Domain
 from omnisight_common.nav import NAV_ROUTES, NavRoute
@@ -9,6 +10,7 @@ from omnisight_common.video_status import VideoStatus
 
 __all__ = [
     "NAV_ROUTES",
+    "AdmissionReason",
     "CameraStatus",
     "CommonSettings",
     "Domain",

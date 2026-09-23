@@ -52,6 +52,18 @@ class GateDecision:
     # it needs them.
     clip_start_s: float | None = None
     clip_end_s: float | None = None
+    # Why the frame was admitted — "motion" or "heartbeat" (OMNI-305). None on
+    # a frame that was not admitted at all; a real motion score is kept as-is
+    # either way (a heartbeat admission does not fake or discard the score the
+    # gate actually computed).
+    admission_reason: str | None = None
+
+
+def _clip_window(timestamp_s: float, stride_s: float) -> tuple[float, float]:
+    """[t-2Δ, t]. Clamped so the start never precedes the video's own start —
+    a real motion admission's own 2Δ warm-up guard makes that unreachable for
+    it, but a heartbeat admission (OMNI-305) can fire before warm-up ends."""
+    return max(0.0, timestamp_s - 2 * stride_s), timestamp_s
 
 
 @dataclass(frozen=True)
@@ -77,6 +89,7 @@ class SegmentRecord:
     source_type: str
     clip_start_s: float | None = None
     clip_end_s: float | None = None
+    admission_reason: str | None = None
 
 
 class FrameGate:
@@ -211,13 +224,64 @@ class MotionGate(FrameGate):
         # (grayscale, blurred) frames for differencing only, never the
         # original bytes a clip would be cut from.
         if admitted:
+            clip_start_s, clip_end_s = _clip_window(t, self._stride_s)
             return GateDecision(
                 motion_score=float(active_cells),
                 admitted=True,
-                clip_start_s=t - 2 * self._stride_s,
-                clip_end_s=t,
+                clip_start_s=clip_start_s,
+                clip_end_s=clip_end_s,
+                admission_reason="motion",
             )
         return GateDecision(motion_score=float(active_cells), admitted=False)
+
+
+class HeartbeatGate(FrameGate):
+    """Algorithm 1 step 5: also admit a frame at a fixed interval even when
+    the wrapped gate finds no motion, so a parked car or an empty room stays
+    represented in the index instead of being invisible for an entire
+    recording.
+
+    A thin wrapper, not a replacement for the wrapped gate: every real
+    decision (the score, whether it was motion, the clip window) still comes
+    from the inner gate. This only ever turns a "not admitted" into an
+    admitted one; it never touches `motion_score`, and it never overrides a
+    motion admission's own reason or window.
+
+    One instance per extraction, same as the gate it wraps — its "next
+    heartbeat due" clock must never cross from one video into another.
+    """
+
+    def __init__(self, inner: FrameGate, *, heartbeat_interval_s: float, stride_s: float):
+        self._inner = inner
+        self._heartbeat_interval_s = heartbeat_interval_s
+        self._stride_s = stride_s
+        # The first heartbeat is due a full interval in, not at t=0 — a
+        # starting value of 0.0 here would make the very first frame of every
+        # video a heartbeat admission regardless of the interval.
+        self._next_due_s = heartbeat_interval_s
+
+    def evaluate(self, frame, timestamp_s: float) -> GateDecision:
+        decision = self._inner.evaluate(frame, timestamp_s)
+        if decision.admitted:
+            # A real admission already covers this stretch of video — the
+            # next heartbeat isn't due again until a full interval past it,
+            # so motion-rich footage doesn't also collect redundant
+            # heartbeat admissions right next to its own real ones.
+            self._next_due_s = timestamp_s + self._heartbeat_interval_s
+            return decision
+
+        if timestamp_s < self._next_due_s:
+            return decision  # not due yet; pass the "not admitted" through unchanged
+
+        self._next_due_s = timestamp_s + self._heartbeat_interval_s
+        clip_start_s, clip_end_s = _clip_window(timestamp_s, self._stride_s)
+        return GateDecision(
+            motion_score=decision.motion_score,  # unchanged — whatever it actually was
+            admitted=True,
+            clip_start_s=clip_start_s,
+            clip_end_s=clip_end_s,
+            admission_reason="heartbeat",
+        )
 
 
 def _write_jpeg(path: Path, image, quality: int) -> None:
@@ -269,6 +333,7 @@ def process_frame(
         source_type=source.source_type,
         clip_start_s=decision.clip_start_s,
         clip_end_s=decision.clip_end_s,
+        admission_reason=decision.admission_reason,
     )
 
 

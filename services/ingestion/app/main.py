@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.file_probe import FileProbeError, probe_file
 from app.logging_conf import configure_logging
-from app.pipeline import ExtractError, MotionGate, extract_file
+from app.pipeline import ExtractError, HeartbeatGate, MotionGate, extract_file
 from app.schemas import (
     ExtractedSegment,
     FileExtractRequest,
@@ -83,14 +83,19 @@ def extract_file_route(payload: FileExtractRequest) -> FileExtractResponse:
     # A plain (not async def) route: decoding a video is blocking work, so
     # FastAPI runs it in its threadpool instead of stalling the event loop.
     folder = str(payload.video_id)
-    # A fresh gate per extraction: its buffer of earlier frames must never
-    # carry over between videos.
-    gate = MotionGate(
-        grid_size=settings.motion_grid_size,
-        cell_threshold=settings.motion_cell_threshold,
-        min_active_cells=settings.motion_min_active_cells,
+    # A fresh gate per extraction: its buffer of earlier frames, and the
+    # heartbeat wrapper's "next one due" clock, must never carry over between
+    # videos.
+    gate = HeartbeatGate(
+        MotionGate(
+            grid_size=settings.motion_grid_size,
+            cell_threshold=settings.motion_cell_threshold,
+            min_active_cells=settings.motion_min_active_cells,
+            stride_s=settings.motion_stride_s,
+            blur_kernel=settings.motion_blur_kernel,
+        ),
+        heartbeat_interval_s=settings.heartbeat_interval_s,
         stride_s=settings.motion_stride_s,
-        blur_kernel=settings.motion_blur_kernel,
     )
     try:
         records = extract_file(

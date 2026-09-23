@@ -13,12 +13,11 @@ class Settings(CommonSettings):
     frame_jpeg_quality: int = Field(85, ge=1, le=100)
     thumb_jpeg_quality: int = Field(70, ge=1, le=100)
 
-    # OMNI-303 rework: this used to be the extraction sampling rate
-    # (EXTRACT_INTERVAL_S). Algorithm 1 has no sampling step — every frame is
-    # decoded and gated — so the name was freed up for its real OMNI-305
-    # meaning: how often a frame is admitted by heartbeat regardless of the
-    # gate's verdict. Renamed now; not read anywhere yet — OMNI-305 wires the
-    # actual heartbeat trigger.
+    # Algorithm 1 step 5 (OMNI-305): a frame is admitted at least once every
+    # this many seconds even when the gate finds no motion, so a parked car or
+    # an empty room stays represented instead of being invisible for an
+    # entire recording. Renamed from EXTRACT_INTERVAL_S in OMNI-303's rework,
+    # when it was still the (removed) extraction sampling rate.
     heartbeat_interval_s: float = Field(1.0, gt=0)
 
     # Algorithm 1 (OMNI-304), Phase A §3.5.1 / Appendix B.1. The frame grid a

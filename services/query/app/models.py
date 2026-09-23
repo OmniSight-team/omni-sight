@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from omnisight_common import (
+    AdmissionReason,
     CameraStatus,
     Domain,
     Role,
@@ -143,6 +144,11 @@ class Segment(Base):
     # rather than this ticket writing one file per admitted frame.
     clip_start_s: Mapped[float | None] = mapped_column(Float)
     clip_end_s: Mapped[float | None] = mapped_column(Float)
+    # Why the frame was admitted (OMNI-305): "motion" or "heartbeat". NULL on
+    # a frame that was not admitted — there is nothing to name a reason for.
+    admission_reason: Mapped[AdmissionReason | None] = mapped_column(
+        _enum_column(AdmissionReason, "admission_reason")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

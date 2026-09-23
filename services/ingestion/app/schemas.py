@@ -1,4 +1,4 @@
-from omnisight_common import SegmentSourceType
+from omnisight_common import AdmissionReason, SegmentSourceType
 from pydantic import BaseModel
 
 
@@ -38,8 +38,8 @@ class ExtractedSegment(BaseModel):
     camera_id: int | None
     frame_index: int
     timestamp_s: float
-    # None unless the frame was admitted — only admitted (and, from OMNI-305,
-    # heartbeat) frames get a JPEG written.
+    # None unless the frame was admitted — only admitted frames (by motion or
+    # by heartbeat, OMNI-305) get a JPEG written.
     frame_path: str | None
     thumb_path: str | None
     motion_score: float | None
@@ -48,6 +48,9 @@ class ExtractedSegment(BaseModel):
     # The causal clip window [t-2Δ, t], set only when admitted (OMNI-304).
     clip_start_s: float | None = None
     clip_end_s: float | None = None
+    # Why the frame was admitted (OMNI-305). None on a frame that was not
+    # admitted at all.
+    admission_reason: AdmissionReason | None = None
 
 
 class FileExtractResponse(BaseModel):
