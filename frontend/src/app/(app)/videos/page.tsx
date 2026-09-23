@@ -337,8 +337,8 @@ export default function VideosPage() {
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {videos.map((video) => (
                 <tr key={video.id}>
-                  <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">
-                    <Link href={`/videos/${video.id}`} className="hover:underline">
+                  <td className="p-0 font-medium text-zinc-900 dark:text-zinc-50">
+                    <Link href={`/videos/${video.id}`} className="block px-4 py-3 hover:underline">
                       {video.filename}
                     </Link>
                   </td>

@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
   type Frame,
+  type FrameFilter,
   type Video,
   type VideoStatus,
   getVideo,
-  listAdmittedFrames,
+  listAllFrames,
 } from "@/lib/api-client";
 
 const STATUS_STYLES: Record<VideoStatus, string> = {
@@ -34,10 +35,18 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
 }
 
-// Motion and heartbeat get different colors on the timeline — "the shape of
-// the activity visible at a glance" is more informative when it also shows
-// which admissions are the recording's own real motion versus the fixed
-// schedule (OMNI-305) that fires when nothing else does.
+// mm:ss.t — tenths matter here because clicking a thumbnail has to land the
+// player on that exact frame, not just "somewhere in the right second".
+function formatTimestamp(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = (seconds % 60).toFixed(1).padStart(4, "0");
+  return `${mins}:${secs}`;
+}
+
+// Motion and heartbeat get different colors on the timeline and grid — "the
+// shape of the activity visible at a glance" is more informative when it
+// also shows which admissions are the recording's own real motion versus
+// the fixed schedule (OMNI-305) that fires when nothing else does.
 const REASON_STYLES: Record<string, string> = {
   motion: "bg-indigo-600",
   heartbeat: "bg-amber-500",
@@ -73,24 +82,140 @@ function Timeline({ durationS, frames }: { durationS: number; frames: Frame[] })
   );
 }
 
+const GRID_FILTERS: { value: FrameFilter; label: string }[] = [
+  { value: "admitted", label: "Admitted" },
+  { value: "discarded", label: "Discarded" },
+  { value: "all", label: "All" },
+];
+
+function FrameFilterTabs({
+  value,
+  onChange,
+}: {
+  value: FrameFilter;
+  onChange: (filter: FrameFilter) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800">
+      {GRID_FILTERS.map((filter) => (
+        <button
+          key={filter.value}
+          type="button"
+          onClick={() => onChange(filter.value)}
+          className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+            value === filter.value
+              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+              : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          }`}
+        >
+          {filter.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FrameCounts({ total, kept, discarded }: { total: number; kept: number; discarded: number }) {
+  const pctRetained = total > 0 ? Math.round((kept / total) * 100) : 0;
+  return (
+    <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
+      <span>{kept} kept</span>
+      <span>{discarded} discarded</span>
+      <span>{pctRetained}% retained</span>
+    </div>
+  );
+}
+
+function FrameTile({ frame, onSeek }: { frame: Frame; onSeek: (timestampS: number) => void }) {
+  const reasonDot = frame.admitted
+    ? (REASON_STYLES[frame.admission_reason ?? ""] ?? "bg-indigo-600")
+    : null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSeek(frame.timestamp_s)}
+      title={`Seek to ${formatTimestamp(frame.timestamp_s)}`}
+      className={`group flex flex-col overflow-hidden rounded-lg border text-left transition hover:ring-2 hover:ring-indigo-500 ${
+        frame.admitted
+          ? "border-zinc-200 dark:border-zinc-800"
+          : "border-dashed border-zinc-300 opacity-60 hover:opacity-100 dark:border-zinc-700"
+      }`}
+    >
+      <div className="relative aspect-video w-full bg-zinc-100 dark:bg-zinc-800">
+        {frame.thumb_url ? (
+          // Thumbnails are served directly by nginx (OMNI-307), not through Next's image optimizer.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={frame.thumb_url}
+            alt={`Frame at ${formatTimestamp(frame.timestamp_s)}`}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-[11px] text-zinc-400 dark:text-zinc-500">
+            discarded
+          </div>
+        )}
+        {reasonDot && <span className={`absolute left-1 top-1 h-2 w-2 rounded-full ${reasonDot}`} />}
+      </div>
+      <div className="flex items-center justify-between px-1.5 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <span>{formatTimestamp(frame.timestamp_s)}</span>
+        <span>{frame.motion_score != null ? frame.motion_score.toFixed(3) : "—"}</span>
+      </div>
+    </button>
+  );
+}
+
+function FrameGrid({ frames, onSeek }: { frames: Frame[]; onSeek: (timestampS: number) => void }) {
+  if (frames.length === 0) {
+    return <p className="text-sm text-zinc-500 dark:text-zinc-400">No frames match this filter.</p>;
+  }
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+      {frames.map((frame) => (
+        <FrameTile key={frame.segment_id} frame={frame} onSeek={onSeek} />
+      ))}
+    </div>
+  );
+}
+
 export default function VideoPlayerPage() {
   const params = useParams<{ id: string }>();
   const videoId = Number(params.id);
 
   const [video, setVideo] = useState<Video | null>(null);
-  const [frames, setFrames] = useState<Frame[]>([]);
+  const [allFrames, setAllFrames] = useState<Frame[]>([]);
+  const [gridFilter, setGridFilter] = useState<FrameFilter>("admitted");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     getVideo(videoId)
       .then(setVideo)
       .catch((err) => setLoadError(errorMessage(err, "could not load this recording")));
-    listAdmittedFrames(videoId)
-      .then(setFrames)
+    // Fetches the whole set once — the timeline, the grid's own filter
+    // toggle, and the kept/discarded counts all derive from this same array
+    // client-side, so counts stay exact and switching the grid filter is
+    // instant instead of round-tripping to the API on every click.
+    listAllFrames(videoId, "all")
+      .then(setAllFrames)
       .catch(() => {
-        // Non-fatal — the player still works, just without timeline marks.
+        // Non-fatal — the player still works, just without timeline marks or a frame grid.
       });
   }, [videoId]);
+
+  const admittedFrames = useMemo(() => allFrames.filter((frame) => frame.admitted), [allFrames]);
+  const gridFrames = useMemo(() => {
+    if (gridFilter === "all") return allFrames;
+    const wantAdmitted = gridFilter === "admitted";
+    return allFrames.filter((frame) => frame.admitted === wantAdmitted);
+  }, [allFrames, gridFilter]);
+
+  function seekTo(timestampS: number) {
+    if (videoRef.current) {
+      videoRef.current.currentTime = timestampS;
+    }
+  }
 
   return (
     <main className="p-6">
@@ -119,7 +244,7 @@ export default function VideoPlayerPage() {
           </div>
 
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-black dark:border-zinc-800">
-            <video src={video.playback_url} controls className="aspect-video w-full" />
+            <video ref={videoRef} src={video.playback_url} controls className="aspect-video w-full" />
           </div>
 
           {video.duration_s == null ? (
@@ -127,13 +252,28 @@ export default function VideoPlayerPage() {
               Duration unknown — the timeline needs a successful probe first.
             </p>
           ) : (
-            <Timeline durationS={video.duration_s} frames={frames} />
+            <Timeline durationS={video.duration_s} frames={admittedFrames} />
           )}
 
           {video.status === "ready" && video.segments_count === 0 && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               This recording has not been extracted yet — no frames to show on the timeline.
             </p>
+          )}
+
+          {video.segments_count > 0 && (
+            <div className="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Frames</h2>
+                <FrameFilterTabs value={gridFilter} onChange={setGridFilter} />
+              </div>
+              <FrameCounts
+                total={allFrames.length}
+                kept={admittedFrames.length}
+                discarded={allFrames.length - admittedFrames.length}
+              />
+              <FrameGrid frames={gridFrames} onSeek={seekTo} />
+            </div>
           )}
         </div>
       )}

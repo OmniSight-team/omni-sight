@@ -226,13 +226,35 @@ export interface Frame {
   admission_reason: AdmissionReason | null;
 }
 
-// OMNI-307's own default page size is 50 — the player only cares about
-// admitted frames for the timeline, and a recording can easily have more
-// than 50 of those, so this always asks for the maximum page instead.
+export type FrameFilter = "admitted" | "discarded" | "all";
+
+// OMNI-307's own hard cap per page. A recording can easily have more segments
+// than this (any dataset clip with more than a couple hundred frames), so a
+// single call is never enough on its own — see listAllFrames below.
 const MAX_FRAMES_PAGE_SIZE = 200;
 
-export async function listAdmittedFrames(videoId: number): Promise<Frame[]> {
-  return request<Frame[]>(`/videos/${videoId}/frames?admitted=true&limit=${MAX_FRAMES_PAGE_SIZE}`);
+function frameFilterParam(filter: FrameFilter): "true" | "false" | "all" {
+  return filter === "admitted" ? "true" : filter === "discarded" ? "false" : "all";
+}
+
+async function listFramesPage(videoId: number, filter: FrameFilter, offset: number): Promise<Frame[]> {
+  return request<Frame[]>(
+    `/videos/${videoId}/frames?admitted=${frameFilterParam(filter)}&limit=${MAX_FRAMES_PAGE_SIZE}&offset=${offset}`,
+  );
+}
+
+// Loops past OMNI-307's own per-page cap so a caller always gets the *whole*
+// matching set, never just the first 200 — the frame grid's counts (OMNI-309)
+// have to be exact, not "however many fit in one page".
+export async function listAllFrames(videoId: number, filter: FrameFilter = "all"): Promise<Frame[]> {
+  const frames: Frame[] = [];
+  let offset = 0;
+  while (true) {
+    const page = await listFramesPage(videoId, filter, offset);
+    frames.push(...page);
+    if (page.length < MAX_FRAMES_PAGE_SIZE) return frames;
+    offset += MAX_FRAMES_PAGE_SIZE;
+  }
 }
 
 export interface VideoUploadResult {
