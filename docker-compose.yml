@@ -96,6 +96,9 @@ services:
       # the `location /thumbs/` block. Deliberately not frame_storage — only
       # the small thumbnails are reachable this way, never full frames.
       - thumb_storage:/data/thumbs:ro
+      # OMNI-308: the player's <video> element, served the same way —
+      # straight off this volume by `location /media/`, read-only.
+      - video_storage:/data/videos:ro
     depends_on:
       - query
       - frontend

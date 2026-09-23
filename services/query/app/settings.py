@@ -26,6 +26,10 @@ class Settings(CommonSettings):
     # Extraction decodes a whole video inside one request to ingestion, so it
     # gets far longer than a probe does.
     ingestion_extract_timeout_s: float = Field(900.0, gt=0)
+    # OMNI-308: a transcode, not a one-frame read like /probe/file — shorter
+    # than extraction's own timeout (nothing here decodes every frame with a
+    # motion gate), but still far longer than a plain probe needs.
+    ingestion_playback_timeout_s: float = Field(150.0, gt=0)
 
     video_storage_path: str = "/data/videos"
     max_upload_size_mb: int = 500
@@ -41,6 +45,11 @@ class Settings(CommonSettings):
     # the same way the `/api` prefix already is across nginx, next.config.ts
     # and api-client.ts.
     thumb_url_prefix: str = "/thumbs"
+
+    # OMNI-308: same idea, for video bytes — Nginx's `location /media/` block
+    # serves straight off `video_storage`. Whichever of the original or the
+    # playback copy is browser-playable, this is the prefix its URL uses.
+    video_url_prefix: str = "/media"
 
     @property
     def database_url(self) -> str:

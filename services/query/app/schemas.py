@@ -92,6 +92,12 @@ class VideoDetailResponse(BaseModel):
     retention_until: datetime | None
     created_at: datetime
     segments_count: int = 0
+    # A URL the player (OMNI-308) can point a <video> element at directly —
+    # Nginx serves it straight off the shared volume, same as thumbnails
+    # (OMNI-307). Never the server-side filesystem path itself. Always set:
+    # the playback copy if one was made, otherwise the original, which is
+    # exactly what should play when it was already H.264.
+    playback_url: str
 
 
 class ExtractResponse(BaseModel):

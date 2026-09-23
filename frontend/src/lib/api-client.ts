@@ -180,6 +180,9 @@ export interface Video {
   retention_until: string | null;
   created_at: string;
   segments_count: number;
+  // Always set — the playback copy if ingestion made one (OMNI-308), the
+  // original otherwise. Served by Nginx directly, not through this API.
+  playback_url: string;
 }
 
 export interface VideoListFilters {
@@ -203,8 +206,33 @@ export async function listVideos(filters: VideoListFilters = {}): Promise<Video[
   return request<Video[]>(`/videos${query ? `?${query}` : ""}`);
 }
 
+export async function getVideo(id: number): Promise<Video> {
+  return request<Video>(`/videos/${id}`);
+}
+
 export async function deleteVideo(id: number): Promise<{ id: number; deleted: boolean }> {
   return request(`/videos/${id}`, { method: "DELETE" });
+}
+
+export type AdmissionReason = "motion" | "heartbeat";
+
+export interface Frame {
+  segment_id: number;
+  frame_index: number;
+  timestamp_s: number;
+  motion_score: number | null;
+  admitted: boolean;
+  thumb_url: string | null;
+  admission_reason: AdmissionReason | null;
+}
+
+// OMNI-307's own default page size is 50 — the player only cares about
+// admitted frames for the timeline, and a recording can easily have more
+// than 50 of those, so this always asks for the maximum page instead.
+const MAX_FRAMES_PAGE_SIZE = 200;
+
+export async function listAdmittedFrames(videoId: number): Promise<Frame[]> {
+  return request<Frame[]>(`/videos/${videoId}/frames?admitted=true&limit=${MAX_FRAMES_PAGE_SIZE}`);
 }
 
 export interface VideoUploadResult {

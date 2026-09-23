@@ -29,6 +29,7 @@ from app.extraction import (
     segment_file_paths,
 )
 from app.ingestion_client import IngestionUnavailableError
+from app.ingestion_client import ensure_playback as ingestion_ensure_playback
 from app.ingestion_client import probe_file as ingestion_probe_file
 from app.models import Segment, User, Video
 from app.schemas import (
@@ -173,6 +174,7 @@ def _probe_and_finalize(video: Video, db: Session) -> str | None:
         video.height = result["height"]
         video.status = VideoStatus.READY
         db.commit()
+        _ensure_playback_copy(video, db)
         return None
 
     error = result.get("error") or "probe failed"
@@ -183,6 +185,43 @@ def _probe_and_finalize(video: Video, db: Session) -> str | None:
     video.status = VideoStatus.FAILED
     db.commit()
     return error
+
+
+def _ensure_playback_copy(video: Video, db: Session) -> None:
+    """A browser-playable H.264 copy, only if the original needs one
+    (OMNI-308). Deliberately soft-fail: the original already proved
+    decodable by the probe above, so a video is still `ready` and fully
+    usable for extraction and gating even if this never succeeds — only the
+    in-browser preview is worse off, logged, never raised."""
+    try:
+        result = ingestion_ensure_playback(video.path)
+    except IngestionUnavailableError as exc:
+        logger.warning(
+            "playback copy skipped, ingestion unavailable",
+            extra={"extra_fields": {"video_id": video.id, "error": str(exc)}},
+        )
+        return
+
+    if not result["ok"]:
+        logger.warning(
+            "playback copy failed",
+            extra={"extra_fields": {"video_id": video.id, "error": result.get("error")}},
+        )
+        return
+
+    if result.get("playback_path"):
+        video.playback_path = result["playback_path"]
+        db.commit()
+
+
+def _video_url(video: Video) -> str:
+    """Whichever file actually plays in a browser — the playback copy if one
+    was made, otherwise the original (already H.264, or playback generation
+    hasn't run or hasn't succeeded yet). Same construction as `_thumb_url`
+    (OMNI-307): strip the storage path, prepend the public URL prefix Nginx's
+    `location /media/` block serves from."""
+    path = video.playback_path or video.path
+    return settings.video_url_prefix + path.removeprefix(settings.video_storage_path)
 
 
 def _to_detail(video: Video, segments_count: int) -> VideoDetailResponse:
@@ -201,6 +240,7 @@ def _to_detail(video: Video, segments_count: int) -> VideoDetailResponse:
         retention_until=video.retention_until,
         created_at=video.created_at,
         segments_count=segments_count,
+        playback_url=_video_url(video),
     )
 
 
@@ -428,7 +468,11 @@ def delete_video(
     # thumbnail files they point at do not — the paths have to be read before
     # the rows disappear.
     segment_paths = segment_file_paths(db, video_id)
-    file_path = Path(video.path)
+    # The original, plus the playback copy (OMNI-308) if one was ever made —
+    # two files can point back at one video now, not just one.
+    file_paths = [Path(video.path)]
+    if video.playback_path:
+        file_paths.append(Path(video.playback_path))
 
     # The database rows are the source of truth every other endpoint reads
     # from, so they're deleted (and committed) first. Only once that succeeds
@@ -438,13 +482,14 @@ def delete_video(
     db.delete(video)
     db.commit()
 
-    try:
-        file_path.unlink(missing_ok=True)
-    except OSError as exc:
-        logger.warning(
-            "video file could not be removed after its row was deleted",
-            extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
-        )
+    for file_path in file_paths:
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "video file could not be removed after its row was deleted",
+                extra={"extra_fields": {"video_id": video_id, "path": str(file_path), "error": str(exc)}},
+            )
     remove_segment_files(video_id, segment_paths)
 
     return {"id": video_id, "deleted": True}

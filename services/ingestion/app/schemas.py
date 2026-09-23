@@ -72,3 +72,15 @@ class FileExtractResponse(BaseModel):
     grid_size: int | None = None
     cell_threshold: float | None = None
     min_active_cells: int | None = None
+
+
+class PlaybackRequest(BaseModel):
+    path: str
+
+
+class PlaybackResponse(BaseModel):
+    ok: bool
+    # None either way: the source was already H.264 and needed no copy
+    # (`ok=True`), or the attempt failed (`ok=False`, `error` set).
+    playback_path: str | None = None
+    error: str | None = None

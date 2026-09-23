@@ -9,12 +9,15 @@ from fastapi.responses import JSONResponse
 from app.file_probe import FileProbeError, probe_file
 from app.logging_conf import configure_logging
 from app.pipeline import ExtractError, HeartbeatGate, MotionGate, extract_file
+from app.playback import PlaybackError, ensure_playback_copy
 from app.schemas import (
     ExtractedSegment,
     FileExtractRequest,
     FileExtractResponse,
     FileProbeRequest,
     FileProbeResponse,
+    PlaybackRequest,
+    PlaybackResponse,
     StreamProbeRequest,
     StreamProbeResponse,
 )
@@ -76,6 +79,21 @@ def probe_file_route(payload: FileProbeRequest) -> FileProbeResponse:
     except FileProbeError as exc:
         return FileProbeResponse(ok=False, error=exc.reason)
     return FileProbeResponse(ok=True, **result)
+
+
+@app.post("/playback/file", response_model=PlaybackResponse)
+def playback_file_route(payload: PlaybackRequest) -> PlaybackResponse:
+    # A plain (not async def) route: the transcode below is blocking work,
+    # same reasoning as every other file-handling route in this service.
+    try:
+        playback_path = ensure_playback_copy(payload.path)
+    except PlaybackError as exc:
+        logger.warning(
+            "playback copy failed",
+            extra={"extra_fields": {"path": payload.path, "error": exc.reason}},
+        )
+        return PlaybackResponse(ok=False, error=exc.reason)
+    return PlaybackResponse(ok=True, playback_path=playback_path)
 
 
 @app.post("/extract/file", response_model=FileExtractResponse)

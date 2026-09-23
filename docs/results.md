@@ -489,3 +489,37 @@ route. Not asked for by OMNI-307 or any other ticket in this sprint; recorded
 as a real, live-demonstrated gap for whoever scopes access control on frame
 data next, not treated as covered by TC-10 just because it wasn't tripped by
 it. Full context in `docs/context/week-03-04.md`.
+
+---
+
+## 2026-09-24 — The same auth gap, now over whole recordings (OMNI-308)
+
+**Claim under test:** the same measurement as the entry above, against
+`/media/`, the new Nginx route OMNI-308 adds for the player's `<video>`
+element.
+
+**Method:** uploaded a real CCD clip through the real running stack; fetched
+its playback URL through Nginx with no `Authorization` header.
+
+```
+GET https://127.0.0.1/media/ff810750e6cf4593a973ef7e0a727907_playback.mp4   (no token)
+200, content-type: video/mp4
+```
+
+**Result: the exposure OMNI-307 found is now materially larger.** `/thumbs/`
+exposes small preview images; `/media/` exposes complete recordings, the same
+way, with the same absent authentication. Still 0% of requests to either
+static route require a token, against 100% for every route TC-10 covers.
+
+**Also measured while checking this:** the real transcode a non-H.264 source
+needs — CCD's clip, genuine MPEG-4 Part 2 re-confirmed via `ffprobe`, encoded
+to genuine H.264 (also re-confirmed, not assumed from ffmpeg's own exit code)
+— added negligible time to the upload: **0.66 s** total for probe and
+transcode together, on a 5-second clip. Nothing about how this scales to a
+real multi-minute recording was measured; the transcode runs synchronously,
+inside the same request the probe already runs in, with a 150-second timeout
+that is a generous guess, not a measurement.
+
+**Not fixed, same reasoning as OMNI-307's entry:** not asked for by this
+sprint. Recorded so the two gaps are visible together, not read as one
+smaller issue repeated. Full context in `docs/context/week-03-04.md`.

@@ -90,6 +90,11 @@ class Video(Base):
     # that started it has already returned, so there is nowhere else to say why.
     error: Mapped[str | None] = mapped_column(String)
     retention_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A browser-playable H.264 copy of `path`, beside it, never in its place
+    # (OMNI-308) — extraction and gating always read `path`, the original.
+    # NULL when the original is already H.264 and needs no copy, or when one
+    # hasn't been attempted or produced yet.
+    playback_path: Mapped[str | None] = mapped_column(String)
     # The Algorithm 1 parameters that produced the video's *current* segment
     # rows — set by extraction (from ingestion's settings) and updated by
     # re-gating (OMNI-306, from whatever the caller supplied). NULL until the

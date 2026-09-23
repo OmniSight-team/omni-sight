@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import {
@@ -337,7 +338,9 @@ export default function VideosPage() {
               {videos.map((video) => (
                 <tr key={video.id}>
                   <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">
-                    {video.filename}
+                    <Link href={`/videos/${video.id}`} className="hover:underline">
+                      {video.filename}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                     {video.camera_id != null ? (cameraNames.get(video.camera_id) ?? `#${video.camera_id}`) : "—"}

@@ -69,3 +69,16 @@ def probe_file(path: str) -> dict:
     except httpx.HTTPError as exc:
         raise IngestionUnavailableError(str(exc)) from exc
     return resp.json()
+
+
+def ensure_playback(path: str) -> dict:
+    try:
+        resp = httpx.post(
+            f"{settings.ingestion_base_url}/playback/file",
+            json={"path": path},
+            timeout=settings.ingestion_playback_timeout_s,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise IngestionUnavailableError(str(exc)) from exc
+    return resp.json()
