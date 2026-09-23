@@ -121,8 +121,12 @@ class Segment(Base):
     camera_id: Mapped[int | None] = mapped_column(ForeignKey("cameras.id"), nullable=True)
     frame_index: Mapped[int] = mapped_column(Integer, nullable=False)
     timestamp_s: Mapped[float] = mapped_column(Float, nullable=False)
-    frame_path: Mapped[str] = mapped_column(String, nullable=False)
-    thumb_path: Mapped[str] = mapped_column(String, nullable=False)
+    # NULL unless the frame was admitted (OMNI-303 rework): a row is written
+    # for every gated frame, but a JPEG only for the ones actually worth
+    # looking at — writing one per decoded frame of a 30 fps video is not
+    # affordable at slice 6 scale.
+    frame_path: Mapped[str | None] = mapped_column(String)
+    thumb_path: Mapped[str | None] = mapped_column(String)
     # NULL means "not scored yet"; the gate stores a real score on every frame,
     # admitted or not, so a decision can always be inspected.
     motion_score: Mapped[float | None] = mapped_column(Float)
@@ -132,6 +136,13 @@ class Segment(Base):
     source_type: Mapped[SegmentSourceType] = mapped_column(
         _enum_column(SegmentSourceType, "segment_source_type"), nullable=False
     )
+    # The causal clip window Algorithm 1 records on an admitted frame,
+    # [clip_start_s, clip_end_s] = [t-2Δ, t] (OMNI-304, pseudocode lines 7-8).
+    # NULL on a frame that was not admitted. The window names a span of the
+    # *source* video; slice 8 cuts the actual clip bytes from it when needed,
+    # rather than this ticket writing one file per admitted frame.
+    clip_start_s: Mapped[float | None] = mapped_column(Float)
+    clip_end_s: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

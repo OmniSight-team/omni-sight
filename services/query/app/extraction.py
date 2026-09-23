@@ -28,12 +28,16 @@ INTERRUPTED_MESSAGE = "extraction was interrupted by a restart"
 
 
 def segment_file_paths(db: Session, video_id: int) -> list[Path]:
-    """Every frame and thumbnail file the video's segment rows point at."""
+    """Every frame and thumbnail file the video's segment rows point at.
+
+    Most rows have neither (OMNI-303 rework: only admitted frames get a
+    JPEG), so None entries are skipped rather than turned into a path.
+    """
     paths: list[Path] = []
     for frame_path, thumb_path in db.query(Segment.frame_path, Segment.thumb_path).filter_by(
         video_id=video_id
     ):
-        paths.extend([Path(frame_path), Path(thumb_path)])
+        paths.extend(Path(p) for p in (frame_path, thumb_path) if p is not None)
     return paths
 
 

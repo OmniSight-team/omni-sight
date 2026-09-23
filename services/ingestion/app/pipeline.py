@@ -7,6 +7,9 @@ plain `source_type` label, so nothing downstream can tell them apart.
 
 Deliberately imports nothing from `app.*`: every setting arrives as an
 argument, which keeps this module independent of the service around it.
+
+OMNI-304 follows Phase A §3.5.1's pseudocode (Appendix B.1) line by line —
+every design choice below is annotated with the pseudocode line it implements.
 """
 
 import shutil
@@ -43,21 +46,37 @@ class FrameSource:
 class GateDecision:
     motion_score: float | None
     admitted: bool
+    # The causal clip window, pseudocode lines 7-8: [t - 2Δ, t], set only when
+    # `admitted` is True. The window is recorded as two numbers, never as
+    # written-out video — slice 8 cuts the actual bytes from the source when
+    # it needs them.
+    clip_start_s: float | None = None
+    clip_end_s: float | None = None
 
 
 @dataclass(frozen=True)
 class SegmentRecord:
-    """One stored frame — the fields of a `segments` row, minus the id."""
+    """One stored frame — the fields of a `segments` row, minus the id.
+
+    frame_path and thumb_path are None unless the frame was admitted: writing
+    a JPEG for every decoded frame of a 30 fps video is not affordable at
+    slice 6 scale, so only admitted (and, from OMNI-305, heartbeat) frames get
+    one. A row is still written for every gated frame regardless — rows are
+    cheap, JPEGs are not, and the discarded scores are what make the gate
+    inspectable and the threshold slider (OMNI-310) possible.
+    """
 
     video_id: int | None
     camera_id: int | None
     frame_index: int
     timestamp_s: float
-    frame_path: str
-    thumb_path: str
+    frame_path: str | None
+    thumb_path: str | None
     motion_score: float | None
     admitted: bool
     source_type: str
+    clip_start_s: float | None = None
+    clip_end_s: float | None = None
 
 
 class FrameGate:
@@ -70,23 +89,50 @@ class FrameGate:
     frame with earlier ones and so has to carry state between calls.
     """
 
-    def evaluate(self, frame) -> GateDecision:
+    def evaluate(self, frame, timestamp_s: float) -> GateDecision:
         return GateDecision(motion_score=None, admitted=False)
 
 
-class MotionGate(FrameGate):
-    """Algorithm 1 from the Phase A book: grid-cell motion detection.
+# Guards the 2Δ boundary comparisons in MotionGate against floating-point
+# accumulation. Frame timestamps arrive as repeated float addition/division
+# (index / fps), which does not reproduce an exact multiple of Δ — without
+# this, the warm-up check and the buffer-pruning check could disagree by a
+# few ULPs at the exact boundary, occasionally pruning one entry too many and
+# spuriously dropping a fully warmed-up gate back into "warmup" for a frame
+# or two. Microseconds, tiny next to any real Δ (settings enforce Δ > 0).
+_CLOCK_EPSILON_S = 1e-6
 
-    1. Compare the current frame to an **earlier buffered** frame, `buffer_frames`
-       samples back — never the one immediately before, which consecutive
-       frames barely differ from
-    2. Divide the absolute-difference image into a `grid_size` x `grid_size` grid
-    3. A cell "shows meaningful change" when its mean difference exceeds
-       `cell_threshold`; `motion_score` is how many cells do
-    4. Admit when that count reaches `min_active_cells`
+
+class MotionGate(FrameGate):
+    """Algorithm 1 (Phase A §3.5.1 / Appendix B.1), followed line by line:
+
+        in:  stride Δ, grid G, threshold τ, min cells k
+        1:   Buffer_cam.append(f_t)
+        2:   if Buffer.duration < 2Δ: warmup
+        3:   diff = |gray(f_t) − gray(f_{t−Δ})|
+        4:   cells = partition(diff, G×G)
+        5:   active = count(c : mean(c) > τ)
+        6:   if active ≥ k: admit
+        7:   W = Buffer.window([t − 2Δ, t])
+        8:   forward(f_t, W)
+        10:  else: drop(f_t)
+
+    Δ is a **duration**, not a frame count — the same Δ means the same amount
+    of real time regardless of the source's frame rate, which is what makes a
+    5-second, 10 fps clip and a 5-second, 30 fps clip behave the same way. A
+    frame-count buffer does not have this property: it was the original
+    implementation's bug (recorded in OMNI-303's rework note) — a 5-second CCD
+    clip sampled at 1 fps produced exactly 5 frames, which never filled a
+    5-frame buffer, so no CCD clip was ever scored.
+
+    One documented departure from the pseudocode: frames are blurred before
+    differencing (see `_preprocess`). The pseudocode does not blur; without it,
+    two frames of a perfectly still scene still differ pixel by pixel from
+    sensor noise alone, which the blur suppresses. Recorded in docs/results.md.
 
     One instance per extraction: it holds a buffer of earlier frames, so it
-    carries state across calls the way a stateless function could not.
+    carries state across calls the way a stateless function could not, and
+    that state must never cross from one video into another.
     """
 
     def __init__(
@@ -95,43 +141,54 @@ class MotionGate(FrameGate):
         grid_size: int,
         cell_threshold: float,
         min_active_cells: int,
-        buffer_frames: int,
+        stride_s: float,
         blur_kernel: int,
     ):
         self._grid_size = grid_size
         self._cell_threshold = cell_threshold
         self._min_active_cells = min_active_cells
+        self._stride_s = stride_s
         self._blur_kernel = blur_kernel
-        # maxlen holds exactly `buffer_frames` frames; appending past that
-        # silently drops the oldest, which is what makes "compare to the frame
-        # buffer_frames back" a matter of reading index 0 before appending.
-        self._buffer: deque = deque(maxlen=buffer_frames)
+        # (timestamp_s, blurred grayscale frame), oldest first. Pruned to the
+        # last 2Δ on every call (line 7's window never reaches further back
+        # than that), so memory stays bounded regardless of clip length or fps.
+        self._buffer: deque[tuple[float, np.ndarray]] = deque()
 
     def _preprocess(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         # Blurring first is what keeps sensor noise from being read as
         # motion: two frames of a perfectly still scene still differ pixel by
         # pixel from sensor noise alone, and a blur smooths that out before
-        # the comparison is even made.
+        # the comparison is even made. Not in the pseudocode — see class doc.
         return cv2.GaussianBlur(gray, (self._blur_kernel, self._blur_kernel), 0)
 
-    def evaluate(self, frame) -> GateDecision:
+    def evaluate(self, frame, timestamp_s: float) -> GateDecision:
+        t = timestamp_s
         processed = self._preprocess(frame)
 
-        # Buffer not yet full: there is no frame buffer_frames samples back
-        # to compare against, so this frame genuinely cannot be scored yet —
-        # the same "not scored yet" NULL every segment starts with.
-        if len(self._buffer) < self._buffer.maxlen:
-            self._buffer.append(processed)
+        # Line 1: append before comparing, so a one-frame buffer at t=0 is
+        # itself in the buffer (harmless: Δ>0 means it's never its own
+        # "nearest to t-Δ").
+        self._buffer.append((t, processed))
+
+        # Line 2: warm-up is measured in time, not in a count of frames. 2Δ,
+        # not Δ, because an admitted frame's clip window (line 7) reaches back
+        # to t-2Δ; scoring only starts once the buffer has actually seen that
+        # much history, not just enough for the line-3 diff on its own.
+        duration = t - self._buffer[0][0]
+        if duration < 2 * self._stride_s - _CLOCK_EPSILON_S:
             return GateDecision(motion_score=None, admitted=False)
 
-        earlier = self._buffer[0]
+        # Line 3: compare against the buffered frame nearest t-Δ, never the
+        # immediately preceding one — consecutive frames barely differ, which
+        # is the whole reason Δ exists.
+        target = t - self._stride_s
+        earlier = min(self._buffer, key=lambda item: abs(item[0] - target))[1]
         diff = cv2.absdiff(processed, earlier)
-        self._buffer.append(processed)  # pushes `earlier` out automatically
 
-        # np.array_split tolerates a frame whose dimensions don't divide the
-        # grid evenly (some cells end up a pixel larger) rather than assuming
-        # a resolution that happens to divide cleanly.
+        # Lines 4-5: np.array_split tolerates a frame whose dimensions don't
+        # divide the grid evenly (some cells end up a pixel larger) rather
+        # than assuming a resolution that happens to divide cleanly.
         active_cells = sum(
             1
             for row in np.array_split(diff, self._grid_size, axis=0)
@@ -139,10 +196,28 @@ class MotionGate(FrameGate):
             if cell.mean() > self._cell_threshold
         )
 
-        return GateDecision(
-            motion_score=float(active_cells),
-            admitted=active_cells >= self._min_active_cells,
-        )
+        # Line 6.
+        admitted = active_cells >= self._min_active_cells
+
+        # Keep only what a future call could still need: entries newer than
+        # 2Δ back from the newest one seen so far. The margin here is on the
+        # side of keeping an entry, not dropping it — pruning too eagerly is
+        # what would let duration dip back under 2Δ on the very next call.
+        while self._buffer and t - self._buffer[0][0] > 2 * self._stride_s + _CLOCK_EPSILON_S:
+            self._buffer.popleft()
+
+        # Lines 7-8: the window is pure arithmetic from t and Δ — nothing is
+        # read back out of the buffer, because the buffer holds preprocessed
+        # (grayscale, blurred) frames for differencing only, never the
+        # original bytes a clip would be cut from.
+        if admitted:
+            return GateDecision(
+                motion_score=float(active_cells),
+                admitted=True,
+                clip_start_s=t - 2 * self._stride_s,
+                clip_end_s=t,
+            )
+        return GateDecision(motion_score=float(active_cells), admitted=False)
 
 
 def _write_jpeg(path: Path, image, quality: int) -> None:
@@ -169,27 +244,31 @@ def process_frame(
     frame_quality: int,
     thumb_quality: int,
 ) -> SegmentRecord:
-    """Gate one decoded frame, write it and its thumbnail, and return the
-    segment that describes them. The caller owns the output directories and
-    puts the returned record into the database."""
-    decision = gate.evaluate(frame)
+    """Gate one decoded frame. A JPEG and thumbnail are written only if the
+    gate admits the frame; a segment is returned either way. The caller owns
+    the output directories and puts the returned record into the database."""
+    decision = gate.evaluate(frame, source.timestamp_s)
 
-    name = f"{source.frame_index:06d}.jpg"
-    frame_path = frames_dir / name
-    thumb_path = thumbs_dir / name
-    _write_jpeg(frame_path, frame, frame_quality)
-    _write_jpeg(thumb_path, _thumbnail(frame, thumb_width), thumb_quality)
+    frame_path = thumb_path = None
+    if decision.admitted:
+        name = f"{source.frame_index:06d}.jpg"
+        frame_path = frames_dir / name
+        thumb_path = thumbs_dir / name
+        _write_jpeg(frame_path, frame, frame_quality)
+        _write_jpeg(thumb_path, _thumbnail(frame, thumb_width), thumb_quality)
 
     return SegmentRecord(
         video_id=source.video_id,
         camera_id=source.camera_id,
         frame_index=source.frame_index,
         timestamp_s=source.timestamp_s,
-        frame_path=str(frame_path),
-        thumb_path=str(thumb_path),
+        frame_path=str(frame_path) if frame_path is not None else None,
+        thumb_path=str(thumb_path) if thumb_path is not None else None,
         motion_score=decision.motion_score,
         admitted=decision.admitted,
         source_type=source.source_type,
+        clip_start_s=decision.clip_start_s,
+        clip_end_s=decision.clip_end_s,
     )
 
 
@@ -199,7 +278,6 @@ def extract_file(
     source_type: str,
     video_id: int | None,
     camera_id: int | None,
-    interval_s: float,
     frames_dir: Path,
     thumbs_dir: Path,
     thumb_width: int,
@@ -207,11 +285,12 @@ def extract_file(
     thumb_quality: int,
     gate: FrameGate | None = None,
 ) -> list[SegmentRecord]:
-    """Take one frame every `interval_s` seconds from a stored file and run each
-    through process_frame.
+    """Decode and gate every frame of a stored file (OMNI-303's rework: the
+    algorithm has no sampling step, so extraction doesn't invent one) and run
+    each through process_frame.
 
     The two output directories are wiped first: they belong to this one video,
-    so anything already in them is stale (a previous, longer extraction, or the
+    so anything already in them is stale (a previous extraction, or the
     leftovers of a crashed one). If anything goes wrong they are wiped again,
     so a failed extraction leaves no files behind.
     """
@@ -231,17 +310,15 @@ def extract_file(
             directory.mkdir(parents=True, exist_ok=True)
 
         gate = gate or FrameGate()
-        step = interval_s * fps
         records: list[SegmentRecord] = []
         index = -1
-        next_sample = 0
         try:
-            # grab() steps through the file without converting the frames it
-            # skips; only the sampled ones are retrieved and processed.
+            # grab() returning False is a clean end of file. retrieve() then
+            # failing on a frame grab() just confirmed exists is a genuinely
+            # undecodable frame, not the stream ending — the two are kept
+            # distinct rather than collapsed into a single "stop" signal.
             while capture.grab():
                 index += 1
-                if index < next_sample:
-                    continue
                 ok, frame = capture.retrieve()
                 if not ok or frame is None:
                     raise ExtractError(f"could not decode frame {index}")
@@ -263,8 +340,6 @@ def extract_file(
                         thumb_quality=thumb_quality,
                     )
                 )
-                # max(): an interval shorter than one frame must still move on.
-                next_sample = max(index + 1, round(len(records) * step))
             if not records:
                 raise ExtractError("no frames could be read from file")
         except ExtractError:

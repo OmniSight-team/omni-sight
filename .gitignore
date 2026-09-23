@@ -39,3 +39,4 @@ Thumbs.db
 
 .pytest_cache/
 
+.codegraphy/*

@@ -38,11 +38,16 @@ class ExtractedSegment(BaseModel):
     camera_id: int | None
     frame_index: int
     timestamp_s: float
-    frame_path: str
-    thumb_path: str
+    # None unless the frame was admitted — only admitted (and, from OMNI-305,
+    # heartbeat) frames get a JPEG written.
+    frame_path: str | None
+    thumb_path: str | None
     motion_score: float | None
     admitted: bool
     source_type: SegmentSourceType
+    # The causal clip window [t-2Δ, t], set only when admitted (OMNI-304).
+    clip_start_s: float | None = None
+    clip_end_s: float | None = None
 
 
 class FileExtractResponse(BaseModel):

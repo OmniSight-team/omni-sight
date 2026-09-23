@@ -89,7 +89,7 @@ def extract_file_route(payload: FileExtractRequest) -> FileExtractResponse:
         grid_size=settings.motion_grid_size,
         cell_threshold=settings.motion_cell_threshold,
         min_active_cells=settings.motion_min_active_cells,
-        buffer_frames=settings.motion_buffer_frames,
+        stride_s=settings.motion_stride_s,
         blur_kernel=settings.motion_blur_kernel,
     )
     try:
@@ -98,7 +98,6 @@ def extract_file_route(payload: FileExtractRequest) -> FileExtractResponse:
             source_type=payload.source_type.value,
             video_id=payload.video_id,
             camera_id=payload.camera_id,
-            interval_s=settings.extract_interval_s,
             frames_dir=Path(settings.frames_path) / folder,
             thumbs_dir=Path(settings.thumbs_path) / folder,
             thumb_width=settings.thumb_width_px,

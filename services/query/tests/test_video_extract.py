@@ -205,7 +205,10 @@ def test_a_malformed_ingestion_response_leaves_failed_and_no_rows_or_files(tmp_p
 
     def malformed(video_id, path, source_type, camera_id):
         result = good(video_id, path, source_type, camera_id)
-        del result["segments"][1]["frame_path"]  # files are on disk; one row cannot be built
+        # frame_index has no default and stays NOT NULL even after the
+        # OMNI-303 rework made frame_path/thumb_path nullable — deleting it
+        # is what still reaches a real DB-level failure on insert.
+        del result["segments"][1]["frame_index"]
         return result
 
     monkeypatch.setattr(extraction_module, "ingestion_extract_file", malformed)

@@ -275,6 +275,12 @@ here but an estimate for some containers), or at bulk-load scale. Full write-up 
 
 ## 2026-09-23 — Algorithm 1 motion gating on real dataset footage (OMNI-304)
 
+**Superseded the same day** — see "Algorithm 1 rework" below. This entry measured
+the first implementation, a frame-count buffer fed by 1-second sampling. That
+sampling step is not part of the algorithm and is exactly what made the CCD
+finding below true; the rework replaces both. Left in place as the record of
+what was actually measured at the time, not rewritten.
+
 **Claim under test:** FR-1b's motion gate — compare each sampled frame to one
 `motion_buffer_frames` samples earlier, score it by counting grid cells with
 meaningful change, admit above a threshold — produces a real, inspectable
@@ -320,3 +326,56 @@ established it decodes and extracts correctly; extrapolated from UCF-Crime's
 result rather than measured separately here). No threshold sweep was run across
 the dataset — the defaults were chosen to be legible in a test, not tuned
 against real footage at scale. Full write-up in `docs/context/week-03-04.md`.
+
+---
+
+## 2026-09-23 — Algorithm 1 rework: stride Δ fixes the CCD finding above (OMNI-303/304)
+
+**What changed:** the rework note in `docs/tickets/week-03-04.md` traced the CCD
+finding above to its actual cause — sampling one frame per second before gating,
+which is not part of Algorithm 1's own pseudocode (Phase A §3.5.1 / Appendix B.1).
+The rework removes sampling (every decoded frame is now gated) and replaces the
+5-**sample** warm-up buffer with a 2Δ-**second** one, Δ being a stride measured in
+time. A JPEG is now written only for admitted frames — a row is still written for
+every decoded frame, so this is not a return to the disk cost sampling existed to
+avoid.
+
+**Method:** the same two real clips, re-run through the real running stack after
+the rework, extracted with the real defaults (`motion_grid_size=8`,
+`motion_cell_threshold=25.0`, `motion_min_active_cells=3`, `motion_stride_s=0.5`,
+`motion_blur_kernel=21`).
+
+| Clip | Rows (= decoded frames) | Scored (past 2Δ warm-up) | Admitted | Files on disk |
+|---|---|---|---|---|
+| CCD `Crash-1500/000413.mp4` (5 s, 10 fps) | **50** | 40 | 24 | 24 frames + 24 thumbs |
+| UCF-Crime `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` (12.9 s, 30 fps) | 386 | 356 | 52 | 52 frames + 52 thumbs |
+
+**Result: the CCD finding above no longer holds.** CCD went from 0 scored frames
+(all 5 of its old sampled rows stuck in an unfillable warm-up) to 40 scored and 24
+admitted, out of 50 rows — one row per decoded frame, matching `docs/tickets/
+week-03-04.md`'s acceptance ("a 5-second CCD clip at 10 fps yields 50 gated
+frames, not 5"). File count on disk equals admitted-row count exactly for both
+clips, confirming JPEGs are written only for admitted frames.
+
+**Deviation recorded, per OMNI-304's own checklist:** frames are blurred
+(`cv2.GaussianBlur`) before differencing; the pseudocode does not call for this.
+Without it, two frames of a perfectly still scene still differ pixel by pixel
+from sensor noise alone, which would either force `MOTION_CELL_THRESHOLD` higher
+(risking missed real motion) or admit noise as motion. Kept as a deliberate,
+documented departure — see `services/ingestion/app/pipeline.py`'s `MotionGate`
+docstring.
+
+**A real numerical bug found and fixed during this work, unrelated to the
+sampling change:** the initial time-based implementation could spuriously fall
+back into "warm-up" for a frame or two after scoring had already started,
+because comparing accumulated floating-point timestamps exactly against `2Δ`
+flickers by a few ULPs right at the boundary. Caught by a test asserting no
+`None` score ever follows a real one; fixed with a small (`1e-6` s) epsilon on
+both the warm-up and buffer-pruning comparisons. Recorded in
+`docs/context/week-03-04.md`.
+
+**Not covered:** no literal 2-minute/3,600-row clip was run — CCD (50 rows) and
+UCF-Crime (386 rows) both confirm rows-equal-decoded-frames exactly, which is
+the same proportional claim at smaller scale. VIRAT was not re-run live after the
+rework (established separately that it decodes correctly, OMNI-300/303). No
+threshold sweep at dataset scale.
