@@ -31,6 +31,17 @@ class Settings(CommonSettings):
     # motion gate), but still far longer than a plain probe needs.
     ingestion_playback_timeout_s: float = Field(150.0, gt=0)
 
+    # OMNI-311: how many unacknowledged segments one consumer may hold at once.
+    # Without a limit the broker hands a single consumer the whole backlog, so a
+    # second consumer would sit idle while the first works through it.
+    segment_prefetch: int = Field(10, ge=1)
+    # An extraction is finished when every segment ingestion published has been
+    # stored by the consumer. This is how long to wait for that — long enough to
+    # ride out a consumer restart, short enough that a consumer that is gone
+    # for good does not leave the video `extracting` forever.
+    extraction_commit_timeout_s: float = Field(600.0, gt=0)
+    extraction_poll_s: float = Field(0.25, gt=0)
+
     video_storage_path: str = "/data/videos"
     max_upload_size_mb: int = 500
 

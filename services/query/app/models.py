@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     false,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -105,6 +106,12 @@ class Video(Base):
     gate_grid_size: Mapped[int | None] = mapped_column(Integer)
     gate_cell_threshold: Mapped[float | None] = mapped_column(Float)
     gate_min_active_cells: Mapped[int | None] = mapped_column(Integer)
+    # Names the extraction currently in progress (OMNI-311), set when it is
+    # claimed. Every segment message carries the id of the run that produced
+    # it, so the consumer can drop a message left over from a run that failed
+    # or was replaced instead of writing an old run's frame into a newer run's
+    # video. NULL until a video is first extracted.
+    extraction_id: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
@@ -121,6 +128,19 @@ class Segment(Base):
         Index("ix_segments_video_id_timestamp_s", "video_id", "timestamp_s"),
         # Part B writes live frames against a camera and reads them by time.
         Index("ix_segments_camera_id_timestamp_s", "camera_id", "timestamp_s"),
+        # One row per frame of a video (OMNI-311). A message is delivered at
+        # least once — a consumer that dies between committing a row and
+        # acknowledging it gets the same message again — so the database, not
+        # the consumer's memory, is what stops that becoming a duplicate row.
+        # Partial: a live frame has no video, and OMNI-312 decides what
+        # identifies one of those.
+        Index(
+            "uq_segments_video_id_frame_index",
+            "video_id",
+            "frame_index",
+            unique=True,
+            postgresql_where=text("video_id IS NOT NULL"),
+        ),
         # A segment always came from somewhere: an uploaded file, a camera, or both.
         CheckConstraint("video_id IS NOT NULL OR camera_id IS NOT NULL", name="ck_segments_has_a_source"),
     )

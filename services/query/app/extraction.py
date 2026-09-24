@@ -1,13 +1,16 @@
 """Frame extraction for a stored video, run in the background.
 
 Query owns the database and ingestion owns the decoding, so this module is the
-seam: it asks ingestion to cut the frames, then stores the result. A video
+seam: it asks ingestion to decode and gate the frames and put them on the
+durable queue (OMNI-311), then waits for the consumer to store them. A video
 ends up with either all of its segments or none of them, and never stays
-`extracting` — every way this can go wrong lands on `failed` with a reason.
+`extracting` — every way this can go wrong lands on `failed` with a reason,
+and a failed video's partial segments are removed.
 """
 
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from omnisight_common import (
@@ -21,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import extract_file as ingestion_extract_file
+from app.ingestion_client import publish_extraction as ingestion_publish_extraction
 from app.models import Segment, Video
 from app.settings import settings
 
@@ -84,28 +88,59 @@ def _segment_source_type(source: VideoSource) -> SegmentSourceType:
 
 
 def _fail(video_id: int, reason: str) -> None:
+    """Mark the video `failed` and remove whatever part of it was stored.
+
+    Segments are committed one message at a time now, so a run that fails
+    part-way leaves some rows behind; "all of its segments or none" means they
+    go. The status change and the row deletion are one transaction, and the
+    consumer checks the video's status while holding a share lock on it, so no
+    late message can slip a row in after this.
+    """
     reason = reason[:MAX_ERROR_LENGTH]
     logger.warning(
         "video extraction failed",
         extra={"extra_fields": {"video_id": video_id, "error": reason}},
     )
     with SessionLocal() as db:
+        paths = segment_file_paths(db, video_id)
         db.query(Video).filter_by(id=video_id).update(
             {"status": VideoStatus.FAILED, "error": reason}, synchronize_session=False
         )
+        db.query(Segment).filter_by(video_id=video_id).delete(synchronize_session=False)
         db.commit()
+    remove_segment_files(video_id, paths)
 
 
-def run_extraction(video_id: int) -> None:
+def run_extraction(video_id: int, extraction_id: str) -> None:
     """Replace a video's segments with a fresh extraction. Called as a
-    background task after the video has been marked `extracting`."""
+    background task after the video has been marked `extracting` and given
+    `extraction_id`."""
     try:
-        _extract(video_id)
+        _extract(video_id, extraction_id)
     except Exception as exc:  # noqa: BLE001 - nothing may leave a video stuck on `extracting`
         _fail(video_id, f"extraction failed: {exc}")
 
 
-def _extract(video_id: int) -> None:
+def _wait_for_segments(video_id: int, expected: int) -> str | None:
+    """Wait until the consumer has stored `expected` segments for the video.
+    Returns None when they are all there, or the reason they were not.
+
+    The consumer is a separate process that may be restarting; the wait is what
+    lets an extraction ride out a consumer that was killed mid-run and comes
+    back, instead of failing it.
+    """
+    deadline = time.monotonic() + settings.extraction_commit_timeout_s
+    while True:
+        with SessionLocal() as db:
+            stored = db.query(Segment).filter_by(video_id=video_id).count()
+        if stored >= expected:
+            return None
+        if time.monotonic() >= deadline:
+            return f"only {stored} of {expected} segments were stored in time"
+        time.sleep(settings.extraction_poll_s)
+
+
+def _extract(video_id: int, extraction_id: str) -> None:
     with SessionLocal() as db:
         video = db.get(Video, video_id)
         if video is None:
@@ -121,7 +156,9 @@ def _extract(video_id: int) -> None:
     remove_segment_files(video_id, old_paths)
 
     try:
-        result = ingestion_extract_file(video_id, path, _segment_source_type(source).value, camera_id)
+        result = ingestion_publish_extraction(
+            video_id, path, _segment_source_type(source).value, camera_id, extraction_id
+        )
     except IngestionUnavailableError as exc:
         _fail(video_id, "ingestion service unavailable")
         logger.warning(
@@ -134,35 +171,34 @@ def _extract(video_id: int) -> None:
         _fail(video_id, result.get("error") or "extraction failed")
         return
 
-    try:
-        with SessionLocal() as db:
-            # One transaction: the rows and the status change land together.
-            db.add_all(
-                [
-                    Segment(**{**segment, "source_type": SegmentSourceType(segment["source_type"])})
-                    for segment in result["segments"]
-                ]
-            )
-            db.query(Video).filter_by(id=video_id).update(
-                {
-                    "status": VideoStatus.READY,
-                    "error": None,
-                    # Recorded even for a plain extraction (default-parameter
-                    # gating counts as one run of Algorithm 1 like any other)
-                    # so "the parameters used" is always true of a `ready`
-                    # video, not only one that has since been re-gated.
-                    "gate_stride_s": result.get("stride_s"),
-                    "gate_grid_size": result.get("grid_size"),
-                    "gate_cell_threshold": result.get("cell_threshold"),
-                    "gate_min_active_cells": result.get("min_active_cells"),
-                },
-                synchronize_session=False,
-            )
-            db.commit()
-    except Exception:
-        # The files are on disk but no row will ever point at them.
-        remove_segment_files(video_id, [])
-        raise
+    problem = _wait_for_segments(video_id, result["published"])
+    if problem is not None:
+        _fail(video_id, problem)
+        return
+
+    with SessionLocal() as db:
+        # Only the run that is still current may finish the video: if it was
+        # failed or replaced while we waited, this changes nothing.
+        db.query(Video).filter(
+            Video.id == video_id,
+            Video.extraction_id == extraction_id,
+            Video.status == VideoStatus.EXTRACTING,
+        ).update(
+            {
+                "status": VideoStatus.READY,
+                "error": None,
+                # Recorded even for a plain extraction (default-parameter
+                # gating counts as one run of Algorithm 1 like any other)
+                # so "the parameters used" is always true of a `ready`
+                # video, not only one that has since been re-gated.
+                "gate_stride_s": result.get("stride_s"),
+                "gate_grid_size": result.get("grid_size"),
+                "gate_cell_threshold": result.get("cell_threshold"),
+                "gate_min_active_cells": result.get("min_active_cells"),
+            },
+            synchronize_session=False,
+        )
+        db.commit()
 
 
 def run_gate(
@@ -255,18 +291,21 @@ def run_gate(
 
 def mark_interrupted_extractions() -> int:
     """Called at startup. A video still `extracting` when the service starts had
-    its background task killed with the previous process, so it would stay in
-    that state forever. Returns how many were reset."""
+    its background task killed with the previous process — the task that waits
+    for the consumer and finishes the video — so it would stay in that state
+    forever. Fails each one, removing any rows it had already stored, and
+    returns how many.
+
+    What a restart of this service does not lose is anything already on the
+    queue: those messages stay there, and the consumer drops them as stale.
+    """
     with SessionLocal() as db:
-        count = (
-            db.query(Video)
-            .filter_by(status=VideoStatus.EXTRACTING)
-            .update({"status": VideoStatus.FAILED, "error": INTERRUPTED_MESSAGE}, synchronize_session=False)
-        )
-        db.commit()
-    if count:
+        interrupted = [row.id for row in db.query(Video.id).filter_by(status=VideoStatus.EXTRACTING)]
+    for video_id in interrupted:
+        _fail(video_id, INTERRUPTED_MESSAGE)
+    if interrupted:
         logger.warning(
             "extractions interrupted by a restart marked failed",
-            extra={"extra_fields": {"count": count}},
+            extra={"extra_fields": {"count": len(interrupted)}},
         )
-    return count
+    return len(interrupted)

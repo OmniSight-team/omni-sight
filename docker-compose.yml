@@ -26,6 +26,7 @@ services:
     environment:
       POSTGRES_HOST: postgres
       INGESTION_BASE_URL: http://ingestion:8000
+      RABBITMQ_HOST: rabbitmq
     ports:
       - "8000:8000"
     volumes:
@@ -52,12 +53,71 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      RABBITMQ_HOST: rabbitmq
     volumes:
       - ./services/common:/workspace/services/common
       - ./services/ingestion:/workspace/services/ingestion
       - video_storage:/data/videos
       - frame_storage:/data/frames
       - thumb_storage:/data/thumbs
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # OMNI-311: the durable queue between ingestion (publishes a gated frame) and
+  # the consumer below (stores it, then acknowledges it). Credentials from
+  # `.env`; config in infra/rabbitmq/. AMQP and the management UI are published
+  # on localhost only.
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    # Fixed on purpose: RabbitMQ keeps its data under a directory named after
+    # the node, which defaults to the container's hostname — and a recreated
+    # container gets a new one, which would silently start from an empty
+    # broker and lose every queued message despite the volume below.
+    hostname: omnisight-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+
+  # OMNI-311: reads segments off the queue and writes the rows. The query
+  # image with a different command, so it can be killed and restarted without
+  # touching the API — which is exactly what the acceptance test does to it.
+  consumer:
+    build:
+      context: .
+      dockerfile: services/query/Dockerfile
+    restart: unless-stopped
+    command:
+      [
+        "uv", "run", "--package", "omnisight-query", "python", "-m", "app.consumer"
+      ]
+    working_dir: /workspace/services/query
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+    volumes:
+      - ./services/common:/workspace/services/common
+      - ./services/query:/workspace/services/query
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   # Ten looping RTSP feeds for local development (OMNI-201) — see
   # docs/rtsp-simulator.md. No port published: only ingestion, inside the
@@ -109,3 +169,5 @@ volumes:
   video_storage:
   frame_storage:
   thumb_storage:
+  # OMNI-311: queued messages must outlive the container, not just a restart.
+  rabbitmq_data:

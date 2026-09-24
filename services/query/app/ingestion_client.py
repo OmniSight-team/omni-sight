@@ -58,6 +58,35 @@ def extract_file(
     return resp.json()
 
 
+def publish_extraction(
+    video_id: int,
+    path: str,
+    source_type: str,
+    camera_id: int | None,
+    extraction_id: str,
+) -> dict:
+    """Ask ingestion to decode and gate a file and put every segment on the
+    durable queue (OMNI-311). Returns once the broker has confirmed them all —
+    `{ok, published, error, <the gate parameters used>}` — not once they are
+    stored; the consumer does that, and the caller waits for it."""
+    try:
+        resp = httpx.post(
+            f"{settings.ingestion_base_url}/extract/publish",
+            json={
+                "video_id": video_id,
+                "path": path,
+                "source_type": source_type,
+                "camera_id": camera_id,
+                "extraction_id": extraction_id,
+            },
+            timeout=settings.ingestion_extract_timeout_s,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise IngestionUnavailableError(str(exc)) from exc
+    return resp.json()
+
+
 def probe_file(path: str) -> dict:
     try:
         resp = httpx.post(

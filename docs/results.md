@@ -557,3 +557,37 @@ were left alone. The threshold-independent part (blur, diff, per-cell means) is
 recomputed on every re-gate; storing it once would make a re-gate a comparison
 instead of a decode. Recorded as an option, not built. Full context in
 `docs/context/week-03-04.md`.
+
+## 2026-09-25 — NFR-5 across a consumer kill and a broker recreate, and what the durable path costs (OMNI-311)
+
+**Method:** the real stack, a throwaway operator account, a synthetic 60 s, 30 fps,
+320x240 clip (1,800 frames) uploaded through the API and removed afterwards.
+Three runs, each checked by reading every stored frame back through
+`GET /videos/{id}/frames`.
+
+| Scenario | What was done | Outcome |
+|---|---|---|
+| Consumer killed mid-run | `docker kill` on the consumer with 402 segments stored | 419 stored by the time it was dead, **629 waiting in the queue**, video still `extracting`, not `failed`. After restarting the consumer: **1,800 of 1,800** stored, frame indexes 0-1799 each exactly once |
+| Uninterrupted run | same clip, no failure | 1,800 stored; **1,360 admitted, identical to the killed run** |
+| Broker container recreated | consumer stopped, 1,800 messages queued, `rm -sf` then `up -d` on the broker | **1,800 still queued** afterwards; consumer started; **1,800 of 1,800** stored, none duplicated |
+
+**Result:** in these runs no accepted segment was lost or stored twice, across
+the death of the consumer and the destruction of the broker container. That
+is one clip and three failures, not a soak test; it is evidence for NFR-5's
+"lost = 0" on the path between the gate and the database, not proof for every
+failure. It does not cover a crash of ingestion part-way through publishing, or
+of query while an extraction waits (see the context notes for what those do).
+
+**What the queue costs:** every message is persistent and each publish waits
+for the broker's confirmation, which includes a disk sync. Ingestion's
+`/extract/publish` took **3.5-4.4 s for 300 frames** and **21.8-27.0 s for
+1,800 frames**, roughly 12-15 ms per frame, of which decoding and gating is
+about 3 ms. Extracting the 300-frame clip used to take about 2 s end to end
+and now takes 4.6-5.6 s. Scaling linearly, a 10-minute 30 fps recording (18,000
+frames) would take about 4 minutes to publish. Not measured at that size.
+
+**Not changed:** publishing confirms one message at a time. Confirming in
+batches (asynchronous confirms, or several channels) would share the disk sync
+and should be much faster; it was not built because no requirement asks for
+it yet and the dataset clips are 5-13 s. Recorded as the obvious next step if
+long recordings matter. Full context in `docs/context/week-03-04.md`.

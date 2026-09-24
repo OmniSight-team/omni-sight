@@ -74,6 +74,25 @@ class FileExtractResponse(BaseModel):
     min_active_cells: int | None = None
 
 
+class PublishExtractRequest(FileExtractRequest):
+    # Query's id for this extraction of the video (OMNI-311). Stamped on every
+    # message so the consumer can tell this run's frames from an older run's.
+    extraction_id: str
+
+
+class PublishExtractResponse(BaseModel):
+    ok: bool
+    # How many segment messages the broker confirmed. Query waits until this
+    # many rows exist.
+    published: int = 0
+    error: str | None = None
+    # The gate parameters actually used, same as FileExtractResponse.
+    stride_s: float | None = None
+    grid_size: int | None = None
+    cell_threshold: float | None = None
+    min_active_cells: int | None = None
+
+
 class PlaybackRequest(BaseModel):
     path: str
 

@@ -324,10 +324,10 @@ def test_a_plain_extraction_also_records_its_own_gate_parameters(tmp_path, heade
         session.commit()
         video_id = video.id
 
-    def fake_extract(video_id, path, source_type, camera_id):
+    def fake_extract(video_id, path, source_type, camera_id, extraction_id):
         return {
             "ok": True,
-            "segments": [],
+            "published": 0,
             "error": None,
             "stride_s": 0.5,
             "grid_size": 8,
@@ -335,7 +335,7 @@ def test_a_plain_extraction_also_records_its_own_gate_parameters(tmp_path, heade
             "min_active_cells": 3,
         }
 
-    monkeypatch.setattr(extraction_module, "ingestion_extract_file", fake_extract)
+    monkeypatch.setattr(extraction_module, "ingestion_publish_extraction", fake_extract)
 
     client.post(f"/videos/{video_id}/extract", headers=headers)
 

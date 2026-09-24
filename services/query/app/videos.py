@@ -367,11 +367,17 @@ def extract_video(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
 
     # The status check and the change to `extracting` are one UPDATE, so two
-    # requests at once cannot both start an extraction.
+    # requests at once cannot both start an extraction. The same UPDATE names
+    # this run (OMNI-311): from this moment a queued segment from any earlier
+    # run no longer matches the video, so the consumer drops it.
+    extraction_id = uuid.uuid4().hex
     claimed = (
         db.query(Video)
         .filter(Video.id == video_id, Video.status.in_([VideoStatus.READY, VideoStatus.FAILED]))
-        .update({"status": VideoStatus.EXTRACTING, "error": None}, synchronize_session=False)
+        .update(
+            {"status": VideoStatus.EXTRACTING, "error": None, "extraction_id": extraction_id},
+            synchronize_session=False,
+        )
     )
     db.commit()
     if not claimed:
@@ -383,7 +389,7 @@ def extract_video(
         )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
-    background_tasks.add_task(run_extraction, video_id)
+    background_tasks.add_task(run_extraction, video_id, extraction_id)
     return ExtractResponse(video_id=video_id, status=VideoStatus.EXTRACTING)
 
 
