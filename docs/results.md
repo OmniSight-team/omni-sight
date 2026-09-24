@@ -523,3 +523,37 @@ that is a generous guess, not a measurement.
 **Not fixed, same reasoning as OMNI-307's entry:** not asked for by this
 sprint. Recorded so the two gaps are visible together, not read as one
 smaller issue repeated. Full context in `docs/context/week-03-04.md`.
+
+## 2026-09-25 — Threshold sweep and re-gate latency on a 30 fps clip (OMNI-310)
+
+**Method:** through the real API, a throwaway operator account, one 10 s, 30 fps,
+320x240, 300-frame upload (Abuse029). `POST /videos/{id}/gate` with each
+`cell_threshold` in turn, then a full frames fetch; restored to the original 25.
+
+| threshold | admitted | of which motion / heartbeat | gate + frames fetch |
+|---|---|---|---|
+| 1 | 257 | 257 / 0 | 1.97 s |
+| 10 | 165 | 162 / 3 | 2.02 s |
+| 25 (default) | 48 | 42 / 6 | 1.59 s |
+| 40 | 13 | 4 / 9 | 1.47 s |
+| 50, 75, 100 | 9 | 0 / 9 | 1.36-1.63 s |
+
+**Result:** the count falls monotonically as the threshold rises, and discarded
+frames come back as it is lowered (48 at the default, 257 at 1). From 50 up the
+gate admits only the nine heartbeat frames, so a slider wider than about 60
+spends the rest of its travel on no change. On every step the frames endpoint's
+admitted count equalled the gate response's.
+
+**Against OMNI-310's "in about a second":** not met on this clip. A re-gate
+takes **1.4-2.0 s**, against 0.3 s on the 5 s, low-frame-rate CCD clip
+measured under OMNI-306. Profiled in-container: decode 0.22 s, motion scoring
+0.83 s (0.57 s of it the 21x21 Gaussian blur), JPEG writes negligible, the
+rest being HTTP and updating 300 rows. In the browser a burst of drags settled in about one second per run at high thresholds (few frames admitted). Cost scales with frame count, so a
+longer or higher-resolution recording will be slower still; that was not
+measured.
+
+**Not changed:** the blur and scoring are Algorithm 1 as documented, so they
+were left alone. The threshold-independent part (blur, diff, per-cell means) is
+recomputed on every re-gate; storing it once would make a re-gate a comparison
+instead of a decode. Recorded as an option, not built. Full context in
+`docs/context/week-03-04.md`.

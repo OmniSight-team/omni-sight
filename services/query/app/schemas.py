@@ -98,6 +98,13 @@ class VideoDetailResponse(BaseModel):
     # the playback copy if one was made, otherwise the original, which is
     # exactly what should play when it was already H.264.
     playback_url: str
+    # The parameters that produced the video's current admitted/discarded flags
+    # (OMNI-306 records them; OMNI-310's slider reads them so it starts at the
+    # real value, not a guess). None until a first extraction has run.
+    gate_stride_s: float | None = None
+    gate_grid_size: int | None = None
+    gate_cell_threshold: float | None = None
+    gate_min_active_cells: int | None = None
 
 
 class ExtractResponse(BaseModel):

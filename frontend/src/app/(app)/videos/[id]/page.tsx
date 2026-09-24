@@ -12,6 +12,7 @@ import {
   type VideoStatus,
   getVideo,
   listAllFrames,
+  regateVideo,
 } from "@/lib/api-client";
 
 const STATUS_STYLES: Record<VideoStatus, string> = {
@@ -115,6 +116,51 @@ function FrameFilterTabs({
   );
 }
 
+// Per-cell motion bar (mean grayscale difference, 0-255). Lower admits more.
+// Capped at 60: on the test clip everything from 50 up admits the same nine
+// heartbeat frames, so a wider range would spend half the slider on no change.
+const THRESHOLD_MIN = 1;
+const THRESHOLD_MAX = 60;
+
+function ThresholdSlider({
+  value,
+  busy,
+  error,
+  onChange,
+}: {
+  value: number;
+  busy: boolean;
+  error: string | null;
+  onChange: (value: number) => void;
+}) {
+  // A recording gated outside the slider's range (through the API) still
+  // shows a position and number the slider can actually hold.
+  const shown = Math.min(THRESHOLD_MAX, Math.max(THRESHOLD_MIN, value));
+  return (
+    <div className="space-y-1">
+      <label className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+        <span className="whitespace-nowrap">Motion threshold</span>
+        <input
+          type="range"
+          min={THRESHOLD_MIN}
+          max={THRESHOLD_MAX}
+          step={1}
+          value={shown}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="h-1.5 w-full max-w-xs cursor-pointer accent-indigo-600"
+        />
+        <span className="w-8 font-medium tabular-nums text-zinc-900 dark:text-zinc-50">{shown}</span>
+        <span className="w-24 text-zinc-400 dark:text-zinc-500">{busy ? "Recomputing…" : ""}</span>
+      </label>
+      <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+        Lower admits more frames. Applies to this recording only — the default threshold in settings is
+        not changed.
+      </p>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 function FrameCounts({ total, kept, discarded }: { total: number; kept: number; discarded: number }) {
   const pctRetained = total > 0 ? Math.round((kept / total) * 100) : 0;
   return (
@@ -126,7 +172,15 @@ function FrameCounts({ total, kept, discarded }: { total: number; kept: number; 
   );
 }
 
-function FrameTile({ frame, onSeek }: { frame: Frame; onSeek: (timestampS: number) => void }) {
+function FrameTile({
+  frame,
+  thumbVersion,
+  onSeek,
+}: {
+  frame: Frame;
+  thumbVersion: number;
+  onSeek: (timestampS: number) => void;
+}) {
   const reasonDot = frame.admitted
     ? (REASON_STYLES[frame.admission_reason ?? ""] ?? "bg-indigo-600")
     : null;
@@ -147,7 +201,7 @@ function FrameTile({ frame, onSeek }: { frame: Frame; onSeek: (timestampS: numbe
           // Thumbnails are served directly by nginx (OMNI-307), not through Next's image optimizer.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={frame.thumb_url}
+            src={`${frame.thumb_url}?v=${thumbVersion}`}
             alt={`Frame at ${formatTimestamp(frame.timestamp_s)}`}
             className="h-full w-full object-cover"
           />
@@ -166,14 +220,22 @@ function FrameTile({ frame, onSeek }: { frame: Frame; onSeek: (timestampS: numbe
   );
 }
 
-function FrameGrid({ frames, onSeek }: { frames: Frame[]; onSeek: (timestampS: number) => void }) {
+function FrameGrid({
+  frames,
+  thumbVersion,
+  onSeek,
+}: {
+  frames: Frame[];
+  thumbVersion: number;
+  onSeek: (timestampS: number) => void;
+}) {
   if (frames.length === 0) {
     return <p className="text-sm text-zinc-500 dark:text-zinc-400">No frames match this filter.</p>;
   }
   return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
       {frames.map((frame) => (
-        <FrameTile key={frame.segment_id} frame={frame} onSeek={onSeek} />
+        <FrameTile key={frame.segment_id} frame={frame} thumbVersion={thumbVersion} onSeek={onSeek} />
       ))}
     </div>
   );
@@ -189,9 +251,38 @@ export default function VideoPlayerPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // The slider position, and the re-gate loop that follows it. The server
+  // refuses a second gate while one is running, so the loop is single-flight
+  // and latest-wins: while a run is in flight, further drags only update
+  // `wantedRef`; when the run ends, one more run goes out for the newest value.
+  const [threshold, setThreshold] = useState<number | null>(null);
+  const [regating, setRegating] = useState(false);
+  const [regateError, setRegateError] = useState<string | null>(null);
+  // Every re-gate wipes and rewrites the thumbnails folder, so a tile that
+  // asked for its image mid-rewrite gets a 404 and, with an unchanged src,
+  // never asks again. A new version per finished re-gate changes every URL, so
+  // the last state shown always reloads its images after the rewrite is done.
+  const [thumbVersion, setThumbVersion] = useState(0);
+  const appliedRef = useRef<number | null>(null);
+  const wantedRef = useRef<number | null>(null);
+  const runningRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     getVideo(videoId)
-      .then(setVideo)
+      .then((loaded) => {
+        setVideo(loaded);
+        setThreshold(loaded.gate_cell_threshold);
+        appliedRef.current = loaded.gate_cell_threshold;
+        wantedRef.current = loaded.gate_cell_threshold;
+      })
       .catch((err) => setLoadError(errorMessage(err, "could not load this recording")));
     // Fetches the whole set once — the timeline, the grid's own filter
     // toggle, and the kept/discarded counts all derive from this same array
@@ -210,6 +301,41 @@ export default function VideoPlayerPage() {
     const wantAdmitted = gridFilter === "admitted";
     return allFrames.filter((frame) => frame.admitted === wantAdmitted);
   }, [allFrames, gridFilter]);
+
+  async function drainRegates() {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setRegating(true);
+    try {
+      while (wantedRef.current !== null && wantedRef.current !== appliedRef.current) {
+        const target = wantedRef.current;
+        await regateVideo(videoId, target);
+        appliedRef.current = target;
+        const frames = await listAllFrames(videoId, "all");
+        if (!mountedRef.current) return;
+        // One state update feeds the timeline, the counts and the grid, so
+        // they always change together.
+        setAllFrames(frames);
+        setThumbVersion((version) => version + 1);
+        setRegateError(null);
+      }
+    } catch (err) {
+      wantedRef.current = appliedRef.current;
+      if (mountedRef.current) {
+        setThreshold(appliedRef.current);
+        setRegateError(errorMessage(err, "could not re-run the motion gate"));
+      }
+    } finally {
+      runningRef.current = false;
+      if (mountedRef.current) setRegating(false);
+    }
+  }
+
+  function changeThreshold(value: number) {
+    setThreshold(value);
+    wantedRef.current = value;
+    void drainRegates();
+  }
 
   function seekTo(timestampS: number) {
     if (videoRef.current) {
@@ -267,12 +393,20 @@ export default function VideoPlayerPage() {
                 <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Frames</h2>
                 <FrameFilterTabs value={gridFilter} onChange={setGridFilter} />
               </div>
+              {threshold !== null && (
+                <ThresholdSlider
+                  value={threshold}
+                  busy={regating}
+                  error={regateError}
+                  onChange={changeThreshold}
+                />
+              )}
               <FrameCounts
                 total={allFrames.length}
                 kept={admittedFrames.length}
                 discarded={allFrames.length - admittedFrames.length}
               />
-              <FrameGrid frames={gridFrames} onSeek={seekTo} />
+              <FrameGrid frames={gridFrames} thumbVersion={thumbVersion} onSeek={seekTo} />
             </div>
           )}
         </div>

@@ -241,6 +241,10 @@ def _to_detail(video: Video, segments_count: int) -> VideoDetailResponse:
         created_at=video.created_at,
         segments_count=segments_count,
         playback_url=_video_url(video),
+        gate_stride_s=video.gate_stride_s,
+        gate_grid_size=video.gate_grid_size,
+        gate_cell_threshold=video.gate_cell_threshold,
+        gate_min_active_cells=video.gate_min_active_cells,
     )
 
 

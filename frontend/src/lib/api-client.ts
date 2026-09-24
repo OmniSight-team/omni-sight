@@ -183,6 +183,9 @@ export interface Video {
   // Always set — the playback copy if ingestion made one (OMNI-308), the
   // original otherwise. Served by Nginx directly, not through this API.
   playback_url: string;
+  // What produced the current admitted/discarded flags (OMNI-306). Null until
+  // a first extraction has run.
+  gate_cell_threshold: number | null;
 }
 
 export interface VideoListFilters {
@@ -212,6 +215,19 @@ export async function getVideo(id: number): Promise<Video> {
 
 export async function deleteVideo(id: number): Promise<{ id: number; deleted: boolean }> {
   return request(`/videos/${id}`, { method: "DELETE" });
+}
+
+// Re-scores the whole recording at a new per-cell motion threshold (OMNI-306).
+// Synchronous — resolves once the new admitted/discarded flags are stored, so
+// a frames fetch right after it always sees the new state.
+export async function regateVideo(
+  id: number,
+  cellThreshold: number,
+): Promise<{ admitted: number; discarded: number }> {
+  return request(`/videos/${id}/gate`, {
+    method: "POST",
+    body: JSON.stringify({ cell_threshold: cellThreshold }),
+  });
 }
 
 export type AdmissionReason = "motion" | "heartbeat";

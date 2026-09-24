@@ -289,6 +289,27 @@ def test_the_resolved_parameters_are_recorded_on_the_video(tmp_path, headers, mo
         assert video.gate_grid_size == 8  # resolved default, echoed back by the fake
 
 
+def test_the_video_detail_exposes_the_current_gate_parameters_and_follows_a_regate(
+    tmp_path, headers, monkeypatch
+):
+    """OMNI-310's slider has to start at the video's real threshold, and stay
+    truthful after a drag — so GET /videos/{id} reports what was recorded."""
+    video_id = _make_video_with_segments(tmp_path, frame_count=3)
+
+    detail = client.get(f"/videos/{video_id}", headers=headers).json()
+    assert detail["gate_cell_threshold"] == 25.0
+    assert detail["gate_min_active_cells"] == 3
+    assert detail["gate_grid_size"] == 8
+    assert detail["gate_stride_s"] == 0.5
+
+    monkeypatch.setattr(
+        extraction_module, "ingestion_extract_file", _fake_gate_ingestion(set(), frame_count=3)
+    )
+    client.post(f"/videos/{video_id}/gate", json={"cell_threshold": 40.0}, headers=headers)
+
+    assert client.get(f"/videos/{video_id}", headers=headers).json()["gate_cell_threshold"] == 40.0
+
+
 def test_a_plain_extraction_also_records_its_own_gate_parameters(tmp_path, headers, monkeypatch):
     """Not just re-gating — a first extraction is also one run of Algorithm 1,
     at the configured defaults, and that should be reproducible too."""
