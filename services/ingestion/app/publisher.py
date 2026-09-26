@@ -18,7 +18,9 @@ from typing import Any, Self
 
 import pika
 from omnisight_common import (
+    CameraEvent,
     SegmentMessage,
+    declare_camera_event_queue,
     declare_segment_queue,
 )
 from omnisight_common.segment_queue import PERSISTENT
@@ -43,14 +45,22 @@ class SegmentPublisher:
     and close it on one thread.
     """
 
-    def __init__(self, connection_params: pika.ConnectionParameters, queue: str):
+    def __init__(
+        self,
+        connection_params: pika.ConnectionParameters,
+        queue: str,
+        event_queue: str | None = None,
+    ):
         self._queue = queue
+        self._event_queue = event_queue
         self.published = 0
         try:
             self._connection = pika.BlockingConnection(connection_params)
             self._channel = self._connection.channel()
             self._channel.confirm_delivery()
             declare_segment_queue(self._channel, queue)
+            if event_queue is not None:
+                declare_camera_event_queue(self._channel, event_queue)
         except AMQPError as exc:
             raise PublishError(f"could not connect to the segment queue: {exc!r}") from exc
 
@@ -73,6 +83,38 @@ class SegmentPublisher:
                 f"could not publish to the segment queue after {self.published}: {exc!r}"
             ) from exc
         self.published += 1
+
+    def publish_event(
+        self, camera_id: int, status: str, at: float, worker_id: str | None = None
+    ) -> None:
+        """Tell the camera status queue that a camera became reachable or not
+        (OMNI-313), persistent and confirmed like a segment."""
+        if self._event_queue is None:
+            raise PublishError("this publisher was not given a camera event queue")
+        event = CameraEvent(camera_id=camera_id, status=status, at=at, worker_id=worker_id)
+        try:
+            self._channel.basic_publish(
+                exchange="",
+                routing_key=self._event_queue,
+                body=event.model_dump_json().encode(),
+                properties=pika.BasicProperties(
+                    delivery_mode=PERSISTENT,
+                    content_type="application/json",
+                ),
+                mandatory=True,
+            )
+        except AMQPError as exc:
+            raise PublishError(f"could not publish a camera event: {exc!r}") from exc
+
+    def keepalive(self) -> None:
+        """Let the connection answer the broker's heartbeats. A blocking
+        connection only does that while something is using it, so a worker that
+        is waiting out a backoff — up to half a minute without publishing —
+        would otherwise have the broker close the connection on it."""
+        try:
+            self._connection.process_data_events(time_limit=0)
+        except AMQPError as exc:
+            raise PublishError(f"the connection to the broker was lost: {exc!r}") from exc
 
     def close(self) -> None:
         try:

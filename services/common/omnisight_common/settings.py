@@ -28,3 +28,6 @@ class CommonSettings(BaseSettings):
     # Overridable so a test can use a queue of its own instead of competing
     # with the real consumer for the real one.
     segment_queue: str = "omnisight.segments"
+    # OMNI-313: a camera going unreachable, or coming back, as the capture worker
+    # notices it.
+    camera_event_queue: str = "omnisight.camera_events"

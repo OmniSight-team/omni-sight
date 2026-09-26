@@ -15,15 +15,17 @@ real, with `docker compose kill consumer`, against the running stack
 
 import time
 import uuid
+from datetime import UTC, datetime
 
 import pika
 import pytest
 from app import consumer as consumer_module
-from app.consumer import MalformedMessage, Outcome, store_segment
+from app.consumer import MalformedMessage, Outcome, apply_camera_event, store_segment
 from app.db import SessionLocal
 from app.models import Camera, Segment, Video
 from app.settings import settings
 from omnisight_common import (
+    CameraEvent,
     CameraStatus,
     Domain,
     SegmentMessage,
@@ -43,6 +45,17 @@ PARAMS = connection_parameters(settings)
 def queue(monkeypatch):
     name = f"omni311-test-{uuid.uuid4().hex[:12]}"
     monkeypatch.setattr(settings, "segment_queue", name)
+    yield name
+    with pika.BlockingConnection(PARAMS) as connection:
+        channel = connection.channel()
+        channel.queue_delete(name)
+        channel.queue_delete(dead_letter_queue(name))
+
+
+@pytest.fixture
+def event_queue(monkeypatch):
+    name = f"omni313-test-{uuid.uuid4().hex[:12]}"
+    monkeypatch.setattr(settings, "camera_event_queue", name)
     yield name
     with pika.BlockingConnection(PARAMS) as connection:
         channel = connection.channel()
@@ -130,7 +143,7 @@ def _ready(queue_name) -> int:
         return channel.queue_declare(queue_name, passive=True).method.message_count
 
 
-def _run_consumer(callback, *, seconds=3.0, until=None):
+def _run_consumer(callback, *, seconds=3.0, until=None, on_event=None):
     """Connect the way the real consumer does and process deliveries for a
     while, then drop the connection *without* acknowledging anything still
     open. Returns the exception the callback raised, if any — a consumer that
@@ -139,7 +152,7 @@ def _run_consumer(callback, *, seconds=3.0, until=None):
     error = None
     try:
         channel = connection.channel()
-        consumer_module.start(channel, on_message=callback)
+        consumer_module.start(channel, on_message=callback, on_event=on_event)
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             connection.process_data_events(time_limit=0.2)
@@ -287,6 +300,141 @@ def test_a_live_frame_for_a_camera_that_no_longer_exists_is_dropped_not_retried_
 def test_a_message_with_neither_a_video_nor_a_camera_is_malformed():
     with pytest.raises(MalformedMessage):
         store_segment(_live_body(None, 1_790_000_000.25))
+
+
+# --- camera status events and last_seen_at (OMNI-313) -----------------------------
+
+
+def _event(camera_id, status, at=1_790_000_100.0) -> bytes:
+    return CameraEvent(camera_id=camera_id, status=status, at=at).model_dump_json().encode()
+
+
+def _camera_row(camera_id) -> Camera:
+    with SessionLocal() as session:
+        return session.get(Camera, camera_id)
+
+
+def _set_camera_status(camera_id, status):
+    with SessionLocal() as session:
+        session.get(Camera, camera_id).status = status
+        session.commit()
+
+
+def test_an_unreachable_event_flips_the_camera_to_unreachable():
+    camera_id = _camera()
+    _set_camera_status(camera_id, CameraStatus.CONNECTED)
+
+    assert apply_camera_event(_event(camera_id, "unreachable")) is Outcome.STORED
+
+    assert _camera_row(camera_id).status == CameraStatus.UNREACHABLE
+
+
+def test_a_connected_event_flips_it_back_and_records_when_it_was_seen():
+    camera_id = _camera()
+    _set_camera_status(camera_id, CameraStatus.UNREACHABLE)
+
+    apply_camera_event(_event(camera_id, "connected", at=1_790_000_100.0))
+
+    row = _camera_row(camera_id)
+    assert row.status == CameraStatus.CONNECTED
+    assert row.last_seen_at == datetime.fromtimestamp(1_790_000_100.0, UTC)
+
+
+def test_a_disabled_camera_stays_disabled_whatever_its_stream_does():
+    camera_id = _camera()
+    _set_camera_status(camera_id, CameraStatus.DISABLED)
+
+    assert apply_camera_event(_event(camera_id, "connected")) is Outcome.STALE
+
+    assert _camera_row(camera_id).status == CameraStatus.DISABLED
+
+
+def test_an_event_for_a_camera_that_no_longer_exists_is_dropped():
+    assert apply_camera_event(_event(2_000_000_000, "unreachable")) is Outcome.STALE
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not json",
+        b'{"camera_id": 1, "status": "registered", "at": 1.0}',
+        b'{"camera_id": 1, "status": "disabled", "at": 1.0}',
+    ],
+)
+def test_an_event_that_says_anything_but_connected_or_unreachable_is_malformed(body):
+    with pytest.raises(MalformedMessage):
+        apply_camera_event(body)
+
+
+def test_an_event_is_acknowledged_only_after_the_camera_is_updated(queue, event_queue, monkeypatch):
+    camera_id = _camera()
+    _set_camera_status(camera_id, CameraStatus.CONNECTED)
+    _publish(event_queue, [_event(camera_id, "unreachable")])
+
+    def database_down(_body):
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr(consumer_module, "apply_camera_event", database_down)
+    error = _run_consumer(
+        consumer_module._on_message, on_event=consumer_module._on_event, seconds=2.0
+    )
+
+    assert isinstance(error, RuntimeError)
+    assert _ready(event_queue) == 1  # still queued: had it been acknowledged first, the change would be lost
+    assert _camera_row(camera_id).status == CameraStatus.CONNECTED
+
+    monkeypatch.setattr(consumer_module, "apply_camera_event", apply_camera_event)
+    _run_consumer(
+        consumer_module._on_message,
+        on_event=consumer_module._on_event,
+        until=lambda: _camera_row(camera_id).status == CameraStatus.UNREACHABLE,
+    )
+
+    assert _camera_row(camera_id).status == CameraStatus.UNREACHABLE
+    time.sleep(0.5)
+    assert _ready(event_queue) == 0
+
+
+def test_an_unparseable_event_goes_to_its_dead_letter_queue(queue, event_queue):
+    _publish(event_queue, [b"not json"])
+
+    _run_consumer(
+        consumer_module._on_message,
+        on_event=consumer_module._on_event,
+        until=lambda: _ready(event_queue) == 0,
+    )
+    time.sleep(0.5)
+
+    assert _ready(event_queue) == 0
+    assert _ready(dead_letter_queue(event_queue)) == 1
+
+
+def test_a_stored_live_frame_records_when_its_camera_was_last_seen():
+    camera_id = _camera()
+
+    store_segment(_live_body(camera_id, 1_790_000_000.25))
+
+    assert _camera_row(camera_id).last_seen_at == datetime.fromtimestamp(1_790_000_000.25, UTC)
+
+
+def test_last_seen_is_not_rewritten_for_every_frame():
+    camera_id = _camera()
+    store_segment(_live_body(camera_id, 1_790_000_000.25))
+
+    store_segment(_live_body(camera_id, 1_790_000_001.25))  # a second later: inside the interval
+    assert _camera_row(camera_id).last_seen_at == datetime.fromtimestamp(1_790_000_000.25, UTC)
+
+    store_segment(_live_body(camera_id, 1_790_000_006.5))  # six seconds later: past it
+    assert _camera_row(camera_id).last_seen_at == datetime.fromtimestamp(1_790_000_006.5, UTC)
+
+
+def test_a_late_frame_never_moves_last_seen_backwards():
+    camera_id = _camera()
+    store_segment(_live_body(camera_id, 1_790_000_100.0))
+
+    store_segment(_live_body(camera_id, 1_790_000_000.0))  # older, arriving late
+
+    assert _camera_row(camera_id).last_seen_at == datetime.fromtimestamp(1_790_000_100.0, UTC)
 
 
 # --- the acknowledgement: after the commit, never before --------------------

@@ -140,4 +140,7 @@ class WorkerInfo(BaseModel):
     grabbed: int
     published: int
     decode_errors: int
+    reconnects: int = 0
+    failed_attempts: int = 0
+    last_frame_at: float | None = None
 

@@ -68,6 +68,21 @@ class Settings(CommonSettings):
     # healthy start.
     live_read_timeout_ms: int = Field(10000, ge=1)
 
+    # Reconnection (OMNI-313). After a stream drops, the first retry comes after
+    # `initial`, and each failure multiplies the wait by `factor` up to `max`, so
+    # a dead camera is tried at 1 s, 2 s, 4 s ... 30 s and then every 30 s, not
+    # every 100 ms. The jitter (a fraction of the delay, either way) keeps many
+    # cameras that lost the same network from all retrying at once. The cap is
+    # also the longest a camera that has just come back can go unnoticed.
+    live_reconnect_initial_s: float = Field(1.0, gt=0)
+    live_reconnect_max_s: float = Field(30.0, gt=0)
+    live_reconnect_factor: float = Field(2.0, ge=1.0)
+    live_reconnect_jitter: float = Field(0.2, ge=0.0, le=1.0)
+    # A connection has to last this long before it earns the backoff a fresh
+    # start. Without it a camera that flaps every couple of seconds would be
+    # retried at the shortest delay for ever.
+    live_backoff_reset_s: float = Field(10.0, ge=0)
+
     @field_validator("motion_blur_kernel")
     @classmethod
     def _blur_kernel_must_be_odd(cls, value: int) -> int:

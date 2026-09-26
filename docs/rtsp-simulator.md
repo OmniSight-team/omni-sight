@@ -62,3 +62,9 @@ samples it (`LIVE_SAMPLE_INTERVAL_S`), and its frames appear as segments;
 Expect a start to take five to ten seconds: a stream sends nothing useful until
 its next keyframe, and the simulator's comes several seconds after connecting.
 
+If a feed drops while a camera is being captured (try `docker compose stop
+mediamtx`), the camera goes `unreachable` within a second, the worker retries with
+a growing wait (about 1, 2, 4, 8, 16, then 30 seconds), and once the feed is back
+capture resumes by itself (`docker compose start mediamtx`). Nothing needs to be
+restarted.
+

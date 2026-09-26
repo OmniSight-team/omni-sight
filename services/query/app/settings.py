@@ -41,6 +41,11 @@ class Settings(CommonSettings):
     # Without a limit the broker hands a single consumer the whole backlog, so a
     # second consumer would sit idle while the first works through it.
     segment_prefetch: int = Field(10, ge=1)
+    # OMNI-313: a stored live frame refreshes its camera's `last_seen_at`, but no
+    # more than once in this many seconds. Updating it on every frame would be a
+    # write to one row five times a second per camera for a number nobody reads
+    # that finely; a camera going quiet is caught by a status event, not by this.
+    camera_last_seen_interval_s: float = Field(5.0, ge=0)
     # An extraction is finished when every segment ingestion published has been
     # stored by the consumer. This is how long to wait for that — long enough to
     # ride out a consumer restart, short enough that a consumer that is gone

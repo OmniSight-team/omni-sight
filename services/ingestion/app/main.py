@@ -10,7 +10,14 @@ from fastapi.responses import JSONResponse
 from omnisight_common import connection_parameters
 
 from app.file_probe import FileProbeError, probe_file
-from app.live_capture import AlreadyRunning, LiveWorker, WorkerRegistry, WorkerState
+from app.live_capture import (
+    LIVE_STATES,
+    AlreadyRunning,
+    Backoff,
+    LiveWorker,
+    WorkerRegistry,
+    WorkerState,
+)
 from app.logging_conf import configure_logging
 from app.pipeline import (
     ExtractError,
@@ -272,43 +279,58 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
     queue as a file's (OMNI-312). Nothing about its records says "camera"
     beyond `source_type`, and `video_id` is null."""
     started_at = time.time()
-    gate, _params = _gate_for(start_s=started_at)
     # One folder per capture session: a frame's file is named by its index in
     # the session, and a restarted worker starts counting again, so sharing a
-    # folder would overwrite files that stored segments still point at.
+    # folder would overwrite files that stored segments still point at. A
+    # reconnection stays in the same session: its frame indexes carry on.
     session = str(int(started_at))
     frames_dir = Path(settings.frames_path) / f"camera-{camera_id}" / session
     thumbs_dir = Path(settings.thumbs_path) / f"camera-{camera_id}" / session
     frames_dir.mkdir(parents=True, exist_ok=True)
     thumbs_dir.mkdir(parents=True, exist_ok=True)
 
-    def process(frame, timestamp_s: float, frame_index: int):
-        return process_frame(
-            frame,
-            FrameSource(
-                source_type="camera",
-                frame_index=frame_index,
-                timestamp_s=timestamp_s,
-                video_id=None,
-                camera_id=camera_id,
-            ),
-            gate,
-            frames_dir,
-            thumbs_dir,
-            thumb_width=settings.thumb_width_px,
-            frame_quality=settings.frame_jpeg_quality,
-            thumb_quality=settings.thumb_jpeg_quality,
-        )
+    def make_process():
+        # A new gate for every connection (OMNI-313): the frames a gate has
+        # buffered are from before a gap, and comparing the first frame back
+        # with them would read as motion. Its heartbeat clock starts now.
+        gate, _params = _gate_for(start_s=time.time())
+
+        def process(frame, timestamp_s: float, frame_index: int):
+            return process_frame(
+                frame,
+                FrameSource(
+                    source_type="camera",
+                    frame_index=frame_index,
+                    timestamp_s=timestamp_s,
+                    video_id=None,
+                    camera_id=camera_id,
+                ),
+                gate,
+                frames_dir,
+                thumbs_dir,
+                thumb_width=settings.thumb_width_px,
+                frame_quality=settings.frame_jpeg_quality,
+                thumb_quality=settings.thumb_jpeg_quality,
+            )
+
+        return process
 
     return LiveWorker(
         camera_id,
         open_capture=lambda: _open_stream(rtsp_url),
         make_publisher=lambda: SegmentPublisher(
-            connection_parameters(settings), settings.segment_queue
+            connection_parameters(settings), settings.segment_queue, settings.camera_event_queue
         ),
-        process=process,
+        make_process=make_process,
         sample_interval_s=settings.live_sample_interval_s,
         clock=lambda: time.time(),
+        backoff=Backoff(
+            settings.live_reconnect_initial_s,
+            settings.live_reconnect_max_s,
+            factor=settings.live_reconnect_factor,
+            jitter=settings.live_reconnect_jitter,
+        ),
+        stable_after_s=settings.live_backoff_reset_s,
     )
 
 
@@ -318,7 +340,7 @@ def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
     what it delivers until told to stop. Returns once the first frame has
     arrived, or with the reason it did not."""
     existing = workers.get(payload.camera_id)
-    if existing is not None and existing.state in (WorkerState.STARTING, WorkerState.RUNNING):
+    if existing is not None and existing.state in LIVE_STATES:
         return WorkerStartResponse(
             ok=False,
             worker_id=existing.worker_id,

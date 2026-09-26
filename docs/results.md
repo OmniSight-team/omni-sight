@@ -631,3 +631,49 @@ so it is not a surprise.
 **Not measured:** more than one camera at once (OMNI-317), how long a capture
 runs before anything degrades, and CPU per camera. Full context in
 `docs/context/week-03-04.md`.
+
+## 2026-09-26 — Killing the simulator mid-capture: detection, backoff and recovery (OMNI-313)
+
+**Method:** the real stack and the simulator's `cam01` (15 fps), a throwaway admin
+account and camera, started through the API. `docker compose stop mediamtx`
+mid-capture, camera status polled through `GET /cameras` every 0.05-0.2 s, the
+worker's own state read from ingestion's `GET /workers`, retry waits read from
+ingestion's log; then `docker compose start mediamtx`. Two outages: 76 s and
+25 s. Reconnection settings at their defaults (first retry 1 s, doubling, cap
+30 s, jitter 20%).
+
+| Measurement | Result |
+|---|---|
+| Camera status after the stop | flipped `connected` to `unreachable` **0.4 s** after the stop command was issued (the container itself took 0.8 s to stop) |
+| Rows while down | frozen (53 before, 53 after 26 s; 53 after 76 s) |
+| `last_seen_at` while down | frozen at the last frame, not advancing |
+| `last_seen_at` while healthy | advances (checked 5 s apart) |
+| Retry waits, 76 s outage | **0.95, 2.24, 3.74, 9.42, 17.62, 26.74 s** (1, 2, 4, 8, 16, 30 with jitter), 5 failed attempts before one worked |
+| Retry waits, 25 s outage | 1.03, 2.32, 3.47 s, 3 failed attempts |
+| Recovery, 76 s outage | camera `connected` **20.5 s** after the simulator was started; capture resumed by itself |
+| Recovery, 25 s outage | **11.4 s** after the simulator was started; +14 rows within a few seconds |
+| Integrity across the gap (25 s outage) | no duplicate moments, frame indexes unbroken, one capture session, **54 thumbnail files for 54 admitted rows** |
+| After a stop | worker registry empty, 0 open connections to the simulator |
+
+**Result:** the acceptance case held: the simulator was killed mid-capture, the
+camera reported `unreachable` within a second, and when the simulator returned
+capture resumed with no one touching it. The waits grew as designed instead of
+retrying every 100 ms.
+
+**What the recovery time is made of:** the wait before the next attempt (up to
+the 30 s cap), the simulator restarting its own feed, and the wait for the first
+keyframe (about 5-7 s). So a camera that comes back can go unnoticed for about
+the cap plus that; a lower cap trades that against how often a long-dead camera
+is retried.
+
+**Two measurements in the first run were wrong and are not used:** the
+"time to flip" read 0.0 s because `docker compose stop` blocks until the
+container has stopped, so polling began after the flip had already happened;
+and thumbnail files were compared with rows while capture was still running (52
+against 50), which only measured frames in flight. Both were fixed for the
+second run.
+
+**Not measured:** a stream that stalls without closing (the case here closes
+its connection, so the drop was seen at once; a silent stall would take the 10 s
+read timeout), several cameras dropping together (what the jitter is for), and a
+broker restart during capture. Full context in `docs/context/week-03-04.md`.

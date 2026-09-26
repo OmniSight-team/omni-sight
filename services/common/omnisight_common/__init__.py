@@ -4,9 +4,11 @@ from omnisight_common.domain import Domain
 from omnisight_common.nav import NAV_ROUTES, NavRoute
 from omnisight_common.roles import Role
 from omnisight_common.segment_queue import (
+    CameraEvent,
     SegmentMessage,
     connection_parameters,
     dead_letter_queue,
+    declare_camera_event_queue,
     declare_segment_queue,
 )
 from omnisight_common.segment_source_type import SegmentSourceType
@@ -17,6 +19,7 @@ from omnisight_common.video_status import VideoStatus
 __all__ = [
     "NAV_ROUTES",
     "AdmissionReason",
+    "CameraEvent",
     "CameraStatus",
     "CommonSettings",
     "Domain",
@@ -28,5 +31,6 @@ __all__ = [
     "VideoStatus",
     "connection_parameters",
     "dead_letter_queue",
+    "declare_camera_event_queue",
     "declare_segment_queue",
 ]

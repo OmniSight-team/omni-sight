@@ -16,17 +16,21 @@ duplicate row.
 import logging
 import time
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 
 import pika
 from omnisight_common import (
+    CameraEvent,
+    CameraStatus,
     SegmentMessage,
     VideoStatus,
     connection_parameters,
+    declare_camera_event_queue,
     declare_segment_queue,
 )
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import SessionLocal
@@ -105,8 +109,76 @@ def store_segment(body: bytes) -> Outcome:
         # INSERT, so it cannot tell a new row from a conflict. A row comes back
         # only when one was actually inserted.
         inserted = db.execute(statement.returning(Segment.id)).scalar_one_or_none()
+        if inserted is not None and message.video_id is None:
+            _refresh_last_seen(db, message.camera_id, message.timestamp_s)
         db.commit()
         return Outcome.STORED if inserted is not None else Outcome.DUPLICATE
+
+
+def _refresh_last_seen(db, camera_id: int, timestamp_s: float) -> None:
+    """A frame from the camera is the freshest evidence it is alive (OMNI-313), so
+    `last_seen_at` follows the frames as they are stored rather than waiting for
+    the next poll. It only moves forward, and only when the new time is at least
+    the configured interval past the old one: one row updated five times a second
+    per camera would be all write and no information."""
+    seen = datetime.fromtimestamp(timestamp_s, UTC)
+    db.execute(
+        update(Camera)
+        .where(
+            Camera.id == camera_id,
+            or_(
+                Camera.last_seen_at.is_(None),
+                Camera.last_seen_at < seen - timedelta(seconds=settings.camera_last_seen_interval_s),
+            ),
+        )
+        .values(last_seen_at=seen)
+    )
+
+
+def apply_camera_event(body: bytes) -> Outcome:
+    """Record that a camera became reachable or not, and commit it (OMNI-313).
+    Returns only after the commit, like `store_segment`.
+
+    A camera an operator has disabled stays disabled: whether it is in use is a
+    decision, and a stream cannot overrule it. A camera that no longer exists has
+    nothing to update.
+    """
+    try:
+        event = CameraEvent.model_validate_json(body)
+    except ValidationError as exc:
+        raise MalformedMessage(str(exc)) from exc
+
+    with SessionLocal() as db:
+        camera = db.execute(
+            select(Camera).where(Camera.id == event.camera_id).with_for_update()
+        ).scalar_one_or_none()
+        if camera is None or camera.status == CameraStatus.DISABLED:
+            return Outcome.STALE
+        camera.status = event.status
+        if event.status == CameraStatus.CONNECTED:
+            seen = datetime.fromtimestamp(event.at, UTC)
+            if camera.last_seen_at is None or camera.last_seen_at < seen:
+                camera.last_seen_at = seen
+        db.commit()
+        return Outcome.STORED
+
+
+def _on_event(channel, method, _properties, body: bytes) -> None:
+    try:
+        outcome = apply_camera_event(body)
+    except MalformedMessage as exc:
+        logger.error(
+            "camera event could not be parsed, dead-lettered",
+            extra={"extra_fields": {"error": str(exc)[:300]}},
+        )
+        channel.basic_nack(method.delivery_tag, requeue=False)
+        return
+    channel.basic_ack(method.delivery_tag)
+    if outcome is not Outcome.STORED:
+        logger.info(
+            "camera event acknowledged without a change",
+            extra={"extra_fields": {"outcome": outcome.value}},
+        )
 
 
 def _on_message(channel, method, _properties, body: bytes) -> None:
@@ -131,15 +203,21 @@ def _on_message(channel, method, _properties, body: bytes) -> None:
         )
 
 
-def start(channel, on_message=_on_message) -> None:
-    """Declare the queue, limit what this consumer may hold unacknowledged, and
-    subscribe. Deliveries then arrive as the connection's I/O loop runs."""
+def start(channel, on_message=_on_message, on_event=None) -> None:
+    """Declare the queues, limit what this consumer may hold unacknowledged, and
+    subscribe. Deliveries then arrive as the connection's I/O loop runs.
+    `on_event` also subscribes to the camera status queue (OMNI-313)."""
     declare_segment_queue(channel, settings.segment_queue)
     # The most unacknowledged messages this consumer may hold. Without it the
     # broker pushes the whole backlog at the first consumer to connect, and a
     # second consumer sits idle while the first works through it.
     channel.basic_qos(prefetch_count=settings.segment_prefetch)
     channel.basic_consume(queue=settings.segment_queue, on_message_callback=on_message, auto_ack=False)
+    if on_event is not None:
+        declare_camera_event_queue(channel, settings.camera_event_queue)
+        channel.basic_consume(
+            queue=settings.camera_event_queue, on_message_callback=on_event, auto_ack=False
+        )
 
 
 def consume() -> None:
@@ -147,7 +225,7 @@ def consume() -> None:
     raises on anything else."""
     with closing(pika.BlockingConnection(connection_parameters(settings))) as connection:
         channel = connection.channel()
-        start(channel)
+        start(channel, on_event=_on_event)
         logger.info(
             "consuming segments",
             extra={

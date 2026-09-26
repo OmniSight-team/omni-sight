@@ -14,9 +14,10 @@ restart — the queue is durable, and every message is persistent.
 
 import pika
 from pika.adapters.blocking_connection import BlockingChannel
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from omnisight_common.admission_reason import AdmissionReason
+from omnisight_common.camera_status import CameraStatus
 from omnisight_common.segment_source_type import SegmentSourceType
 from omnisight_common.settings import CommonSettings
 
@@ -57,6 +58,29 @@ class SegmentMessage(BaseModel):
     extraction_id: str | None = None
 
 
+class CameraEvent(BaseModel):
+    """A live camera changing between reachable and not (OMNI-313).
+
+    Published by the capture worker the moment it notices, so the camera's
+    status changes as it happens rather than on the next poll. Only the two
+    states a worker can observe are allowed: whether a camera is `disabled` or
+    still `registered` is a decision, not something a stream reveals.
+    """
+
+    camera_id: int
+    status: CameraStatus
+    # When the worker noticed, as Unix time in seconds.
+    at: float
+    worker_id: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _only_what_a_stream_can_show(cls, value: CameraStatus) -> CameraStatus:
+        if value not in (CameraStatus.CONNECTED, CameraStatus.UNREACHABLE):
+            raise ValueError("a camera event reports connected or unreachable, nothing else")
+        return value
+
+
 def dead_letter_queue(queue: str) -> str:
     return queue + DEAD_LETTER_SUFFIX
 
@@ -75,8 +99,7 @@ def connection_parameters(settings: CommonSettings) -> pika.ConnectionParameters
     )
 
 
-def declare_segment_queue(channel: BlockingChannel, queue: str) -> None:
-    """Idempotent: safe from both the producer and the consumer on every start."""
+def _declare_durable(channel: BlockingChannel, queue: str) -> None:
     dead = dead_letter_queue(queue)
     channel.queue_declare(queue=dead, durable=True)
     channel.queue_declare(
@@ -88,3 +111,14 @@ def declare_segment_queue(channel: BlockingChannel, queue: str) -> None:
             "x-dead-letter-routing-key": dead,
         },
     )
+
+
+def declare_segment_queue(channel: BlockingChannel, queue: str) -> None:
+    """Idempotent: safe from both the producer and the consumer on every start."""
+    _declare_durable(channel, queue)
+
+
+def declare_camera_event_queue(channel: BlockingChannel, queue: str) -> None:
+    """The camera status queue: durable like the segment queue, for the same
+    reason. A camera that dropped and was never reported would read as healthy."""
+    _declare_durable(channel, queue)
