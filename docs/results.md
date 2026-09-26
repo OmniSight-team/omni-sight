@@ -735,3 +735,99 @@ empty. After a stop, `fps_effective` and `uptime_s` read 0 while the totals stay
 measurement), a broker freeze longer than the 30 s heartbeat, and several cameras
 at once. The defaults (queue of 10 frames, backlog limit of 2000) are untuned.
 Full context in `docs/context/week-03-04.md`.
+
+## 2026-09-26 — TC-1 (first half) and NFR-1 capture-to-stored latency (OMNI-316)
+
+**Conditions.** One machine runs everything: Windows 11 Home, Intel Core
+i7-1165G7 (4 cores, 8 threads), 15.7 GB RAM; Docker Desktop with 8 CPUs and 7.6 GiB
+for all containers (query, ingestion, consumer, frontend, nginx, PostgreSQL 16,
+RabbitMQ 3.13, the RTSP simulator). One consumer, prefetch 10; the live worker
+samples at 0.2 s with a 10-frame in-process queue; motion gate at its defaults
+(grid 8, per-cell threshold 25, 3 active cells, stride 0.5 s, heartbeat 1 s). The
+live source is the simulator: `cam01`, 15 fps, 320x240 H.264, in constant motion;
+`cam05` for TC-1, which mixes motion and still stretches. The uploaded file is
+real footage from the archive (Arson049, 30 fps, 320x240) looped to 38.7 s (1,158
+frames) or 64.5 s (1,930 frames), extracted through the real
+`POST /videos/{id}/extract`. Each window is 30 s, after a 6 s warm-up. The host,
+the Docker VM and the database agree on the time to within a millisecond (database
+minus host +1.3 ms and +0.3 ms, each +/- under 1 ms), so latencies are good to a few
+milliseconds. Reproduce with `scripts/measure_capture_latency.py`.
+
+**What is measured.** *Capture* is `segments.timestamp_s`, the moment the worker
+read the frame from the stream. *Stored* is `segments.created_at`, the database's
+time at the insert; the commit follows within a millisecond or two. A second figure,
+*readable via the API*, is when a poller on the real `GET /cameras/{id}/frames`
+(every 100 ms) first saw an admitted frame, so it also carries up to 100 ms of
+polling. This is the first half of NFR-1 only: it excludes the time a frame spent
+between the camera and the decoder, and the time to make it searchable (slice 7).
+Every frame is counted, admitted or discarded.
+
+### NFR-1, first half: capture to stored (5 s is the limit)
+
+| Scenario | Frames | p50 | p95 | p99 | max | API-visible max | Broker queue peak |
+|---|---|---|---|---|---|---|---|
+| Live alone, `cam01`, run 1 | 126 | 9 ms | 18 ms | 41 ms | **49 ms** | 180 ms | not sampled |
+| Live alone, `cam01`, run 2 | 125 | 9 ms | 23 ms | 28 ms | **28 ms** | 184 ms | 0 |
+| Live + 1,158-frame file, `cam01`, run 1 | 125 | 1,225 ms | 4,646 ms | 4,833 ms | **4,910 ms** | 4,979 ms | not sampled |
+| Live + 1,158-frame file, `cam01`, run 2 | 125 | 607 ms | 4,341 ms | 4,640 ms | **4,673 ms** | 4,797 ms | 336 |
+| Live + 1,158-frame file, `cam05` | 128 | 258 ms | 3,512 ms | 3,799 ms | **3,977 ms** | 3,869 ms | 323 |
+| Live + **1,930-frame file**, `cam01` | 127 | 1,368 ms | 5,956 ms | 6,138 ms | **6,139 ms** | 6,266 ms | 544 |
+
+No frames were dropped and there were no decode errors in any run.
+
+**Result.**
+- **A live camera on its own is far inside the limit:** worst frame 49 ms, roughly a
+  hundred times under 5 s, and readable through the API within 0.2 s.
+- **With a file being extracted at the same time the requirement is only just met,
+  and fails for a longer file.** With a 1,158-frame file the worst live frame took
+  4.67-4.91 s (4.80-4.98 s through the API), passing by 0.1-0.3 s; with a
+  1,930-frame file it took **6.14 s**, so the 5 s bound is **not met** in that
+  condition. The `cam05` run, where fewer frames need JPEGs, stayed under 4 s.
+- **Why:** live frames and the file's segments share one queue and one consumer, in
+  first-in first-out order. Extraction decodes the whole file and then publishes
+  every frame, so it puts a burst of messages ahead of the live frames: the broker
+  queue peaked at 323-544 messages and stayed above 100 for 19-22 s, and the live
+  frames waited behind it. The burst grows with the file, so the delay does too. 544
+  messages taking about 6 s to clear is roughly 90 a second, the same order as the
+  ~10 ms per message that OMNI-311 measured for publishing; the consumer's own rate
+  was not measured separately, so that is arithmetic, not a finding about the
+  consumer.
+- **Load at the same time (run 1, 100% = one core, average):** ingestion 23% alone,
+  123% with the file (peak 361%); consumer 3% to 47%; RabbitMQ 47% to 76%;
+  PostgreSQL 3% to 19%. The 1,158-frame extraction took 24-33 s with live capture
+  running, against 20.9 s for 1,200 frames on an otherwise idle stack (OMNI-311).
+
+**Not fixed.** The ticket asks for a measurement, and the remedy is a design
+decision. The obvious options are a separate queue (or priority) for live frames so
+they never wait behind a recording, a consumer that stores messages in batches, or
+publishing an extraction's frames as it decodes them instead of in one burst. None
+was built. Until one is, a long recording being extracted can push live latency past
+the requirement.
+
+### TC-1, first half: a live camera and an uploaded file at the same time
+
+Both ran through ingestion together for the 30 s windows above (the file's
+extraction covered the whole window, in one run or two back to back).
+
+| | Decoded without error | Frames gated | Forwarded | of which motion / heartbeat | Discarded |
+|---|---|---|---|---|---|
+| Uploaded file (1,158 frames) | yes: every extraction `ready`, 1,158 of 1,158 | 1,158 | **209 (18%)** | 182 / 27 | 949 |
+| Uploaded file (1,930 frames) | yes: 1,930 of 1,930 | 1,930 | **357 (18%)** | 312 / 45 | 1,573 |
+| Live `cam05` (motion and stillness) | yes: worker `running`, 0 decode errors | 227 | **64 (28%)** | 32 / 32 | 163 |
+| Live `cam01` (constant motion) | yes | 235-326 | 213-296 (91%) | all motion | 22-30 |
+
+**Only frames with motion are forwarded.** "Forwarded" means admitted: the frames
+that get an image and go on to later slices; every frame still gets a row with its
+score (OMNI-303's rework), but a discarded one has no files. Checked from the stored
+rows, with **zero violations** in every run: every forwarded frame has a reason
+(motion or heartbeat) and a file; every motion admission scored at or above the
+threshold of 3 active cells; no heartbeat admission had motion; no discarded frame
+has a file or scored at or above the threshold; and the JPEG files on disk equal the
+forwarded frames exactly (209 of 209, 357, 64 of 64, 213, 296).
+
+**What this does and does not show.** `cam01` forwards 91% because the simulated
+scene never stops moving, so it barely exercises the filter; `cam05` and the real
+footage do (18-28% forwarded, with heartbeats filling the still stretches). It shows
+the gate forwards only what its rule says it should, on both sources at once. It does
+not show that the rule picks the right frames, which is OMNI-318, or anything about
+the camera wall, which is TC-1's second half in slice 5.
