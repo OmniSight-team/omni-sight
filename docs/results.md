@@ -998,3 +998,66 @@ a design question for Algorithm 1, not a value to pick from this table.
   share of a small frame; whether that changes what the gate sees was not measured
 - Retention says how much is kept, not whether the *right* frames were kept; nothing here
   checks that admitted frames contain the event
+
+## 2026-09-26 — Definition of done for slices 3 and 4, and a worker restart mid-capture (OMNI-319)
+
+**Conditions.** The whole stack brought down (`docker compose down`, volumes kept) and up
+again with `docker compose up -d`, then `scripts/verify_definition_of_done.py` against it:
+real API, database, broker and containers, the simulator's `cam02` feed at the default
+sampling (every 0.2 s) and gate parameters, one machine as in OMNI-316. All 44 checks passed there, and on one run before it on the stack as it was. The first run had 28 of 29 passing: the one failure was my check, which polled the counter every 3 s although the worker reports totals every 5 s; the premise was wrong and was fixed, not the result. It creates a throwaway admin, cameras and videos and removes them.
+
+| Definition of done | Result |
+|---|---|
+| A recording that is still, then moves: early frames discarded, moving ones admitted | A 12 s clip (6 s still, 6 s moving, 15 fps): still part **0 of 90 frames admitted for motion**, 5 by the heartbeat; moving part **90 of 90 admitted** |
+| Moving the threshold visibly changes the counts | Admitted frames at cell threshold 5 / 25 / 100 / 200: **95 / 95 / 11 / 11** |
+| Clicking a thumbnail seeks the player | Data and serving verified by script (a thumbnail is `image/jpeg`, its moment lies inside the recording, the playback stream answers a range request with 206). **The click itself is a browser check, see below** |
+| Start a camera: frames arrive continuously, counters climb | `captured` 30, 51, 73, 94 at 6 s intervals, 113 rows stored, camera `connected` |
+| Kill the simulator: unreachable, then recovers on its own | Status was `unreachable` by the time the stop command returned; **back to `connected` about 11 s after the simulator restarted**, with no action on the camera; frames flowing again |
+| Restart the worker mid-capture, nothing already accepted is lost | Four ways, below: **no frame lost in any** |
+
+### Restart mid-capture
+
+Ground truth is the disk: a worker writes each admitted frame's JPEG before it publishes
+it, and the rows carry a frame index that counts every frame of a capture session. So a
+row whose file is missing, or a gap inside a session's indexes, is a real loss, and a file
+without a row is a frame the broker never confirmed.
+
+| Action, at 14 s into a capture | Rows before -> after | Gaps in the session | Rows without a file | Files without a row |
+|---|---|---|---|---|
+| `docker compose restart ingestion` (graceful) | 60 -> 62 | none | 0 | 0 |
+| `docker compose kill ingestion` (SIGKILL) | 58 -> 61 | none | 0 | 0 |
+| consumer stopped 15 s, started (queue held 64-66 messages meanwhile) | 60 -> 198 | none | 0 | 0 |
+| consumer `kill -9` for 15 s, started (queue held 64 messages) | 60 -> 193 | none | 0 | 0 |
+
+After either restart of ingestion, capture can be started again and arrives as a new
+session, with the old rows intact (62 -> 96 rows and similar). The queue drained to zero
+after every action.
+
+**What this does not show.**
+- **Nothing resumes the workers.** After both ingestion restarts the worker was gone
+  (`GET /workers` empty) and the camera **still read `connected`**, with nobody capturing,
+  until capture was started again. This was known since OMNI-312 and is now measured. It is
+  a gap in the camera's status, not in the data, and it was not fixed here
+- **The window between writing a JPEG and the broker confirming it was not hit.** The kill
+  landed at a random moment three times and found no file without a row, so a frame
+  in flight at that instant was not observed, and the rule for it (never confirmed, so not
+  "accepted") is by construction, not by test. Frames still in the worker's in-process
+  queue (at most 10) when it is killed are lost the same way: they were never accepted
+- **The detector was checked:** a self-test feeds it rows with a missing row, a missing file
+  and a restarted session and it flags each. The guarantee itself (acknowledge after the
+  commit) was mutation-tested in OMNI-311
+- Broker restart during capture is a different case (the worker does not reconnect to the
+  broker, only to the camera) and was not run here
+
+### One thing the plan said that the build does not do
+
+The plan says gating runs from stored frames, never from the video, so the threshold slider
+is fast. **Re-gating decodes the source video again** (OMNI-306 chose this: only admitted
+frames have a JPEG, so re-scoring stored frames could never bring a discarded one back).
+It took 1.4 to 2.0 s per re-gate on the short clips measured (OMNI-310), and that cost
+grows with the recording's length, which no test here covers.
+
+### The full suite
+
+`uv run pytest`: **304 passed**, run against a scratch database (the dev database was
+untouched, 3 videos before and after).

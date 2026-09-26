@@ -16,3 +16,7 @@ Not part of the running system.
   uploads and extracts every clip under `data/` through the real pipeline at the default parameters,
   reports retention per dataset group and per clip, and with `--sensitivity 50:3,100:3` also re-gates
   at other parameters to show what would change (OMNI-318). Measures; does not tune.
+- `verify_definition_of_done.py` — the slice 3 and 4 definition of done against the live stack: still-then-moving
+  recording, threshold counts, a camera against the simulator, the simulator killed and restored, and the worker
+  restarted mid-capture (ingestion graceful and `kill -9`, the consumer stopped and killed) with a loss check
+  (OMNI-319). Run in the background; it stops and starts services on purpose and puts them back.
