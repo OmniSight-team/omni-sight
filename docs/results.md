@@ -831,3 +831,97 @@ footage do (18-28% forwarded, with heartbeats filling the still stretches). It s
 the gate forwards only what its rule says it should, on both sources at once. It does
 not show that the rule picks the right frames, which is OMNI-318, or anything about
 the camera wall, which is TC-1's second half in slice 5.
+
+## 2026-09-26 — Several feeds at once: what one machine sustains (OMNI-317, NFR-4, preliminary)
+
+**Conditions.** As for OMNI-316: one machine, Windows 11 Home, Intel Core
+i7-1165G7 (4 cores, 8 threads), 15.7 GB RAM, Docker Desktop with 8 CPUs and 7.6 GiB;
+every service, the RTSP simulator (ten looping ffmpeg feeds) and the measuring script
+run on it together, which is part of what is measured. The simulator's feeds are
+15 fps, 320x240 H.264; beyond ten cameras the same feeds are read twice. Each camera
+is sampled every 0.2 s (about 4.2 stored frames a second per camera from a 15 fps
+feed), with a 10-frame in-process queue, a backlog limit of 2,000, one consumer.
+Cameras are started four at a time, then given 8 s to settle before the window.
+Latency is capture-to-stored as in OMNI-316. Reproduce with
+`scripts/measure_concurrent_feeds.py`. Preliminary: one machine, one scene set, a
+handful of runs.
+
+### The answer
+
+**On this machine, 8 simultaneous feeds are sustained; 10 are not.** 8 feeds ran for
+6 minutes with no drops and no reconnects, the queue near empty, and the worst frame
+at 1.8 s. 9 is on the edge, 10 degrades within a minute, 11 and 12 break NFR-1
+outright, and frames start being **dropped at 15 feeds**.
+
+| Feeds | Held for | Dropped | Stored per camera | Worst capture to stored | Queue peak | Verdict |
+|---|---|---|---|---|---|---|
+| 8 | **6 min** | 0 of 12,684 | 4.19/s | p99 1.4 s, **max 1.8 s** | 48 | **sustained** |
+| 8 | 3 min | 0 of 6,597 | 4.18/s | p99 0.8 s, max 1.2 s | 23 | sustained |
+| 9 | 3 min | 0 of 7,726 | 4.19/s | first 90 s: p99 up to 7.7 s (max 7.9 s); last 90 s: p99 0.6-1.0 s | 282 | **unreliable**: backed up early, recovered |
+| 10 | 3 min, three runs | 0 (one run with a heavier sampler: 598) | 4.19/s | max 12.0 s and 12.6 s (68 s with the heavier sampler) | 473-507 | **not sustained** |
+| 11 | 3 min | 53 of 9,360 | 3.54/s | p99 45 s | 2,012 | fails |
+| 15 | 30 s | 44 of 4,023 (1.1%) | 3.75/s | p99 30.6 s | 1,559 | drops begin |
+| 20 | 30 s | 1,264 of 6,219 (20%) | 1.93/s | p99 42.9 s | 2,028 | overloaded |
+
+Every worker stayed `running` with no reconnects and no decode errors in every run.
+
+**What makes 10 different from 8.** The queue is what tells them apart. At 8 feeds it
+stays near zero for the whole 6 minutes. At 10 it is fine for the first 30 s
+(mean depth 16, p99 1.5 s), then climbs and does not come back: mean depth 63, 230,
+307, 350, 403 over the next five 30 s slices, latency p99 reaching 12 s by minute
+three. The frames are still stored at the full rate, so nothing is lost yet, but each
+waits longer than the last, and once the queue reaches its limit frames are dropped
+(that is what happens at 11, and by 15). **A 30 s window hides this:** the first pass,
+in 30 s windows, made 10 feeds look fine (p99 1.0-1.4 s), and I first read it that way.
+
+**Where the ceiling comes from.** The consumer on its own stores **76-83 frames a
+second** (3,000 queued frames drained in 36-39 s, one transaction each; 83 on a cold
+machine, 76 after twenty minutes of load, so heat is not the limit). In the full stack
+the stored rate stopped scaling near **50-56 a second** (12 feeds at 4.2 and 15 at 3.75
+are both that), because the consumer shares the machine with everything else: with 10
+feeds running, the whole machine's CPU read **92-99%** and its processor-performance
+counter 82-87% of nominal. Ten feeds offer about 42 frames a second, which is most
+of what the stack can absorb; eight offer 34. So the limiting resource on this
+machine is total CPU, not any one service.
+
+**Cost per feed (first-pass runs, averages, 100% = one core):** ingestion 22% for one
+feed, 143% for ten, 256% for twenty; memory 203 MiB, 388 MiB and 722 MiB (about 20-27
+MiB per camera). At ten feeds: consumer 44%, RabbitMQ 80%, PostgreSQL 12%, query 17%,
+the simulator 22%. RabbitMQ's CPU figure spikes to 230-330% even with one camera and at
+idle, so its peaks say nothing about load. **Bringing feeds up is slow:** about 3.9 s
+per camera (27-29 s for 8, 37-42 s for 10, 77 s for 20), consistent with the start-up
+reachability check running one at a time.
+
+### One lever, measured
+
+Sampling each camera every **0.5 s instead of 0.2 s** (1.88 stored frames a second per
+camera) lets **10 feeds be sustained for 3 minutes**: 0 dropped of 3,893, queue peak
+18, p99 0.1-0.4 s in five of six slices (1.6 s in one), worst frame 1.7 s. That is a
+setting (`LIVE_SAMPLE_INTERVAL_S`), not a code change, and it was reverted afterwards.
+Whether 0.5 s is enough for what slices 7 and 8 need to find in a frame is a separate
+question, not measured.
+
+### What this means for slice 5
+
+Ten concurrent feeds are graded there. **As configured, this machine does not sustain
+ten** (the answer the ticket hoped to find early), and the margin at eight is small: a
+recording extracted at the same time already breaks NFR-1 for a live camera (OMNI-316).
+The candidates, in order of what was measured: a longer sampling interval (measured,
+above); a cheaper consumer (its per-message transaction is the obvious cost, and batching
+commits is the natural fix, unmeasured); a separate queue for live frames (OMNI-316's
+finding); moving the simulator or the services off the one machine. None was built.
+
+### How much to trust it
+
+- **Instrumentation changes the result.** A run that also polled the machine's CPU
+  counters from PowerShell every few seconds behaved much worse (10 feeds: max 68 s,
+  598 drops) than the same case without it (12 s, 0 drops), because the machine was
+  already at its limit. The headline numbers for 8, 9, 10 and 11 feeds and for 0.5 s
+  sampling come from runs with the CPU samplers off; the first-pass ladder (1 to 20)
+  used a container-CPU sampler and shows the same shape.
+- **Runs at the edge vary.** Ten feeds gave p99 1.0 s and 1.4 s in two 30 s windows and
+  12 s at the end of three-minute ones; nine backed up and recovered within one run.
+  Expect the edge to move with whatever else the machine is doing.
+- **Not measured:** more than six minutes; the same feeds on separate machines; frames
+  larger than 320x240 (a real camera's frames cost more to gate and store, so this is
+  optimistic); two consumers.
