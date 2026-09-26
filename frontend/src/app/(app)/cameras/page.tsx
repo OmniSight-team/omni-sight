@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useAuth } from "@/lib/auth-context";
@@ -287,7 +288,11 @@ export default function CamerasPage() {
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {cameras.map((camera) => (
                 <tr key={camera.id}>
-                  <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50">{camera.name}</td>
+                  <td className="p-0 font-medium text-zinc-900 dark:text-zinc-50">
+                    <Link href={`/cameras/${camera.id}`} className="block px-4 py-3 hover:underline">
+                      {camera.name}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{camera.location}</td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{camera.group}</td>
                   <td className="px-4 py-3">

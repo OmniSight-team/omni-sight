@@ -163,6 +163,52 @@ export async function testCameraConnection(id: number): Promise<CameraTestResult
   return request<CameraTestResult>(`/cameras/${id}/test`, { method: "POST" });
 }
 
+export interface CameraStats {
+  // Frames sampled from the stream and offered to the pipeline, and of those the
+  // ones dropped because it could not keep up. Lifetime totals.
+  captured: number;
+  dropped: number;
+  // Frames actually processed per second, and seconds the current capture has
+  // been running. Both are 0 when the camera is not being captured, so
+  // `uptime_s > 0` is how the screen tells running from stopped.
+  fps_effective: number;
+  uptime_s: number;
+}
+
+export interface CameraFrame {
+  segment_id: number;
+  // When the frame was captured, as Unix time in seconds.
+  timestamp_s: number;
+  thumb_url: string;
+}
+
+// Starting waits for the stream's first frame, which on the simulator takes
+// several seconds; the call is slow by design, not hung.
+export async function startCamera(id: number): Promise<{ worker_id: string; status: string }> {
+  return request(`/cameras/${id}/start`, { method: "POST" });
+}
+
+export async function stopCamera(id: number): Promise<{ status: string }> {
+  return request(`/cameras/${id}/stop`, { method: "POST" });
+}
+
+export async function getCameraStats(id: number): Promise<CameraStats> {
+  return request<CameraStats>(`/cameras/${id}/stats`);
+}
+
+// Oldest first. With `since` (a timestamp_s already seen): only what came after
+// it. Without: the newest `limit`.
+export async function listCameraFrames(
+  id: number,
+  options: { since?: number; limit?: number } = {},
+): Promise<CameraFrame[]> {
+  const params = new URLSearchParams();
+  if (options.since != null) params.set("since", String(options.since));
+  if (options.limit != null) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return request<CameraFrame[]>(`/cameras/${id}/frames${query ? `?${query}` : ""}`);
+}
+
 export type VideoSource = "upload" | "camera" | "dataset";
 export type VideoStatus = "uploaded" | "extracting" | "ready" | "failed";
 

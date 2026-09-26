@@ -896,6 +896,22 @@ def test_running_totals_are_reported_periodically_and_are_cumulative(tmp_path):
     assert reports[-1]["captured"] > reports[0]["captured"]
 
 
+def test_the_first_report_goes_out_at_once_not_after_a_full_interval(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    worker = _worker(
+        tmp_path, clock, FakeCapture(clock, pace_s=0.001), publisher, stats_interval_s=1e9
+    )
+    worker.start(WAIT_S)
+    try:
+        # The interval is effectively infinite, so this can only be the first report.
+        assert _until(lambda: len(publisher.stats) >= 1)
+        assert publisher.stats[0]["running"] is True
+        assert publisher.stats[0]["started_at"] == worker.started_at
+    finally:
+        worker.stop(WAIT_S)
+
+
 def test_a_final_report_says_the_worker_stopped_and_carries_its_last_totals(tmp_path):
     clock = FakeClock()
     publisher = FakePublisher()

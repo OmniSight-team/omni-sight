@@ -517,7 +517,11 @@ class LiveWorker:
         publisher = None
         try:
             publisher = self._make_publisher()
-            next_report_at = self._clock() + self._stats_interval_s
+            # The first report goes out at once, not after a full interval: it is
+            # what tells `camera_stats` (and so the camera screen) that this
+            # camera is now being captured, and waiting seconds to say so makes
+            # a camera that was just started look stopped.
+            next_report_at = self._clock()
             while True:
                 self._send_status_changes(publisher)
                 try:
