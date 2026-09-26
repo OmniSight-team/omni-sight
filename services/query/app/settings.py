@@ -30,6 +30,12 @@ class Settings(CommonSettings):
     # than extraction's own timeout (nothing here decodes every frame with a
     # motion gate), but still far longer than a plain probe needs.
     ingestion_playback_timeout_s: float = Field(150.0, gt=0)
+    # OMNI-312: starting a camera waits for a reachability check (up to ~18 s),
+    # then for the stream to open and deliver its first frame (ingestion allows
+    # 30 s); stopping waits for the worker to release its stream (up to 15 s).
+    # Both longer than the calls they wait on.
+    ingestion_worker_start_timeout_s: float = Field(70.0, gt=0)
+    ingestion_worker_stop_timeout_s: float = Field(30.0, gt=0)
 
     # OMNI-311: how many unacknowledged segments one consumer may hold at once.
     # Without a limit the broker hands a single consumer the whole backlog, so a

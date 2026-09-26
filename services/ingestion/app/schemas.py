@@ -103,3 +103,41 @@ class PlaybackResponse(BaseModel):
     # (`ok=True`), or the attempt failed (`ok=False`, `error` set).
     playback_path: str | None = None
     error: str | None = None
+
+
+class WorkerStartRequest(BaseModel):
+    camera_id: int
+    rtsp_url: str
+
+
+class WorkerStartResponse(BaseModel):
+    ok: bool
+    worker_id: str | None = None
+    status: str | None = None
+    # Why it did not start: a probe reason ("unreachable", "authentication
+    # failed", "timeout") or what the worker itself reported.
+    error: str | None = None
+    already_running: bool = False
+
+
+class WorkerStopRequest(BaseModel):
+    camera_id: int
+
+
+class WorkerStopResponse(BaseModel):
+    ok: bool
+    status: str
+    # False when there was nothing to stop — stopping is idempotent.
+    was_running: bool
+
+
+class WorkerInfo(BaseModel):
+    camera_id: int
+    worker_id: str
+    status: str
+    error: str | None = None
+    started_at: float
+    grabbed: int
+    published: int
+    decode_errors: int
+

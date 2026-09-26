@@ -43,6 +43,31 @@ class Settings(CommonSettings):
     # kernel).
     motion_blur_kernel: int = Field(21, ge=1)
 
+    # Live capture (OMNI-312). A stream is read frame by frame, but only one
+    # frame per this many seconds is processed and published — never every
+    # frame of a 25 fps camera. Not the file extractor's setting: that path has
+    # no sampling step since OMNI-303's rework, it gates every frame; a live
+    # stream cannot afford to, one camera per core, so it has its own.
+    live_sample_interval_s: float = Field(0.2, gt=0)
+    # How long a start waits for the stream to open and deliver a first frame.
+    # A stream sends nothing useful until its next keyframe, which on the
+    # simulator is several seconds after connecting (3-4.5 s measured), so this
+    # is generous.
+    live_start_timeout_s: float = Field(30.0, gt=0)
+    # How long the reachability check before a start may take. It waits for the
+    # stream to open, not for a frame, so this is a ceiling for a host that
+    # accepts the connection and then says nothing.
+    live_probe_timeout_s: float = Field(15.0, gt=0)
+    # How long a stop waits for the worker's thread to end. A worker blocked on
+    # a stalled stream ends when its read times out, so this must be longer
+    # than live_read_timeout_ms.
+    live_stop_timeout_s: float = Field(15.0, gt=0)
+    live_open_timeout_ms: int = Field(10000, ge=1)
+    # Also the longest a stalled stream can hold up a stop, and it must outlast
+    # the wait for a first keyframe: 5 s was too close to that and failed a
+    # healthy start.
+    live_read_timeout_ms: int = Field(10000, ge=1)
+
     @field_validator("motion_blur_kernel")
     @classmethod
     def _blur_kernel_must_be_odd(cls, value: int) -> int:

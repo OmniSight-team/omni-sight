@@ -61,6 +61,32 @@ def test_before_the_first_heartbeat_is_due_a_discarded_frame_stays_discarded():
         assert decision.admission_reason is None
 
 
+def test_a_source_with_its_own_time_origin_gets_its_first_heartbeat_one_interval_in():
+    """A live stream is stamped with Unix time (OMNI-312), so its first frame is
+    nowhere near t=0. Given its start, its first heartbeat is still one interval
+    in, not immediate."""
+    start = 1_790_000_000.0
+    gate = pipeline.HeartbeatGate(
+        _never_admits(4), heartbeat_interval_s=1.0, stride_s=0.5, start_s=start
+    )
+
+    assert gate.evaluate(_solid(), start).admitted is False
+    assert gate.evaluate(_solid(), start + 0.6).admitted is False
+    decision = gate.evaluate(_solid(), start + 1.0)
+    assert decision.admitted is True and decision.admission_reason == "heartbeat"
+    assert gate.evaluate(_solid(), start + 1.2).admitted is False
+
+
+def test_without_a_start_a_unix_time_stream_would_heartbeat_on_its_first_frame():
+    """The reason `start_s` exists: the default origin of 0 is right for a file
+    and wrong for a live stream."""
+    gate = pipeline.HeartbeatGate(_never_admits(1), heartbeat_interval_s=1.0, stride_s=0.5)
+
+    decision = gate.evaluate(_solid(), 1_790_000_000.0)
+
+    assert decision.admitted is True and decision.admission_reason == "heartbeat"
+
+
 def test_a_frame_at_or_past_the_interval_is_force_admitted_as_heartbeat():
     gate = pipeline.HeartbeatGate(_never_admits(2), heartbeat_interval_s=1.0, stride_s=0.5)
     gate.evaluate(_solid(), 0.5)  # not due yet

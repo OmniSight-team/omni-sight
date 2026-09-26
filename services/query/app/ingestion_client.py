@@ -111,3 +111,34 @@ def ensure_playback(path: str) -> dict:
     except httpx.HTTPError as exc:
         raise IngestionUnavailableError(str(exc)) from exc
     return resp.json()
+
+
+def start_worker(camera_id: int, rtsp_url: str) -> dict:
+    """Ask ingestion to start capturing a camera (OMNI-312). Returns
+    `{ok, worker_id, status, error, already_running}`; the request waits for the
+    stream's first frame, so it gets its own, longer, timeout."""
+    try:
+        resp = httpx.post(
+            f"{settings.ingestion_base_url}/workers/start",
+            json={"camera_id": camera_id, "rtsp_url": rtsp_url},
+            timeout=settings.ingestion_worker_start_timeout_s,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise IngestionUnavailableError(str(exc)) from exc
+    return resp.json()
+
+
+def stop_worker(camera_id: int) -> dict:
+    """Ask ingestion to stop a camera's worker. `{ok, status, was_running}`."""
+    try:
+        resp = httpx.post(
+            f"{settings.ingestion_base_url}/workers/stop",
+            json={"camera_id": camera_id},
+            timeout=settings.ingestion_worker_stop_timeout_s,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise IngestionUnavailableError(str(exc)) from exc
+    return resp.json()
+

@@ -591,3 +591,43 @@ batches (asynchronous confirms, or several channels) would share the disk sync
 and should be much faster; it was not built because no requirement asks for
 it yet and the dataset clips are 5-13 s. Recorded as the obvious next step if
 long recordings matter. Full context in `docs/context/week-03-04.md`.
+
+## 2026-09-26 — Live capture from the RTSP simulator: rate, start time, release, and what it stores (OMNI-312)
+
+**Method:** the real stack, a throwaway admin account and camera, the simulator's
+`cam01` (a 15 fps H.264 stream, 320x240). Started and stopped through the API
+(`POST /cameras/{id}/start` and `/stop`); rows counted in the database, open
+streams counted as established TCP connections from the ingestion container to
+the simulator (port 8554, read from `/proc/net/tcp`). Sampling interval 0.2 s
+(the default). Everything created was removed afterwards.
+
+| Measurement | Result |
+|---|---|
+| Rows arriving | strictly growing at every 2.5 s check for 20 s; **about 4.1 rows/s** (88 rows, 75 admitted, after 20 s) |
+| Why not 5/s | 0.2 s samples on a 15 fps stream land on every third or fourth frame (0.20-0.27 s apart) |
+| Newest row's age when read | 0.2 s (one observation, includes the polling delay; not the NFR-1 measurement, which is OMNI-316) |
+| Every row | `source_type = camera`, `camera_id` set, `video_id` null, `timestamp_s` = Unix time |
+| Stop | **0.0-0.1 s**; rows stayed frozen for the 6 s checked afterwards |
+| Streams left open after a stop | **0, in 14 of 14 start/stop cycles** (1 open while running, each time) |
+| Restart without restarting the service | resumed (89 to 114 rows), into a new folder per start, so no file was overwritten |
+| Start time | **about 7 s** (3.8-7.1 s over 6 starts), which is the simulator's wait for its next keyframe |
+
+**Start failures found and fixed on the way:** the first version waited for a
+frame twice (once in a reachability check, once in the worker), which took
+**about 17 s** per start (16.7-17.8 s over 8 starts); and the check's 5 s
+first-frame limit failed healthy starts intermittently (two of the first handful of
+attempts, neither counted precisely), because the simulator's first frame takes 3-5 s or more. The check now waits
+for the stream to open, not for a frame, and the worker's own first frame is
+the confirmation; 6 of 6 starts succeeded afterwards.
+
+**What it costs to store:** **24.2 KB per admitted frame** (a 16 KB frame and an
+8 KB thumbnail at 320x240; 98 admitted frames took 2.3 MB). Nothing prunes them
+yet. At this clip's rate of about 3.7 admitted frames a second that is roughly
+**7.7 GB per camera per day**; for a static scene, where only the once-a-second
+heartbeat admits, about **2.1 GB per camera per day**. A real camera's frames
+are larger. This is for slice 16's retention job to bound; it is recorded here
+so it is not a surprise.
+
+**Not measured:** more than one camera at once (OMNI-317), how long a capture
+runs before anything degrades, and CPU per camera. Full context in
+`docs/context/week-03-04.md`.

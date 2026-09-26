@@ -251,14 +251,24 @@ class HeartbeatGate(FrameGate):
     heartbeat due" clock must never cross from one video into another.
     """
 
-    def __init__(self, inner: FrameGate, *, heartbeat_interval_s: float, stride_s: float):
+    def __init__(
+        self,
+        inner: FrameGate,
+        *,
+        heartbeat_interval_s: float,
+        stride_s: float,
+        start_s: float = 0.0,
+    ):
         self._inner = inner
         self._heartbeat_interval_s = heartbeat_interval_s
         self._stride_s = stride_s
-        # The first heartbeat is due a full interval in, not at t=0 — a
-        # starting value of 0.0 here would make the very first frame of every
-        # video a heartbeat admission regardless of the interval.
-        self._next_due_s = heartbeat_interval_s
+        # The first heartbeat is due a full interval in, not at the start — a
+        # due time equal to the start would make the very first frame of every
+        # video a heartbeat admission regardless of the interval. `start_s` is
+        # the source's own time origin: 0 for a file, whose timestamps are
+        # seconds from its start, and the moment capture began for a live
+        # stream (OMNI-312), whose timestamps are Unix time.
+        self._next_due_s = start_s + heartbeat_interval_s
 
     def evaluate(self, frame, timestamp_s: float) -> GateDecision:
         decision = self._inner.evaluate(frame, timestamp_s)

@@ -64,38 +64,58 @@ def _tcp_preflight(host: str, port: int) -> None:
         raise ProbeError("unreachable", str(exc)) from exc
 
 
-def _open_and_read(rtsp_url: str) -> tuple[str, float]:
+def _open_and_read(rtsp_url: str, read_frame: bool = True) -> tuple[str, float]:
     with _capture_stderr() as captured:
         capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
         try:
             opened = capture.isOpened()
-            ok, frame = capture.read() if opened else (False, None)
+            ok, frame = capture.read() if opened and read_frame else (True, None)
             fps = float(capture.get(cv2.CAP_PROP_FPS)) if opened else 0.0
+            props_size = (
+                int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            )
         finally:
             capture.release()
 
         captured.seek(0)
         log_text = captured.read().decode(errors="replace")
 
-    if not opened or not ok or frame is None:
+    if not opened or not ok or (read_frame and frame is None):
         raise ProbeError(classify_open_failure(log_text), log_text.strip()[-500:])
 
-    height, width = frame.shape[:2]
+    if frame is not None:
+        height, width = frame.shape[:2]
+    else:
+        width, height = props_size
     return f"{width}x{height}", fps
 
 
-def probe_stream(rtsp_url: str) -> dict[str, str | float]:
+def probe_stream(
+    rtsp_url: str,
+    open_timeout_s: float = STREAM_OPEN_TIMEOUT_S,
+    *,
+    read_first_frame: bool = True,
+) -> dict[str, str | float]:
     """Open an RTSP stream, read one frame, report resolution and fps, and
-    always close it again — on success, on failure, and on timeout alike."""
+    always close it again — on success, on failure, and on timeout alike.
+
+    `open_timeout_s` is how long the whole probe may take. A stream sends
+    nothing useful until its next keyframe, which can be several seconds after
+    connecting, so a caller that does not need a frame (starting a live capture,
+    OMNI-312, whose own first frame is the real confirmation) can pass
+    `read_first_frame=False` and get a verdict as soon as the stream has opened
+    or been refused: reachable, wrong credentials, or dead. The resolution then
+    comes from the stream's own properties and may be 0x0."""
     parsed = urlparse(rtsp_url)
     if not parsed.hostname:
         raise ProbeError("unreachable", "no host in rtsp url")
 
     _tcp_preflight(parsed.hostname, parsed.port or 554)
 
-    future = _executor.submit(_open_and_read, rtsp_url)
+    future = _executor.submit(_open_and_read, rtsp_url, read_first_frame)
     try:
-        resolution, fps = future.result(timeout=STREAM_OPEN_TIMEOUT_S)
+        resolution, fps = future.result(timeout=open_timeout_s)
     except concurrent.futures.TimeoutError as exc:
         # The worker thread is left running — it releases its own capture
         # once the remote end finally responds or errors — but the request

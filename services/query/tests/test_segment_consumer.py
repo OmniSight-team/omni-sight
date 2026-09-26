@@ -57,9 +57,11 @@ def cleanup():
         session.query(Video).filter(Video.filename.like(f"{NAME_PREFIX}%")).delete(
             synchronize_session=False
         )
-        session.query(Camera).filter(Camera.name.like(f"{NAME_PREFIX}%")).delete(
+        camera_ids = [c.id for c in session.query(Camera).filter(Camera.name.like(f"{NAME_PREFIX}%"))]
+        session.query(Segment).filter(Segment.camera_id.in_(camera_ids)).delete(
             synchronize_session=False
         )
+        session.query(Camera).filter(Camera.id.in_(camera_ids)).delete(synchronize_session=False)
         session.commit()
 
 
@@ -198,10 +200,10 @@ def test_a_message_that_cannot_be_parsed_is_reported_not_stored():
         store_segment(b"this is not a segment")
 
 
-def test_a_camera_frame_is_stored_without_a_video():
+def _camera() -> int:
     with SessionLocal() as session:
         camera = Camera(
-            name=f"{NAME_PREFIX}cam",
+            name=f"{NAME_PREFIX}cam-{uuid.uuid4().hex[:6]}",
             rtsp_url="rtsp://example.invalid/x",
             location="test",
             group_name="test",
@@ -210,16 +212,81 @@ def test_a_camera_frame_is_stored_without_a_video():
         )
         session.add(camera)
         session.commit()
-        camera_id = camera.id
+        return camera.id
 
-    message = _message(None, 0, camera_id=camera_id, extraction_id=None)
-    assert store_segment(message.model_dump_json().encode()) is Outcome.STORED
+
+def _live_body(camera_id, timestamp_s, frame_index=0) -> bytes:
+    return (
+        SegmentMessage(
+            video_id=None,
+            camera_id=camera_id,
+            frame_index=frame_index,
+            timestamp_s=timestamp_s,
+            frame_path=None,
+            thumb_path=None,
+            motion_score=2.0,
+            admitted=False,
+            source_type="camera",
+        )
+        .model_dump_json()
+        .encode()
+    )
+
+
+def _camera_rows(camera_id) -> list[float]:
+    with SessionLocal() as session:
+        return sorted(
+            t for (t,) in session.query(Segment.timestamp_s).filter_by(camera_id=camera_id)
+        )
+
+
+def test_a_camera_frame_is_stored_without_a_video():
+    camera_id = _camera()
+
+    assert store_segment(_live_body(camera_id, 1_790_000_000.25)) is Outcome.STORED
 
     with SessionLocal() as session:
         row = session.query(Segment).filter_by(camera_id=camera_id).one()
         assert row.video_id is None and row.source_type.value == "camera"
-        session.delete(row)
-        session.commit()
+
+
+def test_a_live_frame_delivered_twice_is_one_row():
+    """The same guarantee as for a file's frames, for a frame with no video: a
+    consumer killed between committing and acknowledging gets it again."""
+    camera_id = _camera()
+    body = _live_body(camera_id, 1_790_000_000.25)
+
+    assert store_segment(body) is Outcome.STORED
+    assert store_segment(body) is Outcome.DUPLICATE
+
+    assert _camera_rows(camera_id) == [1_790_000_000.25]
+
+
+def test_different_moments_of_the_same_camera_are_different_rows():
+    camera_id = _camera()
+
+    for t in (1_790_000_000.25, 1_790_000_000.45, 1_790_000_000.65):
+        assert store_segment(_live_body(camera_id, t)) is Outcome.STORED
+
+    assert len(_camera_rows(camera_id)) == 3
+
+
+def test_two_cameras_may_have_a_frame_at_the_same_moment():
+    first, second = _camera(), _camera()
+
+    assert store_segment(_live_body(first, 1_790_000_000.25)) is Outcome.STORED
+    assert store_segment(_live_body(second, 1_790_000_000.25)) is Outcome.STORED
+
+
+def test_a_live_frame_for_a_camera_that_no_longer_exists_is_dropped_not_retried_for_ever():
+    """Without this the foreign key fails, the consumer drops its connection, and
+    the same message fails the same way on every redelivery."""
+    assert store_segment(_live_body(2_000_000_000, 1_790_000_000.25)) is Outcome.STALE
+
+
+def test_a_message_with_neither_a_video_nor_a_camera_is_malformed():
+    with pytest.raises(MalformedMessage):
+        store_segment(_live_body(None, 1_790_000_000.25))
 
 
 # --- the acknowledgement: after the commit, never before --------------------

@@ -50,3 +50,15 @@ docker compose exec mediamtx ffprobe -rtsp_transport tcp rtsp://localhost:8554/c
 
 or from any other container on the same Docker network, using the service
 name: `rtsp://mediamtx:8554/cam01`.
+
+## Capturing a feed (OMNI-312)
+
+Add one of the addresses above as a camera (Add Camera form, or `POST /cameras`),
+then start it: `POST /cameras/{id}/start`. The ingestion service opens the feed,
+samples it (`LIVE_SAMPLE_INTERVAL_S`), and its frames appear as segments;
+`GET /cameras/{id}/frames?since=<timestamp_s>` lists them. `POST
+/cameras/{id}/stop` ends it and releases the stream.
+
+Expect a start to take five to ten seconds: a stream sends nothing useful until
+its next keyframe, and the simulator's comes several seconds after connecting.
+

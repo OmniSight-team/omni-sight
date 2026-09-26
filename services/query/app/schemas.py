@@ -67,6 +67,26 @@ class CameraTestResponse(BaseModel):
     error: str | None = None
 
 
+class CameraStartResponse(BaseModel):
+    worker_id: str
+    status: str
+
+
+class CameraStopResponse(BaseModel):
+    status: str
+
+
+class CameraFrameOut(BaseModel):
+    """One stored frame of a live camera. Only admitted frames have a
+    thumbnail, so only they are listed."""
+
+    segment_id: int
+    # The moment the frame was captured, as Unix time in seconds — not seconds
+    # from the start of anything, so it means the same across restarts.
+    timestamp_s: float
+    thumb_url: str
+
+
 class VideoUploadResponse(BaseModel):
     id: int
     filename: str

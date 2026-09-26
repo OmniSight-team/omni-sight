@@ -31,7 +31,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import SessionLocal
 from app.logging_conf import configure_logging
-from app.models import Segment, Video
+from app.models import Camera, Segment, Video
 from app.settings import settings
 
 logger = logging.getLogger("app.consumer")
@@ -79,11 +79,27 @@ def store_segment(body: bytes) -> Outcome:
             ):
                 return Outcome.STALE
 
+        else:
+            # A live frame (OMNI-312). Its camera may have been deleted while
+            # the frame was in flight; storing it would fail on the foreign key,
+            # the consumer would drop its connection, and the same message
+            # would fail again on redelivery, for ever. Nothing to store, and
+            # nothing to retry.
+            if message.camera_id is None:
+                raise MalformedMessage("a segment needs a video or a camera")
+            if db.get(Camera, message.camera_id) is None:
+                return Outcome.STALE
+
         statement = pg_insert(Segment).values(**values)
         if message.video_id is not None:
             statement = statement.on_conflict_do_nothing(
                 index_elements=["video_id", "frame_index"],
                 index_where=text("video_id IS NOT NULL"),
+            )
+        else:
+            statement = statement.on_conflict_do_nothing(
+                index_elements=["camera_id", "timestamp_s"],
+                index_where=text("video_id IS NULL"),
             )
         # RETURNING, not rowcount: with this driver rowcount is -1 for an
         # INSERT, so it cannot tell a new row from a conflict. A row comes back

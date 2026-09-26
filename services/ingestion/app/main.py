@@ -1,17 +1,27 @@
 import logging
 import time
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 
+import cv2
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from omnisight_common import connection_parameters
 
 from app.file_probe import FileProbeError, probe_file
+from app.live_capture import AlreadyRunning, LiveWorker, WorkerRegistry, WorkerState
 from app.logging_conf import configure_logging
-from app.pipeline import ExtractError, HeartbeatGate, MotionGate, extract_file
+from app.pipeline import (
+    ExtractError,
+    FrameSource,
+    HeartbeatGate,
+    MotionGate,
+    extract_file,
+    process_frame,
+)
 from app.playback import PlaybackError, ensure_playback_copy
-from app.publisher import PublishError, publish_segments
+from app.publisher import PublishError, SegmentPublisher, publish_segments
 from app.schemas import (
     ExtractedSegment,
     FileExtractRequest,
@@ -24,6 +34,11 @@ from app.schemas import (
     PublishExtractResponse,
     StreamProbeRequest,
     StreamProbeResponse,
+    WorkerInfo,
+    WorkerStartRequest,
+    WorkerStartResponse,
+    WorkerStopRequest,
+    WorkerStopResponse,
 )
 from app.settings import settings
 from app.streaming import ProbeError, probe_stream
@@ -31,7 +46,18 @@ from app.streaming import ProbeError, probe_stream
 configure_logging()
 logger = logging.getLogger("app.request")
 
-app = FastAPI(title=settings.app_name)
+workers = WorkerRegistry()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    # Every stream opened by a worker is closed when the service goes down,
+    # not left for the operating system to reap.
+    workers.stop_all(settings.live_stop_timeout_s)
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -100,28 +126,30 @@ def playback_file_route(payload: PlaybackRequest) -> PlaybackResponse:
     return PlaybackResponse(ok=True, playback_path=playback_path)
 
 
-def _gate_for(payload: FileExtractRequest) -> tuple[HeartbeatGate, dict[str, float | int]]:
-    """A fresh gate for one extraction, and the parameters it was built with.
+def _gate_for(
+    payload: FileExtractRequest | None = None, *, start_s: float = 0.0
+) -> tuple[HeartbeatGate, dict[str, float | int]]:
+    """A fresh gate for one extraction (or one live capture), and the
+    parameters it was built with.
 
     Any override left None falls back to this service's own settings — a
     normal extraction (OMNI-303) sends none of these and gets the configured
-    defaults; a re-gate (OMNI-306) sends whichever it's tuning. A fresh gate
-    each time: its buffer of earlier frames, and the heartbeat wrapper's "next
-    one due" clock, must never carry over between videos.
+    defaults; a re-gate (OMNI-306) sends whichever it's tuning; a live worker
+    (OMNI-312) passes no payload at all. A fresh gate each time: its buffer of
+    earlier frames, and the heartbeat wrapper's "next one due" clock, must
+    never carry over between videos. `start_s` is the source's own time
+    origin: 0 for a file, the moment capture began for a live stream.
     """
+
+    def pick(name: str, default: float) -> float:
+        value = getattr(payload, name, None)
+        return default if value is None else value
+
     params: dict[str, float | int] = {
-        "stride_s": payload.stride_s if payload.stride_s is not None else settings.motion_stride_s,
-        "grid_size": payload.grid_size if payload.grid_size is not None else settings.motion_grid_size,
-        "cell_threshold": (
-            payload.cell_threshold
-            if payload.cell_threshold is not None
-            else settings.motion_cell_threshold
-        ),
-        "min_active_cells": (
-            payload.min_active_cells
-            if payload.min_active_cells is not None
-            else settings.motion_min_active_cells
-        ),
+        "stride_s": pick("stride_s", settings.motion_stride_s),
+        "grid_size": pick("grid_size", settings.motion_grid_size),
+        "cell_threshold": pick("cell_threshold", settings.motion_cell_threshold),
+        "min_active_cells": pick("min_active_cells", settings.motion_min_active_cells),
     }
     gate = HeartbeatGate(
         MotionGate(
@@ -133,6 +161,7 @@ def _gate_for(payload: FileExtractRequest) -> tuple[HeartbeatGate, dict[str, flo
         ),
         heartbeat_interval_s=settings.heartbeat_interval_s,
         stride_s=params["stride_s"],
+        start_s=start_s,
     )
     return gate, params
 
@@ -221,3 +250,129 @@ def extract_publish_route(payload: PublishExtractRequest) -> PublishExtractRespo
         },
     )
     return PublishExtractResponse(ok=True, published=published, **params)
+
+
+def _open_stream(rtsp_url: str) -> cv2.VideoCapture:
+    # Timeouts so a stream that stalls returns from a read instead of blocking
+    # its worker forever — which is also what lets a stop take effect.
+    return cv2.VideoCapture(
+        rtsp_url,
+        cv2.CAP_FFMPEG,
+        [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
+            settings.live_open_timeout_ms,
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC,
+            settings.live_read_timeout_ms,
+        ],
+    )
+
+
+def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
+    """A worker whose frames go through the same `process_frame` and the same
+    queue as a file's (OMNI-312). Nothing about its records says "camera"
+    beyond `source_type`, and `video_id` is null."""
+    started_at = time.time()
+    gate, _params = _gate_for(start_s=started_at)
+    # One folder per capture session: a frame's file is named by its index in
+    # the session, and a restarted worker starts counting again, so sharing a
+    # folder would overwrite files that stored segments still point at.
+    session = str(int(started_at))
+    frames_dir = Path(settings.frames_path) / f"camera-{camera_id}" / session
+    thumbs_dir = Path(settings.thumbs_path) / f"camera-{camera_id}" / session
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    thumbs_dir.mkdir(parents=True, exist_ok=True)
+
+    def process(frame, timestamp_s: float, frame_index: int):
+        return process_frame(
+            frame,
+            FrameSource(
+                source_type="camera",
+                frame_index=frame_index,
+                timestamp_s=timestamp_s,
+                video_id=None,
+                camera_id=camera_id,
+            ),
+            gate,
+            frames_dir,
+            thumbs_dir,
+            thumb_width=settings.thumb_width_px,
+            frame_quality=settings.frame_jpeg_quality,
+            thumb_quality=settings.thumb_jpeg_quality,
+        )
+
+    return LiveWorker(
+        camera_id,
+        open_capture=lambda: _open_stream(rtsp_url),
+        make_publisher=lambda: SegmentPublisher(
+            connection_parameters(settings), settings.segment_queue
+        ),
+        process=process,
+        sample_interval_s=settings.live_sample_interval_s,
+        clock=lambda: time.time(),
+    )
+
+
+@app.post("/workers/start", response_model=WorkerStartResponse)
+def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
+    """Start capturing a camera: open its stream, and gate, publish and store
+    what it delivers until told to stop. Returns once the first frame has
+    arrived, or with the reason it did not."""
+    existing = workers.get(payload.camera_id)
+    if existing is not None and existing.state in (WorkerState.STARTING, WorkerState.RUNNING):
+        return WorkerStartResponse(
+            ok=False,
+            worker_id=existing.worker_id,
+            status=existing.state.value,
+            error="camera is already being captured",
+            already_running=True,
+        )
+
+    # The camera connection test's check, first, without waiting for a frame: a
+    # dead host or a wrong password is rejected in seconds with a named reason
+    # instead of as a generic failure to open. The worker's own first frame is
+    # what confirms the stream really delivers.
+    try:
+        probe_stream(payload.rtsp_url, settings.live_probe_timeout_s, read_first_frame=False)
+    except ProbeError as exc:
+        return WorkerStartResponse(ok=False, error=exc.reason)
+
+    try:
+        worker = workers.start(
+            payload.camera_id,
+            lambda: _live_worker_for(payload.camera_id, payload.rtsp_url),
+            settings.live_start_timeout_s,
+        )
+    except AlreadyRunning as exc:
+        return WorkerStartResponse(
+            ok=False,
+            worker_id=exc.worker.worker_id,
+            status=exc.worker.state.value,
+            error="camera is already being captured",
+            already_running=True,
+        )
+
+    if worker.state is not WorkerState.RUNNING:
+        error = worker.error or "the stream did not deliver a frame in time"
+        workers.stop(payload.camera_id, settings.live_stop_timeout_s)
+        return WorkerStartResponse(ok=False, error=error)
+
+    logger.info(
+        "live capture started",
+        extra={"extra_fields": {"camera_id": payload.camera_id, "worker_id": worker.worker_id}},
+    )
+    return WorkerStartResponse(ok=True, worker_id=worker.worker_id, status=worker.state.value)
+
+
+@app.post("/workers/stop", response_model=WorkerStopResponse)
+def stop_worker_route(payload: WorkerStopRequest) -> WorkerStopResponse:
+    """Stop a camera's worker and release its stream and broker connection.
+    Stopping a camera that is not being captured is not an error."""
+    was_running = workers.stop(payload.camera_id, settings.live_stop_timeout_s)
+    if was_running:
+        logger.info("live capture stopped", extra={"extra_fields": {"camera_id": payload.camera_id}})
+    return WorkerStopResponse(ok=True, status="stopped", was_running=was_running)
+
+
+@app.get("/workers", response_model=list[WorkerInfo])
+def list_workers_route() -> list[WorkerInfo]:
+    return [WorkerInfo(**snapshot) for snapshot in workers.snapshots()]

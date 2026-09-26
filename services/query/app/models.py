@@ -141,6 +141,18 @@ class Segment(Base):
             unique=True,
             postgresql_where=text("video_id IS NOT NULL"),
         ),
+        # The same guarantee for a live frame (OMNI-312), which has no video and
+        # so is not covered by the index above. What identifies one is the
+        # camera and the moment it was captured: a redelivered message carries
+        # the same timestamp, and two different frames never share one because
+        # the worker takes one sample per interval.
+        Index(
+            "uq_segments_camera_id_timestamp_s",
+            "camera_id",
+            "timestamp_s",
+            unique=True,
+            postgresql_where=text("video_id IS NULL"),
+        ),
         # A segment always came from somewhere: an uploaded file, a camera, or both.
         CheckConstraint("video_id IS NOT NULL OR camera_id IS NOT NULL", name="ck_segments_has_a_source"),
     )
