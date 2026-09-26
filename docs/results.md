@@ -1010,7 +1010,7 @@ sampling (every 0.2 s) and gate parameters, one machine as in OMNI-316. All 44 c
 |---|---|
 | A recording that is still, then moves: early frames discarded, moving ones admitted | A 12 s clip (6 s still, 6 s moving, 15 fps): still part **0 of 90 frames admitted for motion**, 5 by the heartbeat; moving part **90 of 90 admitted** |
 | Moving the threshold visibly changes the counts | Admitted frames at cell threshold 5 / 25 / 100 / 200: **95 / 95 / 11 / 11** |
-| Clicking a thumbnail seeks the player | Data and serving verified by script (a thumbnail is `image/jpeg`, its moment lies inside the recording, the playback stream answers a range request with 206). **The click itself is a browser check, see below** |
+| Clicking a thumbnail seeks the player | Data and serving verified by script (a thumbnail is `image/jpeg`, its moment lies inside the recording, the playback stream answers a range request with 206). **Clicked in the browser on the fresh stack**: a real click on the 0:07.4 tile put the player at 7.366666 s, that frame's timestamp (through nginx at `https://localhost`; the frontend dev server on port 3000 cannot serve the media) |
 | Start a camera: frames arrive continuously, counters climb | `captured` 30, 51, 73, 94 at 6 s intervals, 113 rows stored, camera `connected` |
 | Kill the simulator: unreachable, then recovers on its own | Status was `unreachable` by the time the stop command returned; **back to `connected` about 11 s after the simulator restarted**, with no action on the camera; frames flowing again |
 | Restart the worker mid-capture, nothing already accepted is lost | Four ways, below: **no frame lost in any** |
