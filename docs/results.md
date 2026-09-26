@@ -925,3 +925,76 @@ finding); moving the simulator or the services off the one machine. None was bui
 - **Not measured:** more than six minutes; the same feeds on separate machines; frames
   larger than 320x240 (a real camera's frames cost more to gate and store, so this is
   optimistic); two consumers.
+
+## 2026-09-26 — Motion gate retention on dataset footage (OMNI-318, preliminary)
+
+**Conditions.** 38 local clips through the real pipeline (upload, extract, gate every
+frame, rows stored), at the **default parameters, untouched**: 8x8 grid, cell threshold
+25, at least 3 active cells, stride 0.5 s (so the first 1 s of every clip is a warm-up
+with no motion score), Gaussian blur kernel 21, heartbeat 1.0 s. Retention is forwarded
+(admitted) frames over all frames, counted at each clip's own frame rate. Reproduce with
+`scripts/measure_gate_retention.py`. Clips are the ones on disk (3.5 to 37 s; the CCD clips
+are 5 s), so this is a small sample, not the datasets' statistics.
+
+| Group (clips) | Camera | Frames | Forwarded | **Retention** | Per clip: min / median / max | By motion / by heartbeat |
+|---|---|---|---|---|---|---|
+| CCD crash (10) | dash-cam, daylight, 640x360 10 fps | 500 | 285 | **57.0%** | 28% / 52% / 80% | 55.0% / 2.0% |
+| CCD normal (10) | dash-cam, almost all night, 1280x720 10 fps | 500 | 52 | **10.4%** | 8% / 8% / 32% | 3.2% / 7.2% |
+| UCF-Crime anomaly (10) | fixed CCTV, 320x240 30 fps | 4,698 | 932 | **19.8%** | 3% / 16% / 88% | 17.6% / 2.3% |
+| UCF-Crime normal (5) | fixed CCTV, 320x240 30 fps | 2,077 | 274 | **13.2%** | 3% / 3% / 60% | 10.4% / 2.8% |
+| VIRAT (3) | fixed ground camera, 1280x720 24 fps | 1,435 | 67 | **4.7%** | 4% / 4% / 6% | 0.8% / 3.9% |
+
+**Dash-cam (CCD crash): the gate does little.** 6 of 10 clips keep half or more, and
+four (000288, 000289, 000290, 000418) keep 40 of 50 frames: **every frame that could be
+scored** (the other 10 are the warm-up). Median active cells there is 6 to 16 of 64. The
+camera moves, so much of the picture changes and the gate cannot tell that from something
+happening. The other four crash clips keep 28 to 38%. This is the outcome the ticket
+calls a finding. It is the daylight dash-cam case only: the CCD "normal" clips here are
+night footage, near black, and 9 of 10 never trigger on motion at all (retention 8% is
+the heartbeat), which says the gate is quiet in the dark, not that it works on a moving
+camera.
+
+**Fixed camera: the gate keeps little.** On quiet scenes retention falls to the
+heartbeat floor: **3% at 30 fps** (one frame a second), 4% at 24 fps, 8% at 10 fps.
+That floor is what a scene with nothing in it costs; it is not a threshold effect.
+Six of the 15 UCF clips and two of the three VIRAT clips never triggered on motion at
+all. Busy scenes keep more: UCF Robbery089 88%, RoadAccidents027 70%, a busy normal clip
+60%, so the gate follows activity on a fixed camera.
+
+**Sentence for the acceptance:** on the fixed-camera footage (UCF-Crime 13-20%, VIRAT
+4.7%, down to the 3-4% heartbeat floor on quiet clips) the gate behaves sensibly, and on
+the daylight dash-cam footage (CCD crash, 57%, four clips at every scoreable frame) it
+mostly does not, because camera motion is indistinguishable from scene motion.
+
+**No clip is an empty corridor.** The nearest are VIRAT's outdoor scenes and the quiet
+UCF "normal" clips, which sit at the heartbeat floor. That is evidence the gate admits
+very little when little happens, not a test on an empty corridor.
+
+### Exploration, labelled as such (not tuning; the defaults above are the result)
+
+Re-gating the same clips at other cell thresholds (3 active cells, other parameters
+default) shows what would change the picture:
+
+| Group | default (25) | threshold 50 | threshold 100 |
+|---|---|---|---|
+| CCD crash | 57.0% | 29.8% | 14.8% |
+| CCD normal | 10.4% | 8.0% | 8.0% |
+| UCF-Crime anomaly | 19.8% | 9.4% | 4.6% |
+| UCF-Crime normal | 13.2% | 9.9% | 6.2% |
+| VIRAT | 4.7% | 4.0% | 4.0% |
+
+Raising the threshold lowers dash-cam retention, but it lowers the fixed-camera clips
+with real activity too, so it does not by itself separate a moving camera from a moving
+subject. No setting was adopted. Whether the gate should compensate for camera motion is
+a design question for Algorithm 1, not a value to pick from this table.
+
+### How much to trust it
+
+- 38 clips, chosen by what is on disk, most of the dash-cam ones only 5 s. A group's
+  retention is dominated by its longest clips (UCF Fighting023 and Arrest013 are nearly
+  half of the UCF anomaly frames)
+- The CCD normal clips are night footage, so they do not stand for daytime normal driving
+- 320x240 UCF clips and 1280x720 clips share the same 21 px blur, which is a larger
+  share of a small frame; whether that changes what the gate sees was not measured
+- Retention says how much is kept, not whether the *right* frames were kept; nothing here
+  checks that admitted frames contain the event
