@@ -12,6 +12,8 @@ have to hold together for that, and dropping either loses data on a broker
 restart — the queue is durable, and every message is persistent.
 """
 
+from typing import Literal
+
 import pika
 from pika.adapters.blocking_connection import BlockingChannel
 from pydantic import BaseModel, field_validator
@@ -67,6 +69,10 @@ class CameraEvent(BaseModel):
     still `registered` is a decision, not something a stream reveals.
     """
 
+    # Which kind of message this is on the camera queue, which carries more than
+    # one. Defaults to "status" so an event published before reports existed
+    # still parses.
+    kind: Literal["status"] = "status"
     camera_id: int
     status: CameraStatus
     # When the worker noticed, as Unix time in seconds.
@@ -79,6 +85,34 @@ class CameraEvent(BaseModel):
         if value not in (CameraStatus.CONNECTED, CameraStatus.UNREACHABLE):
             raise ValueError("a camera event reports connected or unreachable, nothing else")
         return value
+
+
+class CameraStatsReport(BaseModel):
+    """A live worker's running totals (OMNI-314), sent every few seconds and once
+    more when it stops.
+
+    The totals are the worker's own, for its current session, **not increments**.
+    The consumer works out what is new by comparing with the last total it saw
+    for that worker, so a report delivered twice, or late, cannot count the same
+    frames twice.
+    """
+
+    kind: Literal["stats"] = "stats"
+    camera_id: int
+    worker_id: str
+    # When this worker session began, and when this report was made (Unix time).
+    started_at: float
+    at: float
+    # Frames sampled from the stream and offered to the pipeline: what the system
+    # meant to process. Sampling itself is not a drop.
+    captured: int
+    # Of those, the ones thrown away because the pipeline could not keep up.
+    dropped: int
+    # Frames actually processed and published per second, over a recent window.
+    fps_effective: float
+    last_frame_at: float | None = None
+    # False on the final report a worker sends as it stops.
+    running: bool = True
 
 
 def dead_letter_queue(queue: str) -> str:

@@ -208,6 +208,27 @@ class CameraStats(Base):
     camera_id: Mapped[int] = mapped_column(
         ForeignKey("cameras.id", ondelete="CASCADE"), primary_key=True
     )
+    # Frames sampled from the stream and offered to the pipeline, and of those the
+    # ones dropped because it could not keep up (OMNI-314). Cumulative across every
+    # capture session the camera has had.
     captured: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     dropped: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    # When the newest frame was read from the stream.
     last_frame_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Everything below is bookkeeping for one capture session (OMNI-314). A live
+    # worker reports its own running totals, not increments, and the consumer
+    # adds to `captured` and `dropped` above only what it has not already counted
+    # for that worker, so a report delivered twice or late cannot count the same
+    # frames twice.
+    session_id: Mapped[str | None] = mapped_column(String)
+    session_captured: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    session_dropped: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    # When the current session began; NULL once the worker has said it stopped.
+    session_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Frames processed per second, as the worker last reported it, and when.
+    fps_effective: Mapped[float | None] = mapped_column(Float)
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

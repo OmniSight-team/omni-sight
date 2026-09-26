@@ -46,6 +46,10 @@ class Settings(CommonSettings):
     # write to one row five times a second per camera for a number nobody reads
     # that finely; a camera going quiet is caught by a status event, not by this.
     camera_last_seen_interval_s: float = Field(5.0, ge=0)
+    # OMNI-314: a live worker reports its counters every few seconds. A camera
+    # whose last report is older than this is treated as not running, so its
+    # uptime and effective rate read as zero instead of a frozen last value.
+    camera_stats_stale_s: float = Field(20.0, gt=0)
     # An extraction is finished when every segment ingestion published has been
     # stored by the consumer. This is how long to wait for that — long enough to
     # ride out a consumer restart, short enough that a consumer that is gone

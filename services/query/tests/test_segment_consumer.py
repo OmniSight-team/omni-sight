@@ -20,12 +20,20 @@ from datetime import UTC, datetime
 import pika
 import pytest
 from app import consumer as consumer_module
-from app.consumer import MalformedMessage, Outcome, apply_camera_event, store_segment
+from app.consumer import (
+    MalformedMessage,
+    Outcome,
+    apply_camera_event,
+    apply_camera_message,
+    apply_camera_stats,
+    store_segment,
+)
 from app.db import SessionLocal
-from app.models import Camera, Segment, Video
+from app.models import Camera, CameraStats, Segment, Video
 from app.settings import settings
 from omnisight_common import (
     CameraEvent,
+    CameraStatsReport,
     CameraStatus,
     Domain,
     SegmentMessage,
@@ -435,6 +443,161 @@ def test_a_late_frame_never_moves_last_seen_backwards():
     store_segment(_live_body(camera_id, 1_790_000_000.0))  # older, arriving late
 
     assert _camera_row(camera_id).last_seen_at == datetime.fromtimestamp(1_790_000_100.0, UTC)
+
+
+# --- camera stats reports (OMNI-314) ----------------------------------------------
+
+
+def _report(camera_id, *, worker="worker-1", captured=0, dropped=0, at=1_790_000_100.0,
+            started_at=1_790_000_000.0, fps=5.0, running=True, last_frame_at=None) -> bytes:
+    return CameraStatsReport(
+        camera_id=camera_id, worker_id=worker, started_at=started_at, at=at,
+        captured=captured, dropped=dropped, fps_effective=fps, running=running,
+        last_frame_at=last_frame_at,
+    ).model_dump_json().encode()
+
+
+def _stats(camera_id) -> CameraStats:
+    with SessionLocal() as session:
+        return session.get(CameraStats, camera_id)
+
+
+def test_a_first_report_becomes_the_cameras_totals():
+    camera_id = _camera()
+
+    assert apply_camera_stats(_report(camera_id, captured=100, dropped=3)) is Outcome.STORED
+
+    row = _stats(camera_id)
+    assert (row.captured, row.dropped) == (100, 3)
+    assert row.session_id == "worker-1"
+
+
+def test_a_later_report_adds_only_what_is_new():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, captured=100, dropped=3, at=1_790_000_100.0))
+
+    apply_camera_stats(_report(camera_id, captured=150, dropped=5, at=1_790_000_105.0))
+
+    row = _stats(camera_id)
+    # The totals, not 250 and 8: a report carries running totals, not increments.
+    assert (row.captured, row.dropped) == (150, 5)
+
+
+def test_the_same_report_delivered_twice_counts_once():
+    """A consumer killed between committing and acknowledging gets it again."""
+    camera_id = _camera()
+    body = _report(camera_id, captured=100, dropped=3)
+
+    apply_camera_stats(body)
+    apply_camera_stats(body)
+
+    row = _stats(camera_id)
+    assert (row.captured, row.dropped) == (100, 3)
+
+
+def test_a_late_report_with_lower_totals_adds_nothing_and_takes_nothing_away():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, captured=150, dropped=5, at=1_790_000_105.0))
+
+    apply_camera_stats(_report(camera_id, captured=100, dropped=3, at=1_790_000_100.0))
+
+    row = _stats(camera_id)
+    assert (row.captured, row.dropped) == (150, 5)
+
+
+def test_a_new_capture_session_adds_to_the_lifetime_totals():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, worker="first", captured=100, dropped=3))
+
+    apply_camera_stats(_report(camera_id, worker="second", captured=40, dropped=1))
+
+    row = _stats(camera_id)
+    assert (row.captured, row.dropped) == (140, 4)  # both sessions
+    assert row.session_id == "second" and row.session_captured == 40
+
+
+def test_a_running_report_records_the_rate_and_when_the_session_began():
+    camera_id = _camera()
+
+    apply_camera_stats(_report(camera_id, fps=4.2, started_at=1_790_000_000.0, at=1_790_000_100.0))
+
+    row = _stats(camera_id)
+    assert row.fps_effective == 4.2
+    assert row.session_started_at == datetime.fromtimestamp(1_790_000_000.0, UTC)
+    assert row.reported_at == datetime.fromtimestamp(1_790_000_100.0, UTC)
+
+
+def test_a_final_report_marks_the_camera_as_not_running():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, captured=100, at=1_790_000_100.0))
+
+    apply_camera_stats(_report(camera_id, captured=120, running=False, at=1_790_000_110.0))
+
+    row = _stats(camera_id)
+    assert row.session_started_at is None and row.fps_effective == 0.0
+    assert row.captured == 120  # and its last totals still counted
+
+
+def test_a_late_running_report_does_not_bring_a_stopped_camera_back():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, captured=120, running=False, at=1_790_000_110.0))
+
+    apply_camera_stats(_report(camera_id, captured=100, running=True, at=1_790_000_100.0))  # older
+
+    row = _stats(camera_id)
+    assert row.session_started_at is None  # it is still stopped
+
+
+def test_the_newest_frame_time_only_moves_forward():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, last_frame_at=1_790_000_100.0, at=1_790_000_105.0))
+
+    apply_camera_stats(_report(camera_id, last_frame_at=1_790_000_050.0, at=1_790_000_106.0))
+
+    assert _stats(camera_id).last_frame_at == datetime.fromtimestamp(1_790_000_100.0, UTC)
+
+
+def test_a_report_for_a_camera_that_no_longer_exists_is_dropped():
+    assert apply_camera_stats(_report(2_000_000_000, captured=5)) is Outcome.STALE
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not json",
+        b'{"kind": "stats", "camera_id": 1}',  # missing everything else
+        b'["a list"]',
+        b'{"kind": "surprise", "camera_id": 1}',
+    ],
+)
+def test_a_camera_message_that_makes_no_sense_is_malformed(body):
+    with pytest.raises(MalformedMessage):
+        apply_camera_message(body)
+
+
+def test_the_camera_queue_still_carries_status_changes_as_before():
+    camera_id = _camera()
+    _set_camera_status(camera_id, CameraStatus.CONNECTED)
+    old_style = b'{"camera_id": %d, "status": "unreachable", "at": 1790000100.0}' % camera_id  # no "kind"
+
+    assert apply_camera_message(old_style) is Outcome.STORED
+
+    assert _camera_row(camera_id).status == CameraStatus.UNREACHABLE
+
+
+def test_a_report_on_the_queue_is_applied_and_acknowledged(queue, event_queue):
+    camera_id = _camera()
+    _publish(event_queue, [_report(camera_id, captured=77, dropped=2)])
+
+    _run_consumer(
+        consumer_module._on_message,
+        on_event=consumer_module._on_event,
+        until=lambda: _stats(camera_id) is not None and _stats(camera_id).captured == 77,
+    )
+
+    assert (_stats(camera_id).captured, _stats(camera_id).dropped) == (77, 2)
+    time.sleep(0.5)
+    assert _ready(event_queue) == 0
 
 
 # --- the acknowledgement: after the commit, never before --------------------

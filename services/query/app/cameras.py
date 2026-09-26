@@ -11,17 +11,19 @@ from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import probe_stream as ingestion_probe_stream
 from app.ingestion_client import start_worker as ingestion_start_worker
 from app.ingestion_client import stop_worker as ingestion_stop_worker
-from app.models import Camera, Segment, User, Video
+from app.models import Camera, CameraStats, Segment, User, Video
 from app.schemas import (
     CameraCreate,
     CameraCreateResponse,
     CameraFrameOut,
     CameraOut,
     CameraStartResponse,
+    CameraStatsOut,
     CameraStopResponse,
     CameraTestResponse,
     CameraUpdate,
 )
+from app.settings import settings
 from app.videos import _thumb_url
 
 logger = logging.getLogger("app.cameras")
@@ -290,3 +292,40 @@ def list_camera_frames(
         )
         for segment in segments
     ]
+
+
+@router.get("/{camera_id}/stats", response_model=CameraStatsOut)
+def camera_stats(
+    camera_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(_operator_or_admin),
+) -> CameraStatsOut:
+    """How a live camera is keeping up: how many frames were sampled, how many of
+    those had to be dropped, and how fast frames are actually being processed.
+
+    Read from what the worker last reported, not from the worker: the counters
+    are the stored totals, and `uptime_s` and `fps_effective` come from the
+    latest report. A camera that has stopped, or whose worker has not reported
+    for `camera_stats_stale_s`, reads as zero for both rather than showing a
+    frozen last value as if it were current.
+    """
+    if db.get(Camera, camera_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
+
+    stats = db.get(CameraStats, camera_id)
+    if stats is None:
+        return CameraStatsOut(captured=0, dropped=0, fps_effective=0.0, uptime_s=0.0)
+
+    now = datetime.now(UTC)
+    running = (
+        stats.session_started_at is not None
+        and stats.reported_at is not None
+        and (now - stats.reported_at).total_seconds() <= settings.camera_stats_stale_s
+    )
+    return CameraStatsOut(
+        captured=stats.captured,
+        dropped=stats.dropped,
+        fps_effective=(stats.fps_effective or 0.0) if running else 0.0,
+        uptime_s=(now - stats.session_started_at).total_seconds() if running else 0.0,
+    )
+

@@ -13,6 +13,7 @@ committed but whose acknowledgement never got out; the unique index on
 duplicate row.
 """
 
+import json
 import logging
 import time
 from contextlib import closing
@@ -22,6 +23,7 @@ from enum import Enum
 import pika
 from omnisight_common import (
     CameraEvent,
+    CameraStatsReport,
     CameraStatus,
     SegmentMessage,
     VideoStatus,
@@ -35,7 +37,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import SessionLocal
 from app.logging_conf import configure_logging
-from app.models import Camera, Segment, Video
+from app.models import Camera, CameraStats, Segment, Video
 from app.settings import settings
 
 logger = logging.getLogger("app.consumer")
@@ -163,9 +165,77 @@ def apply_camera_event(body: bytes) -> Outcome:
         return Outcome.STORED
 
 
+def apply_camera_stats(body: bytes) -> Outcome:
+    """Fold a live worker's running totals into `camera_stats` and commit
+    (OMNI-314). Returns only after the commit.
+
+    The report carries the worker's totals for its own session. What is added to
+    the camera's lifetime `captured` and `dropped` is the difference from the last
+    total counted for that worker, never the total itself, so a report delivered
+    twice adds nothing the second time, and one arriving late (below what is
+    already counted) adds nothing at all. The rate and the session start are only
+    taken from a report at least as recent as the last one, so a late report
+    cannot turn a running camera back into a stopped one.
+    """
+    try:
+        report = CameraStatsReport.model_validate_json(body)
+    except ValidationError as exc:
+        raise MalformedMessage(str(exc)) from exc
+
+    with SessionLocal() as db:
+        if db.get(Camera, report.camera_id) is None:
+            return Outcome.STALE
+        db.execute(
+            pg_insert(CameraStats)
+            .values(camera_id=report.camera_id)
+            .on_conflict_do_nothing(index_elements=["camera_id"])
+        )
+        stats = db.execute(
+            select(CameraStats).where(CameraStats.camera_id == report.camera_id).with_for_update()
+        ).scalar_one()
+
+        if stats.session_id != report.worker_id:
+            stats.session_id = report.worker_id
+            stats.session_captured = 0
+            stats.session_dropped = 0
+        stats.captured += max(0, report.captured - stats.session_captured)
+        stats.dropped += max(0, report.dropped - stats.session_dropped)
+        stats.session_captured = max(stats.session_captured, report.captured)
+        stats.session_dropped = max(stats.session_dropped, report.dropped)
+
+        made_at = datetime.fromtimestamp(report.at, UTC)
+        if stats.reported_at is None or made_at >= stats.reported_at:
+            stats.reported_at = made_at
+            stats.fps_effective = report.fps_effective if report.running else 0.0
+            stats.session_started_at = (
+                datetime.fromtimestamp(report.started_at, UTC) if report.running else None
+            )
+        if report.last_frame_at is not None:
+            last_frame = datetime.fromtimestamp(report.last_frame_at, UTC)
+            if stats.last_frame_at is None or last_frame > stats.last_frame_at:
+                stats.last_frame_at = last_frame
+        db.commit()
+        return Outcome.STORED
+
+
+def apply_camera_message(body: bytes) -> Outcome:
+    """The camera queue carries more than one kind of message (a status change,
+    a stats report); this picks the handler. A message without a `kind` is a
+    status change, which is all the queue carried before reports existed."""
+    try:
+        kind = json.loads(body).get("kind", "status")
+    except (ValueError, AttributeError) as exc:
+        raise MalformedMessage("a camera message must be a JSON object") from exc
+    if kind == "status":
+        return apply_camera_event(body)
+    if kind == "stats":
+        return apply_camera_stats(body)
+    raise MalformedMessage(f"unknown camera message kind {kind!r}")
+
+
 def _on_event(channel, method, _properties, body: bytes) -> None:
     try:
-        outcome = apply_camera_event(body)
+        outcome = apply_camera_message(body)
     except MalformedMessage as exc:
         logger.error(
             "camera event could not be parsed, dead-lettered",

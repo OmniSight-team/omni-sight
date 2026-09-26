@@ -1,17 +1,26 @@
-"""Live capture (OMNI-312, reconnection OMNI-313): one worker per camera, feeding
-the same pipeline as a file.
+"""Live capture (OMNI-312), reconnection (OMNI-313), bounded queue (OMNI-314):
+one worker per camera, feeding the same pipeline as a file.
 
-A worker is a thread that reads a stream, samples it at a configurable
-interval, runs each sampled frame through the processing function (the same
-`process_frame` a file extractor uses) and publishes the resulting segment to
-the durable queue. Nothing about the record says it came from a camera beyond
-the `source_type` label.
+A worker is two threads joined by a small bounded queue.
+
+    capture thread:    read stream -> sample -> put on the queue, or drop it
+    processing thread: take from the queue -> process_frame -> publish
+
+The capture thread only reads, samples and enqueues, and never waits on anything
+downstream, so a slow gate or a slow broker cannot stall the stream. When the
+processing side falls behind the queue fills, and a sampled frame that does not
+fit is **dropped and counted**, rather than being held until memory runs out.
+The processing thread also owns the broker connection (a pika connection is not
+shared between threads) and sends the worker's counters to `camera_stats`.
+
+Sampling itself is not a drop: one frame per `sample_interval_s` is meant to be
+processed, and only one that was meant to be and was not is counted as dropped.
 
 When a stream drops, the worker does not give up: it reports the camera
 unreachable, waits, and tries again, waiting longer after each failure, until
-it is stopped. When the stream comes back it says so and carries on. A worker
-that never got its first frame does fail, at once, because a start that cannot
-deliver anything should say so rather than retry in the background.
+it is stopped. A worker that never got its first frame does fail, at once,
+because a start that cannot deliver anything should say so rather than retry in
+the background.
 
 Like pipeline.py and publisher.py this imports nothing from `app.*`: the
 capture, the publisher, the processing function, the clock and the wait all
@@ -20,10 +29,12 @@ the tests drive it with a scripted fake capture instead of a camera.
 """
 
 import logging
+import queue
 import random
 import threading
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
@@ -98,13 +109,16 @@ class LiveWorker:
     """Reads one camera until told to stop.
 
     Every frame is read (decoding a stream cannot skip frames without falling
-    behind), but only one per `sample_interval_s` is retrieved, processed and
-    published — "never process every frame at 25 fps". The next sample is due
-    an interval after the last one was *taken*, not after it was due, so a slow
-    frame does not cause a burst of catch-up samples afterwards.
+    behind), but only one per `sample_interval_s` is retrieved and offered to
+    the pipeline — "never process every frame at 25 fps". The next sample is due
+    an interval after the last one was *taken*, so a slow frame does not cause a
+    burst of catch-up samples afterwards.
 
-    The stream, the publisher's broker connection and the thread belong to the
-    worker, and all are released in `finally`, however the loop ends.
+    `queue_size` bounds how many sampled frames wait for the processing thread.
+    A frame that arrives when it is full is dropped. `max_backlog`, if set, is
+    the most segments the durable queue may hold before frames are dropped
+    instead of added to it: without it a consumer that has fallen behind would
+    let the broker's queue grow for ever.
 
     `make_process` is called once per connection, not once per worker: the
     motion gate compares a frame with earlier ones, and after a gap of seconds
@@ -127,6 +141,12 @@ class LiveWorker:
         # would be retried at the shortest delay for ever.
         stable_after_s: float = 10.0,
         wait: Callable[[float], bool] | None = None,
+        queue_size: int = 10,
+        max_backlog: int | None = None,
+        stats_interval_s: float = 5.0,
+        drop_log_interval_s: float = 5.0,
+        fps_window_s: float = 10.0,
+        backlog_check_interval_s: float = 1.0,
     ):
         self.camera_id = camera_id
         self.worker_id = uuid.uuid4().hex
@@ -137,12 +157,18 @@ class LiveWorker:
         self._clock = clock
         self._backoff = backoff or Backoff(1.0, 30.0)
         self._stable_after_s = stable_after_s
+        self._max_backlog = max_backlog
+        self._stats_interval_s = stats_interval_s
+        self._drop_log_interval_s = drop_log_interval_s
+        self._fps_window_s = fps_window_s
+        self._backlog_check_interval_s = backlog_check_interval_s
 
         self._stop = threading.Event()
         # Waits, returning True as soon as the worker is asked to stop. A test
         # replaces it to run through many backoff periods without sleeping.
         self._wait = wait or self._stop.wait
         self._settled = threading.Event()  # set once RUNNING or FAILED
+        self._capture_done = threading.Event()  # the capture thread has ended
         self._lock = threading.Lock()
         self._state = WorkerState.STARTING
         self._error: str | None = None
@@ -150,22 +176,44 @@ class LiveWorker:
         # The next frame's index within this worker's session. Kept here, not in
         # the read loop, so a reconnection carries on counting: a frame's file is
         # named by it, and starting again from zero would overwrite files that
-        # stored segments still point at.
+        # stored segments still point at. Only a frame that was actually
+        # enqueued takes an index, so a drop leaves no hole in the numbering.
         self._next_index = 0
-        self._thread = threading.Thread(
+
+        # The bounded queue, and a small unbounded one for the few status
+        # changes the capture thread reports (they must never be dropped, and
+        # they cannot be published from the capture thread, which does not own
+        # the broker connection).
+        self._frames: queue.Queue = queue.Queue(maxsize=queue_size)
+        self._control: queue.SimpleQueue = queue.SimpleQueue()
+        self._capture_thread = threading.Thread(
             target=self._run, name=f"live-capture-{camera_id}", daemon=True
+        )
+        self._processor_thread = threading.Thread(
+            target=self._process_loop, name=f"live-process-{camera_id}", daemon=True
         )
 
         self.started_at = clock()
-        # Frames read from the stream, and the subset that were processed and
-        # published. The difference is what sampling saved.
+        # What the stream delivered, and what was sampled from it.
         self.grabbed = 0
+        # Sampled frames offered to the pipeline ("captured" in camera_stats),
+        # those dropped because it could not keep up, and those published.
+        self.captured = 0
+        self.dropped = 0
+        self.dropped_backlog = 0
         self.published = 0
         self.decode_errors = 0
         # Times the stream came back after a drop, and attempts that did not.
         self.reconnects = 0
         self.failed_attempts = 0
         self.last_frame_at: float | None = None
+
+        self._processed_at: deque[float] = deque()
+        self._drops_since_log = 0
+        self._last_drop_log_at: float | None = None
+        self._drop_reasons_since_log: dict[str, int] = {}
+        self._backlog_cache = 0
+        self._backlog_checked_at: float | None = None
 
     @property
     def state(self) -> WorkerState:
@@ -191,27 +239,52 @@ class LiveWorker:
         """Begin capturing and wait until the first frame arrives (RUNNING) or
         the worker fails. Returns whatever state it reached, which is still
         STARTING if the stream neither delivered nor failed in time."""
-        self._thread.start()
+        self._processor_thread.start()
+        self._capture_thread.start()
         self._settled.wait(timeout_s)
         return self.state
 
     def stop(self, timeout_s: float) -> bool:
-        """Ask the worker to stop and wait for its thread to end. Returns
-        whether it did. A worker waiting out a backoff ends at once; one blocked
+        """Ask the worker to stop and wait for both threads to end. Returns
+        whether they did. A worker waiting out a backoff ends at once; one blocked
         reading a stalled stream ends when that read times out, so this can take
-        up to the read timeout."""
+        up to the read timeout. Frames already queued are still processed."""
         self._stop.set()
         self._settled.set()
-        if self._thread.is_alive():
-            self._thread.join(timeout_s)
+        deadline = time.monotonic() + timeout_s
+        if self._capture_thread.is_alive():
+            self._capture_thread.join(timeout_s)
+        # The capture thread has finished with the queue; the processing thread
+        # drains what is left, reports its final totals and closes the broker
+        # connection.
+        self._capture_done.set()
+        if self._processor_thread.is_alive():
+            self._processor_thread.join(max(0.1, deadline - time.monotonic()))
         with self._lock:
             if self._state is not WorkerState.FAILED:
                 self._state = WorkerState.STOPPED
-        return not self._thread.is_alive()
+        return not self.alive
 
     @property
     def alive(self) -> bool:
-        return self._thread.is_alive()
+        return self._capture_thread.is_alive() or self._processor_thread.is_alive()
+
+    # --- counters ------------------------------------------------------------
+
+    def fps_effective(self) -> float:
+        """Frames actually processed and published per second, over the last
+        `fps_window_s` (or since the start, if that is shorter)."""
+        now = self._clock()
+        cutoff = now - self._fps_window_s
+        with self._lock:
+            while self._processed_at and self._processed_at[0] < cutoff:
+                self._processed_at.popleft()
+            count = len(self._processed_at)
+        span = min(self._fps_window_s, max(now - self.started_at, 1e-9))
+        return count / span if span > 0 else 0.0
+
+    def uptime_s(self) -> float:
+        return max(0.0, self._clock() - self.started_at) if self.state in LIVE_STATES else 0.0
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -221,20 +294,76 @@ class LiveWorker:
             "error": self.error,
             "started_at": self.started_at,
             "grabbed": self.grabbed,
+            "captured": self.captured,
+            "dropped": self.dropped,
+            "dropped_backlog": self.dropped_backlog,
             "published": self.published,
+            "queue_depth": self._frames.qsize(),
+            "queue_size": self._frames.maxsize,
+            "fps_effective": round(self.fps_effective(), 3),
+            "uptime_s": round(self.uptime_s(), 1),
             "decode_errors": self.decode_errors,
             "reconnects": self.reconnects,
             "failed_attempts": self.failed_attempts,
             "last_frame_at": self.last_frame_at,
         }
 
-    # --- the loop ------------------------------------------------------------
+    def _stats_report(self, running: bool) -> dict[str, Any]:
+        return {
+            "camera_id": self.camera_id,
+            "worker_id": self.worker_id,
+            "started_at": self.started_at,
+            "at": self._clock(),
+            "captured": self.captured,
+            "dropped": self.dropped,
+            "fps_effective": self.fps_effective(),
+            "last_frame_at": self.last_frame_at,
+            "running": running,
+        }
+
+    def _drop(self, reason: str) -> None:
+        """Throw a sampled frame away and make sure someone can tell.
+
+        Counted every time. Logged as a warning when a stretch of drops begins,
+        and then as a summary every `drop_log_interval_s`, not once per frame: at
+        a few frames a second that would bury everything else, and a line per
+        frame is no more informative than a count.
+        """
+        now = self._clock()
+        with self._lock:
+            self.dropped += 1
+            if reason == "backlog":
+                self.dropped_backlog += 1
+            self._drops_since_log += 1
+            self._drop_reasons_since_log[reason] = self._drop_reasons_since_log.get(reason, 0) + 1
+            first = self._last_drop_log_at is None
+            due = first or now - self._last_drop_log_at >= self._drop_log_interval_s
+            if not due:
+                return
+            since = self._last_drop_log_at
+            count, reasons = self._drops_since_log, dict(self._drop_reasons_since_log)
+            self._last_drop_log_at = now
+            self._drops_since_log = 0
+            self._drop_reasons_since_log = {}
+        logger.warning(
+            "dropping frames: the pipeline is not keeping up",
+            extra={
+                "extra_fields": {
+                    "camera_id": self.camera_id,
+                    "dropped_since_last_report": count,
+                    "reasons": reasons,
+                    "over_s": None if since is None else round(now - since, 1),
+                    "dropped_total": self.dropped,
+                    "queue_depth": self._frames.qsize(),
+                }
+            },
+        )
+
+    # --- the capture thread --------------------------------------------------
 
     def _run(self) -> None:
-        publisher = None
         capture = None
         try:
-            publisher = self._make_publisher()
             ever_running = False
             connected_at = 0.0
 
@@ -245,12 +374,12 @@ class LiveWorker:
                     if not ever_running:
                         raise  # a start that cannot deliver says so, it does not retry
                     self._attempt_failed(str(exc))
-                    self._wait_to_retry(publisher)
+                    self._wait_to_retry()
                     continue
 
                 if ever_running:
                     self.reconnects += 1
-                    self._notify(publisher, "connected")
+                    self._notify("connected")
                     logger.info(
                         "stream reconnected",
                         extra={
@@ -265,7 +394,7 @@ class LiveWorker:
                 self._set_state(WorkerState.RUNNING)
 
                 try:
-                    self._read_until_lost(capture, publisher, self._make_process())
+                    self._read_until_lost(capture, self._make_process())
                 except CaptureError as exc:
                     self._release(capture)
                     capture = None
@@ -273,8 +402,8 @@ class LiveWorker:
                         break
                     if self._clock() - connected_at >= self._stable_after_s:
                         self._backoff.reset()
-                    self._lost(publisher, str(exc))
-                    self._wait_to_retry(publisher)
+                    self._lost(str(exc))
+                    self._wait_to_retry()
         except Exception as exc:  # noqa: BLE001 - the worker must always release what it holds
             logger.warning(
                 "live capture stopped on an error",
@@ -282,12 +411,8 @@ class LiveWorker:
             )
             self._set_state(WorkerState.FAILED, str(exc)[:300])
         finally:
-            if publisher is not None:
-                try:
-                    publisher.close()
-                except Exception:
-                    logger.warning("closing the publisher failed", exc_info=True)
             self._release(capture)
+            self._capture_done.set()
             self._settled.set()
 
     def _open_stream(self) -> Any:
@@ -306,9 +431,10 @@ class LiveWorker:
         self._pending_grab = True
         return capture
 
-    def _read_until_lost(self, capture: Any, publisher: Any, process: Any) -> None:
+    def _read_until_lost(self, capture: Any, process: Any) -> None:
         """Sample the stream until it is lost (raising CaptureError) or the worker
-        is stopped (returning)."""
+        is stopped (returning). A sampled frame goes on the bounded queue, or is
+        dropped if the queue is full; nothing here ever waits for the pipeline."""
         next_sample_at: float | None = None
         while not self._stop.is_set():
             if self._pending_grab:
@@ -329,15 +455,18 @@ class LiveWorker:
                 continue
             next_sample_at = now + self._interval
 
-            record = process(frame, now, self._next_index)
-            self._next_index += 1
-            publisher.publish(record)
-            self.published += 1
+            self.captured += 1
+            try:
+                self._frames.put_nowait((process, frame, now, self._next_index))
+            except queue.Full:
+                self._drop("processing")
+            else:
+                self._next_index += 1
 
-    def _lost(self, publisher: Any, reason: str) -> None:
+    def _lost(self, reason: str) -> None:
         """The stream dropped after working: say so at once, not on the next poll."""
         self._set_state(WorkerState.RECONNECTING, reason)
-        self._notify(publisher, "unreachable")
+        self._notify("unreachable")
         logger.warning(
             "stream lost, reconnecting",
             extra={"extra_fields": {"camera_id": self.camera_id, "reason": reason}},
@@ -347,9 +476,9 @@ class LiveWorker:
         self.failed_attempts += 1
         self._set_state(WorkerState.RECONNECTING, reason)
 
-    def _wait_to_retry(self, publisher: Any) -> None:
-        """Wait out the next backoff delay, keeping the broker connection alive
-        and giving up the wait the moment the worker is stopped."""
+    def _wait_to_retry(self) -> None:
+        """Wait out the next backoff delay, giving up the wait the moment the
+        worker is stopped."""
         delay = self._backoff.next()
         logger.info(
             "next reconnect attempt",
@@ -366,20 +495,12 @@ class LiveWorker:
             step = min(remaining, 0.5)
             if self._wait(step):
                 return
-            publisher.keepalive()
             remaining -= step
 
-    def _notify(self, publisher: Any, status: str) -> None:
-        """Report a change of reachability. Best effort: failing to say so must
-        not stop the capture, which is the thing that matters."""
-        try:
-            publisher.publish_event(self.camera_id, status, self._clock(), self.worker_id)
-        except Exception:
-            logger.warning(
-                "could not report a camera status change",
-                extra={"extra_fields": {"camera_id": self.camera_id, "status": status}},
-                exc_info=True,
-            )
+    def _notify(self, status: str) -> None:
+        """Report a change of reachability, through the processing thread that
+        owns the broker connection."""
+        self._control.put((status, self._clock()))
 
     @staticmethod
     def _release(capture: Any) -> None:
@@ -389,6 +510,103 @@ class LiveWorker:
             capture.release()
         except Exception:
             logger.warning("releasing the stream failed", exc_info=True)
+
+    # --- the processing thread -----------------------------------------------
+
+    def _process_loop(self) -> None:
+        publisher = None
+        try:
+            publisher = self._make_publisher()
+            next_report_at = self._clock() + self._stats_interval_s
+            while True:
+                self._send_status_changes(publisher)
+                try:
+                    process, frame, timestamp_s, index = self._frames.get(timeout=0.25)
+                except queue.Empty:
+                    if self._capture_done.is_set() and self._frames.empty():
+                        break
+                    # Nothing to do: keep answering the broker's heartbeats.
+                    publisher.keepalive()
+                else:
+                    self._handle(publisher, process, frame, timestamp_s, index)
+                if self._clock() >= next_report_at:
+                    self._report(publisher, running=True)
+                    next_report_at = self._clock() + self._stats_interval_s
+            self._send_status_changes(publisher)
+        except Exception as exc:  # noqa: BLE001 - the worker must always release what it holds
+            logger.warning(
+                "live processing stopped on an error",
+                extra={"extra_fields": {"camera_id": self.camera_id, "error": str(exc)[:300]}},
+            )
+            self._set_state(WorkerState.FAILED, str(exc)[:300])
+            self._stop.set()  # the capture thread has nothing to hand frames to any more
+        finally:
+            if publisher is not None:
+                # Whatever happened, say how the session ended.
+                try:
+                    self._report(publisher, running=False)
+                except Exception:
+                    logger.warning("could not send the final camera stats", exc_info=True)
+                try:
+                    publisher.close()
+                except Exception:
+                    logger.warning("closing the publisher failed", exc_info=True)
+            self._settled.set()
+
+    def _handle(self, publisher: Any, process: Any, frame: Any, timestamp_s: float, index: int) -> None:
+        if self._backlog_exceeded(publisher):
+            self._drop("backlog")
+            return
+        record = process(frame, timestamp_s, index)
+        publisher.publish(record)
+        with self._lock:
+            self.published += 1
+            self._processed_at.append(self._clock())
+
+    def _backlog_exceeded(self, publisher: Any) -> bool:
+        """Is the durable queue already holding more than it should? Read at most
+        once per `backlog_check_interval_s`: the depth is a coarse signal, and
+        asking the broker for every frame would be a round trip per frame."""
+        if self._max_backlog is None:
+            return False
+        now = self._clock()
+        if self._backlog_checked_at is None or now - self._backlog_checked_at >= self._backlog_check_interval_s:
+            self._backlog_cache = publisher.backlog()
+            self._backlog_checked_at = now
+        return self._backlog_cache >= self._max_backlog
+
+    def _send_status_changes(self, publisher: Any) -> None:
+        """Report reachability changes the capture thread noted. Best effort:
+        failing to say so must not stop the capture, which is what matters."""
+        while True:
+            try:
+                status, at = self._control.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                publisher.publish_event(self.camera_id, status, at, self.worker_id)
+            except Exception:
+                logger.warning(
+                    "could not report a camera status change",
+                    extra={"extra_fields": {"camera_id": self.camera_id, "status": status}},
+                    exc_info=True,
+                )
+
+    def _report(self, publisher: Any, *, running: bool) -> None:
+        """Send the running totals to `camera_stats`. Best effort while running:
+        a report that could not be sent is simply superseded by the next one,
+        because the totals are cumulative."""
+        try:
+            publisher.publish_stats(self._stats_report(running))
+        except Exception:
+            if running:
+                logger.warning(
+                    "could not report camera stats",
+                    extra={"extra_fields": {"camera_id": self.camera_id}},
+                    exc_info=True,
+                )
+            else:
+                raise
 
 
 class WorkerRegistry:
@@ -418,7 +636,11 @@ class WorkerRegistry:
             self._workers[camera_id] = worker
 
         state = worker.start(timeout_s)
-        if state is not WorkerState.RUNNING:
+        # RECONNECTING counts as started: a worker only gets there after its
+        # first frame, so the stream worked and has dropped again since, and the
+        # worker is doing exactly what it is meant to. A stream can drop within
+        # a moment of delivering that frame, before this reads the state.
+        if state not in (WorkerState.RUNNING, WorkerState.RECONNECTING):
             worker.stop(timeout_s)
         return worker
 

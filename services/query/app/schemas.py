@@ -76,6 +76,20 @@ class CameraStopResponse(BaseModel):
     status: str
 
 
+class CameraStatsOut(BaseModel):
+    """How a live camera is keeping up (OMNI-314)."""
+
+    # Frames sampled from the stream and offered to the pipeline, across every
+    # capture session. Sampling itself is not a drop.
+    captured: int
+    # Of those, the ones thrown away because the pipeline could not keep up.
+    dropped: int
+    # Frames actually processed per second, recently. Zero when not capturing.
+    fps_effective: float
+    # Seconds the current capture session has been running. Zero when not capturing.
+    uptime_s: float
+
+
 class CameraFrameOut(BaseModel):
     """One stored frame of a live camera. Only admitted frames have a
     thumbnail, so only they are listed."""

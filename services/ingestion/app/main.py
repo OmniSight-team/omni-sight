@@ -331,6 +331,11 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
             jitter=settings.live_reconnect_jitter,
         ),
         stable_after_s=settings.live_backoff_reset_s,
+        queue_size=settings.live_queue_size,
+        max_backlog=settings.live_max_backlog or None,
+        stats_interval_s=settings.live_stats_interval_s,
+        drop_log_interval_s=settings.live_drop_log_interval_s,
+        fps_window_s=settings.live_fps_window_s,
     )
 
 
@@ -373,7 +378,7 @@ def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
             already_running=True,
         )
 
-    if worker.state is not WorkerState.RUNNING:
+    if worker.state not in (WorkerState.RUNNING, WorkerState.RECONNECTING):
         error = worker.error or "the stream did not deliver a frame in time"
         workers.stop(payload.camera_id, settings.live_stop_timeout_s)
         return WorkerStartResponse(ok=False, error=error)

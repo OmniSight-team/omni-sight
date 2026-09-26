@@ -19,6 +19,7 @@ from typing import Any, Self
 import pika
 from omnisight_common import (
     CameraEvent,
+    CameraStatsReport,
     SegmentMessage,
     declare_camera_event_queue,
     declare_segment_queue,
@@ -105,6 +106,36 @@ class SegmentPublisher:
             )
         except AMQPError as exc:
             raise PublishError(f"could not publish a camera event: {exc!r}") from exc
+
+    def publish_stats(self, report: dict[str, Any]) -> None:
+        """Send a worker's running totals to the camera queue (OMNI-314),
+        persistent and confirmed like everything else."""
+        if self._event_queue is None:
+            raise PublishError("this publisher was not given a camera event queue")
+        message = CameraStatsReport(**report)
+        try:
+            self._channel.basic_publish(
+                exchange="",
+                routing_key=self._event_queue,
+                body=message.model_dump_json().encode(),
+                properties=pika.BasicProperties(
+                    delivery_mode=PERSISTENT,
+                    content_type="application/json",
+                ),
+                mandatory=True,
+            )
+        except AMQPError as exc:
+            raise PublishError(f"could not publish camera stats: {exc!r}") from exc
+
+    def backlog(self) -> int:
+        """How many segments are waiting in the queue. Not counting ones a
+        consumer is holding unacknowledged, so it drops the moment a consumer
+        picks something up; it is a measure of how far behind the consumers are,
+        which is what a producer needs to know before adding more."""
+        try:
+            return self._channel.queue_declare(self._queue, passive=True).method.message_count
+        except AMQPError as exc:
+            raise PublishError(f"could not read the queue depth: {exc!r}") from exc
 
     def keepalive(self) -> None:
         """Let the connection answer the broker's heartbeats. A blocking

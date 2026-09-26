@@ -140,6 +140,13 @@ class WorkerInfo(BaseModel):
     grabbed: int
     published: int
     decode_errors: int
+    captured: int = 0
+    dropped: int = 0
+    dropped_backlog: int = 0
+    queue_depth: int = 0
+    queue_size: int = 0
+    fps_effective: float = 0.0
+    uptime_s: float = 0.0
     reconnects: int = 0
     failed_attempts: int = 0
     last_frame_at: float | None = None

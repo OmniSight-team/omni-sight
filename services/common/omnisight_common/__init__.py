@@ -5,6 +5,7 @@ from omnisight_common.nav import NAV_ROUTES, NavRoute
 from omnisight_common.roles import Role
 from omnisight_common.segment_queue import (
     CameraEvent,
+    CameraStatsReport,
     SegmentMessage,
     connection_parameters,
     dead_letter_queue,
@@ -20,6 +21,7 @@ __all__ = [
     "NAV_ROUTES",
     "AdmissionReason",
     "CameraEvent",
+    "CameraStatsReport",
     "CameraStatus",
     "CommonSettings",
     "Domain",

@@ -10,12 +10,14 @@ services/ingestion/tests/test_live_capture.py, and the whole chain ran live
 against the simulator (docs/context/week-03-04.md).
 """
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from app import cameras as cameras_module
 from app.db import SessionLocal
 from app.ingestion_client import IngestionUnavailableError
 from app.main import app
-from app.models import Camera, Segment, User, Video
+from app.models import Camera, CameraStats, Segment, User, Video
 from app.security import hash_password
 from app.settings import settings
 from fastapi.testclient import TestClient
@@ -385,3 +387,79 @@ def test_frames_need_a_sign_in_and_an_operator_or_admin():
     assert client.get(f"/cameras/{camera_id}/frames").status_code == 401
     assert client.get(f"/cameras/{camera_id}/frames", headers=_headers(Role.ANALYST)).status_code == 403
     assert client.get(f"/cameras/{camera_id}/frames", headers=_headers(Role.OPERATOR)).status_code == 200
+
+
+# --- stats (OMNI-314) ------------------------------------------------------------
+
+
+def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.0, reported_ago_s=2.0):
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        session.add(
+            CameraStats(
+                camera_id=camera_id,
+                captured=captured,
+                dropped=dropped,
+                fps_effective=fps,
+                session_started_at=None if started_ago_s is None else now - timedelta(seconds=started_ago_s),
+                reported_at=now - timedelta(seconds=reported_ago_s),
+            )
+        )
+        session.commit()
+
+
+def test_a_camera_that_has_never_been_captured_reads_zero(operator):
+    camera_id = _camera()
+
+    resp = client.get(f"/cameras/{camera_id}/stats", headers=operator)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"captured": 0, "dropped": 0, "fps_effective": 0.0, "uptime_s": 0.0}
+
+
+def test_a_running_camera_reports_its_counters_its_rate_and_its_uptime(operator):
+    camera_id = _camera()
+    _set_stats(camera_id, captured=1234, dropped=56, fps=4.5, started_ago_s=90.0)
+
+    body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
+
+    assert set(body) == {"captured", "dropped", "fps_effective", "uptime_s"}
+    assert body["captured"] == 1234 and body["dropped"] == 56
+    assert body["fps_effective"] == 4.5
+    assert 89.0 < body["uptime_s"] < 95.0  # about 90 s, now
+
+
+def test_a_camera_whose_worker_has_stopped_keeps_its_totals_but_reads_zero_for_rate_and_uptime(operator):
+    camera_id = _camera()
+    _set_stats(camera_id, captured=500, dropped=9, started_ago_s=None)  # the worker said it stopped
+
+    body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
+
+    assert (body["captured"], body["dropped"]) == (500, 9)
+    assert body["fps_effective"] == 0.0 and body["uptime_s"] == 0.0
+
+
+def test_a_worker_that_has_gone_quiet_is_not_shown_as_still_running(operator):
+    camera_id = _camera()
+    _set_stats(camera_id, captured=500, dropped=9, fps=4.5, started_ago_s=600.0, reported_ago_s=120.0)
+
+    body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
+
+    # A frozen last value would read as a healthy camera; nothing has been heard
+    # from it for two minutes.
+    assert (body["captured"], body["dropped"]) == (500, 9)
+    assert body["fps_effective"] == 0.0 and body["uptime_s"] == 0.0
+
+
+def test_stats_of_a_missing_camera_are_a_404(operator):
+    assert client.get("/cameras/2000000000/stats", headers=operator).status_code == 404
+
+
+def test_stats_need_a_sign_in_and_an_operator_or_admin():
+    camera_id = _camera()
+
+    assert client.get(f"/cameras/{camera_id}/stats").status_code == 401
+    assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.ANALYST)).status_code == 403
+    assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.OPERATOR)).status_code == 200
+    assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.ADMIN)).status_code == 200
+

@@ -68,3 +68,8 @@ a growing wait (about 1, 2, 4, 8, 16, then 30 seconds), and once the feed is bac
 capture resumes by itself (`docker compose start mediamtx`). Nothing needs to be
 restarted.
 
+`GET /cameras/{id}/stats` shows how a captured feed is keeping up: `captured` (frames
+sampled), `dropped` (of those, thrown away because the pipeline could not keep up),
+`fps_effective` and `uptime_s`. To see it drop frames, freeze the broker for a while
+(`docker compose pause rabbitmq`, then `unpause`): `dropped` climbs, memory does not.
+

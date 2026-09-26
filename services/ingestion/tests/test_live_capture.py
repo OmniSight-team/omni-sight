@@ -1,10 +1,15 @@
-"""OMNI-312 and OMNI-313: the live capture worker, and its reconnection.
+"""OMNI-312, 313 and 314: the live capture worker, its reconnection, and its
+bounded queue.
 
 Driven with a scripted fake stream and a fake clock — no camera, no broker — so
 the tests are deterministic. Frames go through the real `process_frame` and
 write real files, which is what makes "the same path as a file" a tested claim
 rather than an intention. The real stream, the real broker and the real
 consumer were exercised live (docs/context/week-03-04.md).
+
+The worker is two threads (capture and processing), so a test that looks at what
+was published waits for it (`_until`) or stops the worker first, which drains the
+queue.
 
 live_capture.py and pipeline.py are loaded by file path under their own names,
 the same way the other ingestion tests do it: ingestion and query both have a
@@ -13,6 +18,7 @@ top-level package called `app`.
 
 import importlib.util
 import itertools
+import logging
 import threading
 import time
 from pathlib import Path
@@ -36,6 +42,20 @@ live = _load("omnisight_ingestion_live_capture", "live_capture.py")
 FRAME_PERIOD_S = 0.04  # a 25 fps camera
 START = 1_790_000_000.0  # a Unix time, as a live stream is stamped with
 WAIT_S = 5.0
+BIG_QUEUE = 10_000  # functional tests must not drop; the drop tests set their own
+
+
+_WORKERS: list = []
+
+
+@pytest.fixture(autouse=True)
+def _stop_every_worker_a_test_started():
+    """A test that fails before it stops its worker would leave a thread reading
+    an endless fake stream, starving every test after it into failing too."""
+    yield
+    for worker in _WORKERS:
+        worker.stop(2.0)
+    _WORKERS.clear()
 
 
 class FakeClock:
@@ -107,15 +127,22 @@ class Script:
 
 
 class FakePublisher:
-    def __init__(self, fail_after=None, fail_events=False):
+    def __init__(self, fail_after=None, fail_events=False, fail_stats=False, block=None, backlog=0):
         self.records = []
         self.events = []  # (status, at, worker_id)
+        self.stats = []  # the reports, as dicts
         self.closed = 0
         self.keepalives = 0
+        self.backlog_reads = 0
+        self.backlog_value = backlog
         self._fail_after = fail_after
         self._fail_events = fail_events
+        self._fail_stats = fail_stats
+        self._block = block  # an Event: while it is clear, publishing hangs (a stalled broker)
 
     def publish(self, record):
+        if self._block is not None:
+            self._block.wait(WAIT_S * 4)
         if self._fail_after is not None and len(self.records) >= self._fail_after:
             raise RuntimeError("broker refused the message")
         self.records.append(record)
@@ -124,6 +151,15 @@ class FakePublisher:
         if self._fail_events:
             raise RuntimeError("could not publish the event")
         self.events.append((status, at, worker_id))
+
+    def publish_stats(self, report):
+        if self._fail_stats:
+            raise RuntimeError("could not publish the stats")
+        self.stats.append(dict(report))
+
+    def backlog(self):
+        self.backlog_reads += 1
+        return self.backlog_value
 
     def keepalive(self):
         self.keepalives += 1
@@ -195,6 +231,7 @@ def _worker(tmp_path, clock, capture, publisher, *, camera_id=7, interval=0.19, 
 
         return process
 
+    extra.setdefault("queue_size", BIG_QUEUE)
     worker = live.LiveWorker(
         camera_id,
         open_capture=(lambda: capture) if not callable(getattr(capture, "open", None)) else capture.open,
@@ -205,6 +242,7 @@ def _worker(tmp_path, clock, capture, publisher, *, camera_id=7, interval=0.19, 
         **extra,
     )
     worker.process_makes = process_makes
+    _WORKERS.append(worker)
     return worker
 
 
@@ -230,10 +268,11 @@ def _until(predicate, timeout=WAIT_S):
     return False
 
 
-def _run_to_the_end(worker):
-    """Start a worker on a stream that ends by itself, and wait for its thread."""
-    worker.start(WAIT_S)
-    worker._thread.join(WAIT_S)
+def _finish(worker):
+    """Wait for both threads of a worker whose stream ends by itself (and which
+    then fails or stops), so everything queued has been handled."""
+    worker._capture_thread.join(WAIT_S)
+    worker._processor_thread.join(WAIT_S)
     assert not worker.alive
 
 
@@ -314,14 +353,13 @@ def test_it_is_running_once_the_first_frame_arrives(tmp_path):
         worker.stop(WAIT_S)
 
 
-def test_stopping_releases_the_stream_the_broker_connection_and_the_thread(tmp_path):
+def test_stopping_releases_the_stream_the_broker_connection_and_both_threads(tmp_path):
     clock = FakeClock()
     capture = FakeCapture(clock, pace_s=0.001)
     publisher = FakePublisher()
     worker = _worker(tmp_path, clock, capture, publisher)
     worker.start(WAIT_S)
-    time.sleep(0.2)
-    assert worker.published > 0
+    assert _until(lambda: worker.published > 0)
 
     assert worker.stop(WAIT_S) is True
 
@@ -346,7 +384,7 @@ def test_a_stream_that_cannot_be_opened_at_the_start_fails_at_once_and_is_not_re
     assert len(script.opened) == 1  # a start that cannot deliver says so; it does not loop
     assert script.opened[0].release_calls == 1
     assert publisher.records == [] and publisher.events == []
-    worker._thread.join(WAIT_S)
+    _finish(worker)
     assert publisher.closed == 1
 
 
@@ -367,12 +405,11 @@ def test_a_broker_that_refuses_a_message_stops_the_worker_and_says_why(tmp_path)
     worker = _worker(tmp_path, clock, capture, publisher)
 
     worker.start(WAIT_S)
-    worker._thread.join(WAIT_S)
+    _finish(worker)
 
     assert worker.state is live.WorkerState.FAILED
     assert "broker refused" in worker.error
     assert capture.release_calls == 1 and publisher.closed == 1
-    assert not worker.alive
 
 
 def test_a_failure_while_processing_a_frame_stops_the_worker_and_releases_everything(tmp_path):
@@ -388,7 +425,7 @@ def test_a_failure_while_processing_a_frame_stops_the_worker_and_releases_everyt
 
     worker = _worker(tmp_path, clock, capture, publisher, make_process=make_exploding_process)
     worker.start(WAIT_S)
-    worker._thread.join(WAIT_S)
+    _finish(worker)
 
     assert worker.state is live.WorkerState.FAILED
     assert capture.release_calls == 1 and publisher.closed == 1
@@ -435,7 +472,7 @@ def test_a_dropped_stream_is_reported_unreachable_then_resumes_by_itself(tmp_pat
     worker._wait = lambda seconds: (states.append(worker.state), setattr(clock, "now", clock.now + seconds), False)[2]
 
     worker.start(WAIT_S)
-    assert _until(lambda: worker.reconnects == 1 and len(publisher.records) > 20)
+    assert _until(lambda: worker.reconnects == 1 and len(publisher.records) > 20 and len(publisher.events) == 2)
 
     assert [status for status, _, _ in publisher.events] == ["unreachable", "connected"]
     assert all(worker_id == worker.worker_id for _, _, worker_id in publisher.events)
@@ -575,22 +612,21 @@ def test_stopping_while_it_waits_to_retry_ends_at_once_and_releases_everything(t
     assert len(script.opened) == 1  # and it never tried again
 
 
-def test_the_broker_connection_is_kept_alive_while_it_waits(tmp_path):
+def test_the_broker_connection_is_kept_alive_while_the_worker_is_idle(tmp_path):
     clock = FakeClock()
-    script = Script(clock, [{"frames": 10}, {}])
+    script = Script(clock, [{"frames": 10}, {"open_ok": False}])
     publisher = FakePublisher()
     worker = _worker(
-        tmp_path, clock, script, publisher,
-        backoff=live.Backoff(2.0, 30.0, jitter=0.0), wait=_fast_wait(clock),
+        tmp_path, clock, script, publisher, backoff=live.Backoff(60.0, 60.0, jitter=0.0)
     )
 
     worker.start(WAIT_S)
-    assert _until(lambda: worker.reconnects == 1)
+    assert _until(lambda: worker.state is live.WorkerState.RECONNECTING)
+    keepalives_at_the_drop = publisher.keepalives
+    # A long backoff with nothing to publish: without this the broker would close
+    # the connection on a worker that was merely waiting.
+    assert _until(lambda: publisher.keepalives >= keepalives_at_the_drop + 3, timeout=3.0)
     worker.stop(WAIT_S)
-
-    # A 2 s wait is four half-second steps; each one lets the connection answer
-    # the broker, or a 30 s wait would have it closed on the worker.
-    assert publisher.keepalives >= 4
 
 
 def test_failing_to_report_a_status_change_does_not_stop_the_capture(tmp_path):
@@ -622,6 +658,340 @@ def test_a_worker_waiting_to_reconnect_reports_what_it_is_doing(tmp_path):
         assert snapshot["error"] == "the stream stopped delivering frames"
         assert snapshot["last_frame_at"] is not None
     finally:
+        worker.stop(WAIT_S)
+
+
+# --- the bounded queue and dropped frames (OMNI-314) ------------------------------
+
+
+def _flood(tmp_path, clock, publisher, *, queue_size, **extra):
+    """A worker on a stream that goes on for ever, sampled every frame so the
+    processing side is easily outrun."""
+    capture = FakeCapture(clock, pace_s=0.0005)
+    return _worker(
+        tmp_path, clock, capture, publisher, interval=0.0, queue_size=queue_size, **extra
+    )
+
+
+def test_when_processing_stalls_frames_are_dropped_not_queued_without_limit(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()  # the broker has stopped answering
+    publisher = FakePublisher(block=stalled)
+    worker = _flood(tmp_path, clock, publisher, queue_size=3)
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: worker.dropped >= 50)
+        deepest = 0
+        for _ in range(200):
+            deepest = max(deepest, worker.snapshot()["queue_depth"])
+            time.sleep(0.001)
+
+        assert deepest <= 3  # the queue never grew past its bound...
+        assert worker.dropped >= 50  # ...because the surplus was dropped...
+        assert worker.published == 0  # ...while nothing could be published at all
+    finally:
+        stalled.set()
+        worker.stop(WAIT_S)
+
+
+def test_the_stream_keeps_being_read_while_processing_is_stuck(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()
+    worker = _flood(tmp_path, clock, FakePublisher(block=stalled), queue_size=2)
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: worker.grabbed >= 20)
+        before = worker.grabbed
+        time.sleep(0.2)
+        # A capture that waited for the pipeline would have stopped here, and a
+        # real stream would have started to lag behind real time.
+        assert worker.grabbed > before + 20
+    finally:
+        stalled.set()
+        worker.stop(WAIT_S)
+
+
+def test_every_sampled_frame_is_accounted_for_as_published_or_dropped(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()
+    publisher = FakePublisher(block=stalled)
+    worker = _flood(tmp_path, clock, publisher, queue_size=3)
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.dropped >= 30)
+    stalled.set()  # the broker comes back
+    time.sleep(0.1)
+    worker.stop(WAIT_S)
+
+    # Nothing vanished without being counted.
+    assert worker.captured == worker.published + worker.dropped
+    assert worker.published == len(publisher.records) > 0
+    assert worker.dropped >= 30
+
+
+def test_a_dropped_frame_does_not_leave_a_hole_in_the_frame_numbering(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()
+    publisher = FakePublisher(block=stalled)
+    worker = _flood(tmp_path, clock, publisher, queue_size=3)
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.dropped >= 30)
+    stalled.set()
+    time.sleep(0.1)
+    worker.stop(WAIT_S)
+
+    indexes = [record.frame_index for record in publisher.records]
+    assert indexes == list(range(len(indexes)))  # files are named by it; a gap would point nowhere
+
+
+def test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame(tmp_path, caplog):
+    clock = FakeClock()
+    stalled = threading.Event()
+    worker = _flood(tmp_path, clock, FakePublisher(block=stalled), queue_size=1, drop_log_interval_s=1e9)
+    with caplog.at_level(logging.WARNING, logger="app.live_capture"):
+        worker.start(WAIT_S)
+        try:
+            assert _until(lambda: worker.dropped >= 100)
+            lines = [r for r in caplog.records if r.message == "dropping frames: the pipeline is not keeping up"]
+            # Hundreds of frames were dropped and it said so, but only once.
+            assert len(lines) == 1
+            fields = lines[0].extra_fields
+            assert fields["camera_id"] == 7
+            assert fields["reasons"] == {"processing": 1}
+            assert lines[0].levelno == logging.WARNING
+        finally:
+            stalled.set()
+            worker.stop(WAIT_S)
+
+
+def test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval(tmp_path, caplog):
+    clock = FakeClock()
+    stalled = threading.Event()
+    worker = _flood(tmp_path, clock, FakePublisher(block=stalled), queue_size=1, drop_log_interval_s=5.0)
+    with caplog.at_level(logging.WARNING, logger="app.live_capture"):
+        worker.start(WAIT_S)
+        try:
+            assert _until(lambda: worker.dropped >= 20)
+            clock.now += 6.0  # the stretch has run on for longer than the interval
+            before = worker.dropped
+            assert _until(lambda: worker.dropped > before + 5)
+            lines = [r for r in caplog.records if r.message == "dropping frames: the pipeline is not keeping up"]
+            assert len(lines) >= 2
+            assert lines[-1].extra_fields["dropped_since_last_report"] > 1
+            assert lines[-1].extra_fields["dropped_total"] >= lines[0].extra_fields["dropped_total"]
+        finally:
+            stalled.set()
+            worker.stop(WAIT_S)
+
+
+def test_a_healthy_pipeline_drops_nothing_and_logs_nothing(tmp_path, caplog):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    # A stream paced in real time, so processing (which is quick) keeps up. An
+    # instant fake stream would outrun it and drop frames, which is correct.
+    capture = FakeCapture(clock, frames=200, pace_s=0.005)
+    worker = _worker(tmp_path, clock, capture, publisher, queue_size=10)
+    worker._backoff = live.Backoff(60, 60)
+    with caplog.at_level(logging.WARNING, logger="app.live_capture"):
+        worker.start(WAIT_S)
+        assert _until(lambda: worker.grabbed == 200)
+        worker.stop(WAIT_S)
+
+    assert worker.dropped == 0
+    assert worker.captured == worker.published
+    assert not [r for r in caplog.records if "dropping" in r.message]
+
+
+# --- the backlog limit ---------------------------------------------------------
+
+
+def test_frames_are_dropped_rather_than_added_to_a_queue_that_is_already_too_deep(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher(backlog=500)  # the consumer has fallen far behind
+    worker = _worker(
+        tmp_path, clock, FakeCapture(clock, frames=100), publisher,
+        interval=0.0, max_backlog=100, backlog_check_interval_s=0.0,
+    )
+    worker._backoff = live.Backoff(60, 60)
+
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.grabbed == 100)
+    worker.stop(WAIT_S)
+
+    assert publisher.records == []  # nothing was added to the backlog
+    assert worker.dropped == worker.dropped_backlog == worker.captured > 0
+
+
+def test_publishing_resumes_once_the_backlog_has_drained(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher(backlog=500)
+    capture = FakeCapture(clock, pace_s=0.001)
+    worker = _worker(
+        tmp_path, clock, capture, publisher,
+        interval=0.0, max_backlog=100, backlog_check_interval_s=0.0,
+    )
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: worker.dropped_backlog >= 10)
+        assert publisher.records == []
+
+        publisher.backlog_value = 10  # the consumer has caught up
+
+        assert _until(lambda: len(publisher.records) >= 10)
+    finally:
+        worker.stop(WAIT_S)
+
+
+def test_the_backlog_is_not_asked_for_on_every_frame(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher(backlog=0)
+    worker = _worker(
+        tmp_path, clock, FakeCapture(clock, frames=200), publisher,
+        interval=0.0, max_backlog=100, backlog_check_interval_s=5.0,
+    )
+    worker._backoff = live.Backoff(60, 60)
+
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.grabbed == 200)
+    worker.stop(WAIT_S)
+
+    assert len(publisher.records) > 100
+    assert publisher.backlog_reads < 5  # a round trip per second at most, not one per frame
+
+
+def test_without_a_limit_the_backlog_is_never_read(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher(backlog=10**9)
+    worker = _worker(tmp_path, clock, FakeCapture(clock, frames=50), publisher, interval=0.0)
+    worker._backoff = live.Backoff(60, 60)
+
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.grabbed == 50)
+    worker.stop(WAIT_S)
+
+    assert publisher.backlog_reads == 0 and len(publisher.records) > 0
+
+
+# --- stats reports and the effective rate -----------------------------------------
+
+
+def test_running_totals_are_reported_periodically_and_are_cumulative(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    capture = FakeCapture(clock, pace_s=0.001)
+    worker = _worker(tmp_path, clock, capture, publisher, stats_interval_s=0.05)
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: len(publisher.stats) >= 3)
+        reports = list(publisher.stats)
+    finally:
+        worker.stop(WAIT_S)
+
+    first = reports[0]
+    assert first["camera_id"] == 7 and first["worker_id"] == worker.worker_id
+    assert first["running"] is True and first["started_at"] == worker.started_at
+    # Totals, not increments: each report can only be at or above the last.
+    for earlier, later in itertools.pairwise(reports):
+        assert later["captured"] >= earlier["captured"]
+        assert later["dropped"] >= earlier["dropped"]
+    assert reports[-1]["captured"] > reports[0]["captured"]
+
+
+def test_a_final_report_says_the_worker_stopped_and_carries_its_last_totals(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    worker = _worker(tmp_path, clock, FakeCapture(clock, pace_s=0.001), publisher, stats_interval_s=1e9)
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.published > 5)
+
+    worker.stop(WAIT_S)
+
+    final = publisher.stats[-1]
+    assert final["running"] is False
+    assert final["captured"] == worker.captured
+    assert final["dropped"] == worker.dropped
+
+
+def test_the_final_report_carries_the_drops_too(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()
+    publisher = FakePublisher(block=stalled)
+    worker = _flood(tmp_path, clock, publisher, queue_size=2, stats_interval_s=1e9)
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.dropped >= 25)
+    stalled.set()
+    worker.stop(WAIT_S)
+
+    final = publisher.stats[-1]
+    assert final["running"] is False
+    assert final["dropped"] == worker.dropped >= 25  # every drop reached `camera_stats`
+
+
+def test_failing_to_report_stats_does_not_stop_the_capture(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher(fail_stats=True)
+    worker = _worker(tmp_path, clock, FakeCapture(clock, pace_s=0.001), publisher, stats_interval_s=0.02)
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: worker.published > 10)
+        assert worker.state is live.WorkerState.RUNNING
+    finally:
+        worker.stop(WAIT_S)
+
+
+def test_the_effective_rate_is_the_frames_actually_processed_per_second(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    # 500 frames of 25 fps is 20 s of stream; one sample per 0.2 s is 5 a second.
+    worker = _worker(
+        tmp_path, clock, FakeCapture(clock, frames=500, pace_s=0.004), publisher,
+        interval=0.19, fps_window_s=10.0,
+    )
+    worker._backoff = live.Backoff(60, 60)
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.grabbed == 500 and worker.published >= 90)
+
+    assert worker.fps_effective() == pytest.approx(5.0, abs=0.7)
+    worker.stop(WAIT_S)
+
+
+def test_the_effective_rate_falls_when_frames_are_dropped(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()
+    worker = _flood(tmp_path, clock, FakePublisher(block=stalled), queue_size=2)
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: worker.dropped >= 20)
+        clock.now += 30.0  # long enough for the window to hold nothing
+        assert worker.fps_effective() == 0.0  # sampled plenty, processed none
+    finally:
+        stalled.set()
+        worker.stop(WAIT_S)
+
+
+def test_uptime_runs_while_the_worker_lives_and_is_zero_once_it_has_stopped(tmp_path):
+    clock = FakeClock()
+    worker = _worker(tmp_path, clock, FakeCapture(clock, pace_s=0.001), FakePublisher())
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.uptime_s() > 0.5)  # the fake clock moves with the frames
+
+    worker.stop(WAIT_S)
+
+    assert worker.uptime_s() == 0.0
+
+
+def test_a_snapshot_carries_the_counters(tmp_path):
+    clock = FakeClock()
+    stalled = threading.Event()
+    worker = _flood(tmp_path, clock, FakePublisher(block=stalled), queue_size=2)
+    worker.start(WAIT_S)
+    try:
+        assert _until(lambda: worker.dropped >= 5)
+        snapshot = worker.snapshot()
+        assert snapshot["dropped"] >= 5 and snapshot["captured"] >= snapshot["dropped"]
+        assert snapshot["queue_size"] == 2 and snapshot["queue_depth"] <= 2
+        assert {"fps_effective", "uptime_s", "dropped_backlog", "published"} <= set(snapshot)
+    finally:
+        stalled.set()
         worker.stop(WAIT_S)
 
 
@@ -694,6 +1064,25 @@ def test_a_camera_whose_worker_is_waiting_to_reconnect_still_has_a_worker(tmp_pa
     finally:
         registry.stop_all(WAIT_S)
     assert not worker.alive
+
+
+def test_a_stream_that_drops_the_moment_after_its_first_frame_is_still_a_started_worker(tmp_path):
+    registry = live.WorkerRegistry()
+    clock = FakeClock()
+    script = Script(clock, [{"frames": 1}, {"open_ok": False}])  # one frame, then nothing
+
+    def factory():
+        return _worker(tmp_path, clock, script, FakePublisher(), camera_id=7,
+                       backoff=live.Backoff(60.0, 60.0, jitter=0.0))
+
+    worker = registry.start(7, factory, WAIT_S)
+
+    # Not mistaken for a start that failed, and stopped: it worked, and it is
+    # now waiting to reconnect, which is what it should do.
+    assert registry.get(7) is worker
+    assert worker.alive
+    assert worker.state in (live.WorkerState.RUNNING, live.WorkerState.RECONNECTING)
+    registry.stop_all(WAIT_S)
 
 
 def test_stopping_a_camera_removes_its_worker_and_leaves_the_others(tmp_path):

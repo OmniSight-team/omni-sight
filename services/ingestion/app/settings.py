@@ -83,6 +83,25 @@ class Settings(CommonSettings):
     # retried at the shortest delay for ever.
     live_backoff_reset_s: float = Field(10.0, ge=0)
 
+    # The bounded queue between capture and processing (OMNI-314). A sampled frame
+    # waits here for the processing thread; when it is full the frame is dropped
+    # and counted, so a slow gate or broker costs frames, not memory. Ten frames
+    # is about two seconds at the default sampling interval, and at 1080p about
+    # 60 MB, whatever happens downstream.
+    live_queue_size: int = Field(10, ge=1)
+    # The most segments the durable queue may hold before live frames are dropped
+    # instead of added to it, so a consumer that has fallen behind cannot let the
+    # broker's queue grow for ever. 0 turns the limit off. The queue is shared
+    # with file extraction, so a large upload waiting to be stored counts too.
+    live_max_backlog: int = Field(2000, ge=0)
+    # How often a worker sends its counters to `camera_stats`.
+    live_stats_interval_s: float = Field(5.0, gt=0)
+    # Drops are logged when a stretch of them begins and then summarised this
+    # often, not once per frame.
+    live_drop_log_interval_s: float = Field(5.0, gt=0)
+    # The window `fps_effective` is measured over.
+    live_fps_window_s: float = Field(10.0, gt=0)
+
     @field_validator("motion_blur_kernel")
     @classmethod
     def _blur_kernel_must_be_odd(cls, value: int) -> int:

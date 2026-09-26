@@ -677,3 +677,61 @@ second run.
 its connection, so the drop was seen at once; a silent stall would take the 10 s
 read timeout), several cameras dropping together (what the jitter is for), and a
 broker restart during capture. Full context in `docs/context/week-03-04.md`.
+
+## 2026-09-26 — Throttling downstream during a live capture: drops climb, memory and queues stay flat (OMNI-314)
+
+**Method:** the real stack and the simulator's `cam01` (about 4.2 sampled frames a
+second), a throwaway admin account and camera, started through the API. Two
+deliberate throttles, each held while the worker's counters (`GET /workers`),
+the broker queue depth (`rabbitmqctl`), and the ingestion container's memory
+(`docker stats`) were read every few seconds, then released. Defaults: in-process
+queue of 10 frames; the second run set `LIVE_MAX_BACKLOG=40` (default 2000) so a
+backlog could be reached in seconds, and was reverted afterwards.
+
+**1. Broker frozen for 24 s** (`docker compose pause rabbitmq`: publishing stalls)
+
+| | healthy | +4 s | +13 s | +22 s | after release |
+|---|---|---|---|---|---|
+| dropped | 0 | 9 | 44 | 83 | **107**, then no more |
+| published | 84 | 101 | 101 | 101 | resumed, +38 every 5 s |
+| in-process queue | 0/10 | 10/10 | 10/10 | 10/10 | 0/10 |
+| ingestion memory | 186 MiB | 194 | 194 | 194 | 187-188 |
+
+**2. Consumer paused for 40 s** (`docker compose pause consumer`, backlog limit 40)
+
+| | healthy | +4 s | +17 s | +29 s | +43 s | after release |
+|---|---|---|---|---|---|---|
+| dropped | 0 | 0 | 23 | 74 | 131 | **166**, then no more |
+| broker queue (messages) | 0 | 31 | 52 | 52 | 52 | 0 within 5 s |
+| ingestion memory | 129 MiB | 129 | 129 | 129 | 130 | 130 |
+
+**Result:** the acceptance held in both. `dropped` climbed steadily while the
+throttle lasted and stopped the moment it was lifted; memory moved by 8 MiB at
+most and came back; the in-process queue sat at its bound of 10 and the durable
+queue at 52 rather than growing. In the second run the queue is 40 ready plus the
+10 the consumer was holding unacknowledged plus about a second of lag, which is
+the limit doing its job. At this camera's rate an unbounded queue would have added
+about 170 messages over the same 43 s (arithmetic from the rate, not a separate
+run).
+
+**Nothing went missing without being counted.** After each run the worker's own
+books balanced exactly: captured 404 = published 297 + dropped 107 + queued 0, and
+captured 512 = published 346 + dropped 166 + queued 0. `GET /cameras/{id}/stats`
+agreed with the worker on dropped (107 and 166); its `captured` was 7 and 2 ahead
+only because the camera kept running between the two reads. Capture carried on
+through both throttles, and the worker was still `running` after a 24 s broker
+freeze.
+
+**Visible in the log, without flooding it:** 107 drops produced **5** warnings and
+166 produced **8**: one when a stretch of drops began, then a summary about every
+5 s giving the count, the reason (`processing` or `backlog`), the running total
+and the queue depth.
+
+**Healthy, for comparison:** 0 dropped, `fps_effective` 4.1-4.3, in-process queue
+empty. After a stop, `fps_effective` and `uptime_s` read 0 while the totals stay.
+
+**Not measured:** memory at a real resolution (these frames are 320x240, about
+230 KB; ten of them at 1080p would be about 60 MB, which is arithmetic, not a
+measurement), a broker freeze longer than the 30 s heartbeat, and several cameras
+at once. The defaults (queue of 10 frames, backlog limit of 2000) are untuned.
+Full context in `docs/context/week-03-04.md`.
