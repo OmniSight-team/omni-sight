@@ -44,13 +44,14 @@ sprint and not from slices 3–4.
 
 ### Not verified
 
-- Nothing was run on the branch itself, because it does not exist yet. The branch is
-  created from the same tree, so the result carries over only if nothing else changes
-  between the commit and the branch
+- The suite was not run again after the branch was created. `slice-05-camera-wall` points
+  at `c32ad10`, which is the tree the suite ran on plus these notes and the ticket file, so
+  the 304 carries over
 - No live capture was started; this ticket only asks that the stack runs and the suite is
   green
 
 ### Result
 
-Stack up and suite green (304). Two items are Ahmad's and still open: commit the pending
-documentation changes on `master`, then create `slice-05-camera-wall`.
+Stack up and suite green (304). Ahmad committed the pending documentation changes on
+`master` as `c32ad10` and created `slice-05-camera-wall` from it; `master` and the branch
+are at the same commit and the working tree was clean. All three boxes ticked.

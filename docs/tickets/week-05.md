@@ -71,8 +71,8 @@ The NFR-4 measurement is not optional — it is a graded requirement.*
 
 ## OMNI-500 · Branch and baseline
 
-- [ ] `master` is clean and has slices 3–4 (`git log` shows `d6d5943` or later)
-- [ ] **You** create and switch to **`slice-05-camera-wall`** from `master`
+- [x] `master` is clean and has slices 3–4 (`git log` shows `d6d5943` or later)
+- [x] **You** create and switch to **`slice-05-camera-wall`** from `master`
       (`git switch -c slice-05-camera-wall`). All work this sprint is committed there
 - [x] `docker compose up -d` and `uv run pytest` green before touching anything (304 at the
       end of slices 3–4)
