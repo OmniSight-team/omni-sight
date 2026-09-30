@@ -39,7 +39,7 @@ class Settings(CommonSettings):
     motion_stride_s: float = Field(0.5, gt=0)
     # Gaussian blur kernel applied before differencing, so sensor noise is not
     # read as motion. Not in the pseudocode; a documented departure from it
-    # (see docs/results.md). Must be odd (OpenCV's requirement for a blur
+    # (see docs/decisions.md, D-4). Must be odd (OpenCV's requirement for a blur
     # kernel).
     motion_blur_kernel: int = Field(21, ge=1)
 
@@ -47,7 +47,8 @@ class Settings(CommonSettings):
     # frame per this many seconds is processed and published — never every
     # frame of a 25 fps camera. Not the file extractor's setting: that path has
     # no sampling step since OMNI-303's rework, it gates every frame; a live
-    # stream cannot afford to, one camera per core, so it has its own.
+    # stream cannot afford to, one camera per core, so it has its own. A
+    # departure from Algorithm 1, still open: docs/decisions.md, D-9.
     live_sample_interval_s: float = Field(0.2, gt=0)
     # How long a start waits for the stream to open and deliver a first frame.
     # A stream sends nothing useful until its next keyframe, which on the

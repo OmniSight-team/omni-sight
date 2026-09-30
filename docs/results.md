@@ -1,536 +1,203 @@
 # Results
 
-Every measurement, written the week it's taken.
+Every measurement, dated, with the conditions it was taken under and what it does not
+cover. Why something was built the way it was is in `decisions.md`; problems still open
+are in `known-issues.md`; how the work went is in `context/`.
 
-## TC-10 · Protect every endpoint with authentication and role-based authorization — 2026-09-05
+## Scoreboard
 
-**Suite:** `services/query/tests/test_tc10_auth.py`
-**Run:** `uv run pytest` — 15 passed, 0 failed.
+| Requirement | Target | Measured | Status | Date | Entry |
+|---|---|---|---|---|---|
+| TC-10 | Every protected route: 200 with the right role, 403 with the wrong role, 401 with no, expired or tampered token | 15 of 15 cases on 4 routes | **Pass** | 2026-09-05 | TC-10 |
+| NFR-9 | Token expires after 15 min idle; account locks after 5 failed logins | 2 of 2 | **Pass** | 2026-09-05 | NFR-9 |
+| NFR-7 | 100% of endpoints reject a request without a valid token | API routes: 100% (TC-10). `/thumbs/` and `/media/`: 0% | **Fail** on the two static routes | 2026-09-24 | OMNI-307/308 |
+| NFR-5 | Data lost on failure or crash = 0 | 0 lost in 9 failure cases: restart, down/up, query killed mid-upload, consumer killed, broker recreated, ingestion restarted and killed, consumer stopped and killed mid-capture | **Pass** in the cases tested | 2026-09-12 to 09-26 | NFR-5, OMNI-311, OMNI-319 |
+| FR-1a | Accept live camera feeds and uploaded files | Files: one clip per dataset `ready`, metadata equal to `ffprobe`. Live: ~4.1 frames/s stored, recovers by itself after the source is killed | **Pass** | 2026-09-21, 09-26 | OMNI-300, OMNI-312, OMNI-313 |
+| FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57% | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26 | OMNI-304, OMNI-305, OMNI-318 |
+| FR-3 | Store each segment with time, source and image | A row for every decoded frame; image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-26 | OMNI-304, OMNI-316 |
+| NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Live alone: max 49 ms. With a 1,158-frame file extracting: max 4.67-4.91 s. With a 1,930-frame file: max 6.14 s | **Pass** alone, **fail** with a long file extracting | 2026-09-26 | OMNI-316 |
+| TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
+| NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
+| SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
+| Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
+| Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
+| Ticket target (OMNI-310) | Re-gate "in about a second" | 1.4-2.0 s on a 10 s, 30 fps clip | **Not met** | 2026-09-25 | OMNI-310 |
 
-Endpoints covered (every protected route in `services/query`; `/auth/login`
-is the public entry point and `/health` is deliberately public, so neither is
-in scope for TC-10):
+**The machine** (stated from OMNI-316 on; earlier entries ran on the same one): Windows 11
+Home, Intel Core i7-1165G7 (4 cores, 8 threads), 15.7 GB RAM, Docker Desktop with 8 CPUs
+and 7.6 GiB for all containers. Every service, the RTSP simulator and the measuring script
+share it.
 
-| Endpoint | Valid token, correct role → 200 | Valid token, insufficient role → 403 | No / expired / tampered token → 401 |
+---
+
+## TC-10 · Authentication and roles on every endpoint · 2026-09-05
+
+**Suite:** `services/query/tests/test_tc10_auth.py`, 15 passed. Real Postgres; two
+throwaway accounts (`tc10-admin@`, `tc10-operator@`) created and removed.
+
+**Scope:** every protected route in `query`. `/auth/login` and `/health` are public by
+design and out of scope.
+
+| Endpoint | Right role -> 200 | Wrong role -> 403 | No / expired / tampered token -> 401 |
 |---|:--:|:--:|:--:|
-| `GET /auth/me` | pass | n/a — no role restriction beyond "authenticated" | pass |
-| `GET /nav` | pass | n/a — no role restriction beyond "authenticated" | pass |
-| `POST /auth/logout` | pass | n/a — no role restriction beyond "authenticated" | pass |
+| `GET /auth/me` | pass | n/a (any authenticated user) | pass |
+| `GET /nav` | pass | n/a | pass |
+| `POST /auth/logout` | pass | n/a | pass |
 | `GET /admin/ping` | pass | pass | pass |
 
-`/admin/ping` is the only route gated to a specific role (admin) rather than
-"any authenticated user," so it's the only one where the 403 condition
-applies — that's exactly why it was added in OMNI-107, to make the 403 path
-real and testable. "No / expired / tampered" is tested as three separate
-cases per endpoint in the suite (no `Authorization` header; a token with
-`exp` in the past, signed with the real secret; a valid token with its last
-character flipped) — all three return 401 everywhere.
+The 401 column is three cases per route: no header; a token with `exp` in the past signed
+with the real secret; a valid token with its last character flipped. `/admin/ping` is the
+only admin-only route, so the only 403 case.
 
-**Test users:** two accounts created at the start of the run
-(`tc10-admin@omnisight.local`, `tc10-operator@omnisight.local`) and deleted
-at the end — confirmed no `tc10-*` rows remain in `users` after the suite
-finishes.
+**Not covered:** the static file routes `/thumbs/` and `/media/`, added later (OMNI-307/308).
 
-**Requires:** Postgres running (`docker compose up -d`) — the suite hits the
-real database, same as everything else verified this sprint.
+## NFR-9 · Idle expiry and lockout · 2026-09-05
 
-## NFR-9 · Tokens expire after 15 minutes of inactivity; accounts lock after 5 failed logins — 2026-09-05
-
-**Suite:** `services/query/tests/test_nfr9_lockout_expiry.py`
-**Run:** `uv run pytest` — 2 passed, 0 failed.
+**Suite:** `services/query/tests/test_nfr9_lockout_expiry.py`, 2 passed. One throwaway
+account, removed afterwards.
 
 | Test | Result |
 |---|:--:|
-| Five failed logins lock the account | pass |
-| A token past its inactivity window is rejected | pass |
+| Five wrong passwords lock the account: `failed_attempts = 5`, `locked_until` in the future (read from the database); a sixth attempt with the **correct** password is still 401 | pass |
+| A token signed with the real key but `exp` one minute in the past is 401 on a protected route | pass |
 
-**Five failed logins:** a throwaway account attempts login with a wrong
-password five times in a row. After the fifth, `failed_attempts = 5` and
-`locked_until` is set in the future (`account_lockout_minutes` ahead of
-`now()`) — confirmed directly against the database. A sixth attempt with the
-**correct** password is still refused (`401`), proving the lock is enforced
-before password verification, not after.
+**Not covered:** the 15-minute window in real time; the test uses an already-expired token.
 
-**Idle token rejected:** a JWT signed with the real `jwt_secret_key` but with
-`exp` one minute in the past (simulating a session idle past its 15-minute
-window) is rejected with `401` on a protected route. This exercises the same
-expiry check that OMNI-108's sliding renewal (`X-Access-Token` header) relies
-on — a token that's never renewed because no request was made with it
-eventually expires exactly this way.
+## NFR-5 · Uploads survive restarts and a crash mid-upload · 2026-09-12
 
-**Test user:** one throwaway account (`nfr9-lockout-test@omnisight.local`)
-created before the test and deleted after — confirmed no `nfr9-*` rows
-remain in `users` afterward.
-
-**Requires:** Postgres running (`docker compose up -d`).
-
-## NFR-5 · On any failure or crash, video or stored data lost = 0 — 2026-09-12
-
-**Method:** live checks against the running stack (`docker compose up -d`),
-not a `pytest` suite — this is proving real container/volume behavior, not
-application logic. All three checks used a real uploaded video, not a
-fixture.
+Live checks against the running stack, real video, not a pytest suite.
 
 | Check | Result |
 |---|:--:|
-| `docker compose restart` — row and file survive | pass |
-| `docker compose down` + `up -d` — row and file survive | pass |
-| Kill `query` mid-upload — no orphan row | pass |
+| `docker compose restart`: row and file survive | pass |
+| `docker compose down` + `up -d`: row and file survive | pass |
+| `query` killed mid-upload: no orphan row, no partial file | pass |
 
-**`docker compose restart`:** uploaded a real 5-second, 21,086-byte MP4
-(`sha256: 36afef16…b895f`), confirmed via `GET /videos/{id}` and a checksum
-of the file on disk. Restarted every container in place. Checksum after
-restart: identical. `GET /videos/{id}` after restart: identical record,
-same id, same `size_bytes`, same `duration_s`.
+**Restart and down/up:** a 5 s, 21,086-byte MP4; file checksum and `GET /videos/{id}`
+identical before and after (same id, `size_bytes`, `duration_s`). Between `down` and `up`,
+`docker compose ps -a` showed zero containers; `postgres_data` and `video_storage` survived.
 
-**`docker compose down` + `up -d`:** same video, same checks, this time
-after fully removing and recreating every container (not just restarting
-them) — `docker compose ps -a` showed zero containers between the two
-commands, confirming this genuinely tore down and rebuilt the stack, not a
-no-op. `docker volume ls` confirmed `phase-b_postgres_data` and
-`phase-b_video_storage` — the two volumes this check cares about — survived
-the teardown untouched, which is the entire reason OMNI-205 used named
-volumes rather than a bind mount to a temp directory. Checksum after:
-identical. Login with an existing account and `GET /videos/{id}` both
-succeeded with the same record, confirming both volumes (`postgres_data`
-for the user row surviving login, `video_storage` for the file) came back
-correctly, not just one of the two.
+**Kill mid-upload:** a 480 MB upload (503,316,480 bytes) sent straight to `query`'s port,
+killed with `docker kill` at 40% (201,326,632 bytes), triggered by the client's own byte
+count; the client got `ConnectionAbortedError`. After restart: zero rows for the file, no
+`.part` file. Sent to `query` directly because nginx buffers the whole body before
+forwarding it (`proxy_request_buffering on`), so a kill during an upload through nginx
+never reaches `query` mid-transfer.
 
-**Kill `query` mid-upload:** the real test, and the one that needed two
-attempts to actually exercise. The first attempt sent a request through
-nginx with an artificially slow client; killing `query` produced no
-database row (correct) but also no partial file at all, because nginx
-buffers a client's entire request body before forwarding it upstream by
-default (`proxy_request_buffering on`) — the slow client only fooled nginx,
-`query` itself had received nothing yet when it died. Second attempt went
-directly to `query`'s own published port (bypassing nginx entirely) with a
-real, unthrottled 480 MB upload, killing the container from inside the same
-Python process that was sending it — timed off the client's own
-byte-counter (`docker kill` fired automatically at 40% sent, 201,326,632 of
-503,316,480 bytes), removing any dependency on guessing timing across
-separate tool calls. The client's request ended with a genuine
-`ConnectionAbortedError` (`WinError 10053`), confirming `query` really did
-die mid-transfer, not after. After restarting `query`: zero rows for the
-interrupted filename, and no orphaned `.part` file either — the row is only
-ever created after `services/query/app/videos.py`'s
-`staging_path.replace(final_path)` succeeds (OMNI-205), so an interruption
-before that point — during either the network receive or query's own
-copy-to-volume step — can only ever produce "nothing," never a row pointing
-at something incomplete. A first attempt at 450 MB (a smaller multiplier,
-sent without instrumented timing) actually completed — write, rename,
-insert, probe, response — in well under the ~1–2 seconds it took to react
-and issue `docker kill` manually from a separate command, which is itself a
-data point: on this stack, a sub-500 MB upload can complete faster than an
-operator can interrupt it by hand, which is exactly why the second attempt
-timed the kill programmatically instead of by reflex.
+**Not covered:** anything after the upload (frames, queue); see OMNI-311 and OMNI-319.
 
-**Requires:** Postgres, `query` and `ingestion` running
-(`docker compose up -d`); Docker CLI access on the host to actually kill and
-restart containers.
+## Slice 2 definition of done · 2026-09-12
 
-## Definition of done — the plan's own demo, fresh — 2026-09-12
-
-**Method:** `docker compose down -v` (wiped `postgres_data`, `video_storage`
-and `frontend_node_modules` — a genuinely empty state, not a reused dev
-database), `docker compose up -d`, `alembic upgrade head`, two freshly
-seeded accounts (one admin, one operator), then the plan's own four-part
-demo run end to end.
+`docker compose down -v` (empty database and storage), `up -d`, `alembic upgrade head`, one
+admin and one operator seeded, then the plan's demo.
 
 | Demo step | Result |
 |---|:--:|
-| Register a camera against the simulator, Test Connection reports resolution and fps | pass — `640x360 @ 15.0 fps`, status `connected` |
-| An invalid address reports a specific reason | pass — `error: "unreachable"` |
-| Upload an MP4: correct duration and size | pass — 7.000s source, `duration_s: 7.0` exact; `size_mb: 0.03` matching the real file |
-| Same upload survives a container restart | pass — file checksum and full record identical before/after `docker compose restart` |
-| An operator account cannot delete a camera | pass — `403 {"detail":"insufficient role"}`, camera still present afterward |
+| Register a camera on the simulator; Test Connection reports resolution and fps | pass: `640x360 @ 15.0 fps`, `connected` |
+| An invalid address reports a specific reason | pass: `error: "unreachable"` |
+| Upload an MP4: correct duration and size | pass: 7.000 s source, `duration_s: 7.0`; `size_mb: 0.03` matching the file |
+| The upload survives a container restart | pass: checksum and record identical |
+| An operator cannot delete a camera | pass: `403 {"detail":"insufficient role"}`, camera still present |
 
-All four ran against real containers, real ffmpeg-generated video, and a
-real RTSP address served by the OMNI-201 simulator — not mocked, and not
-reusing state left over from earlier tickets' verification.
+`uv run pytest` afterwards: 62 passed.
 
-`uv run pytest` afterward — **62 passed** — confirms the wipe and reseed
-didn't leave the application itself in a state the rest of the suite
-disagrees with.
+## OMNI-300 · Dataset clips through the upload path · 2026-09-21
 
-**Not covered by this entry:** "Merged and pushed" — a git action, out of
-scope for a results entry and not done as part of this check.
-
----
-
-## 2026-09-20 — SM-3 dataset change and target revision
-
-**Decision: DoTA is replaced by CCD (Car Crash Dataset), and SM-3's target is
-re-derived from the data rather than fixed at 15 seconds.**
-
-### DoTA is unobtainable
-
-All three Google Drive links in the DoTA repository return 404 — the 55 GB frame
-archive, the split archives, and the extras folder. GitHub issue #43 shows several
-researchers requesting access since, with no reply from the authors.
-
-The repository still carries `DoTA_urls.txt`, the 184 source YouTube videos the
-4,677 clips were cut from. Probed every one with `yt-dlp --simulate` on
-2026-09-20:
-
-```
-0 alive / 184 dead  (0%)
-```
-
-Control URL on the same machine and yt-dlp version resolved normally, so this is
-the dataset, not the tooling. DoTA cannot be rebuilt.
-
-### SM-3's 15-second target was never reachable on DoTA
-
-The DoTA annotations survive in the repository, so the clip timings can still be
-analysed even though the video cannot. Across all 4,677 clips, at the dataset's
-10 fps:
-
-| Measure | Value |
-|---|---|
-| Median clip length | 9.9 s |
-| Mean footage before the anomaly | 3.8 s |
-| **Median footage before the anomaly** | **3.6 s** |
-| 90th percentile | 5.8 s |
-| Maximum | 23.0 s |
-| Clips with ≥ 5 s before the anomaly | 903 / 4,677 (19.3%) |
-| Clips with ≥ 10 s before the anomaly | 41 / 4,677 (0.9%) |
-| **Clips with ≥ 15 s before the anomaly** | **8 / 4,677 (0.2%)** |
-
-Phase A §4.1 sets SM-3 at "warnings fire at least 15 seconds before the event
-begins". The dataset Phase A assigned to that metric contains 15 seconds of
-pre-event footage in 0.2% of its clips. The target could not have been met on
-DoTA under any model.
-
-This is not specific to DoTA. Dash-cam accident datasets are trimmed tight around
-the crash: CCD's clips are 5 seconds end to end, DADA-2000's around 10. Published
-work in accident anticipation reports time-to-accident in the low single digits.
-
-### The revision
-
-SM-3 keeps its intent — warn early enough to be actionable — and loses the
-specific number.
-
-- **Dataset:** CCD (Car Crash Dataset). 1,500 crash clips plus 3,000 normal clips,
-  distributed as video files, with per-frame accident labels. Purpose-built for
-  accident anticipation.
-- **Metric:** mean Time-to-Accident (mTTA), the standard in this literature, so
-  the result is comparable to published work rather than to an internal target.
-- **Target:** set in slice 6 from the measured distribution of pre-event footage
-  in CCD, **before any model is trained**, so it cannot be chosen to flatter the
-  result. The full distribution is reported alongside the mean.
-
-Phase A's original 15-second target, this analysis, and the revised target all
-belong in the Phase B book. The measurement above was taken in week 4, before any
-forecasting code was written.
-
-### Knock-on changes
-
-- CCD replaces DoTA as the traffic domain for SM-2, SM-5 and TC-5
-- `data/dota/` renamed to `data/ccd/`
-- `docs/datasets.md`, `docs/dataset-layout.md` and the slice plan updated
-- Slice 6 gains a task: measure CCD's pre-event distribution and record it here
-
----
-
-## 2026-09-21 — Dataset footage through the normal upload path (OMNI-300)
-
-**Claim under test:** slice 6 loads three datasets through the normal pipeline, so
-a dataset clip must pass through the same upload → probe → `ready` path as a
-hand-uploaded one, with correct metadata.
-
-**Method:** one clip from each dataset, from the local subset in `data/`, uploaded
-through the Video Archive screen on the running stack. Each clip's source values
-were taken first with `ffprobe`; the stored row was then read back from the
-`videos` table and compared.
+One clip per dataset from the local subset, uploaded through the Video Archive screen; the
+stored row compared with `ffprobe` on the source.
 
 | Dataset | Clip | Status | Duration (stored / source) | fps | Resolution | Bytes (stored = source) | Codec |
 |---|---|:--:|---|---|---|---|---|
-| CCD | `Crash-1500/000413.mp4` | ready | 5.000 s / 5.000 s | 10 | 640×360 | 232,123 | MPEG-4 Part 2 |
-| UCF-Crime | `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` | ready | 12.867 s / 12.867 s | 30 | 320×240 | 3,142,046 | H.264 Baseline, + AAC + PNG stream |
-| VIRAT | `videos_original/VIRAT_S_010208_07_000768_000791.mp4` | ready | 19.232 s / 19.232 s | 23.97 | 1280×720 | 1,362,385 | H.264 Main |
+| CCD | `Crash-1500/000413.mp4` | ready | 5.000 / 5.000 s | 10 | 640x360 | 232,123 | MPEG-4 Part 2 |
+| UCF-Crime | `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` | ready | 12.867 / 12.867 s | 30 | 320x240 | 3,142,046 | H.264 Baseline + AAC + PNG stream |
+| VIRAT | `videos_original/VIRAT_S_010208_07_000768_000791.mp4` | ready | 19.232 / 19.232 s | 23.97 | 1280x720 | 1,362,385 | H.264 Main |
 
-All three landed `ready`; duration, fps, width, height and byte count equal the
-`ffprobe` values on the source. No probe failures.
+**Result:** all three `ready`; duration, fps, size and bytes equal the source. No probe
+failures.
 
-**Differences from a hand-uploaded clip that slice 6 needs to know:**
+**What later slices need:** CCD is MPEG-4 Part 2, which browsers do not play (handled in
+OMNI-308 with an H.264 playback copy). VIRAT is 23.97 fps, so frame and window arithmetic
+must use the stored `fps`. The local clips are short (5-19 s), not minutes.
 
-- **CCD is MPEG-4 Part 2, not H.264.** It probes and decodes fine in the ingestion
-  container. Browsers generally do not play it, and playback was not tested (the
-  archive screen has no player), so any playback feature needs a transcode step.
-- **VIRAT is 23.97 fps, not 30.** Frame and window arithmetic must use the stored
-  `fps`.
-- **The local clips are shorter than expected** — VIRAT 19 s, UCF-Crime 12.9 s,
-  against "minutes". The local subset was built from the smallest files; the full
-  Drive copy was not checked.
-- **The archive table handles long filenames badly.** With the VIRAT name, the
-  Size and Uploaded cells wrap onto several lines at a 1114 px window and the page
-  gets a horizontal scrollbar.
+**Not covered:** long files, variable-frame-rate files (`duration = frame_count / fps` is
+exact here, an estimate for some containers), bulk loading.
 
-**Not covered:** one clip per dataset only, all short. Nothing was measured on
-long files, on variable-frame-rate files (duration is `frame_count / fps`, exact
-here but an estimate for some containers), or at bulk-load scale. Full write-up in
-`docs/context/week-03-04.md`.
+## OMNI-303/304 · Algorithm 1 on dataset footage · 2026-09-23
 
----
+Two dataset clips extracted through the running stack at the defaults: grid 8, cell
+threshold 25, 3 active cells, stride Δ 0.5 s, blur kernel 21.
 
-## 2026-09-23 — Algorithm 1 motion gating on real dataset footage (OMNI-304)
-
-**Superseded the same day** — see "Algorithm 1 rework" below. This entry measured
-the first implementation, a frame-count buffer fed by 1-second sampling. That
-sampling step is not part of the algorithm and is exactly what made the CCD
-finding below true; the rework replaces both. Left in place as the record of
-what was actually measured at the time, not rewritten.
-
-**Claim under test:** FR-1b's motion gate — compare each sampled frame to one
-`motion_buffer_frames` samples earlier, score it by counting grid cells with
-meaningful change, admit above a threshold — produces a real, inspectable
-distinction between still and moving footage, on real recordings, with the
-defaults the running service actually uses (`motion_grid_size=8`,
-`motion_cell_threshold=25.0`, `motion_min_active_cells=3`,
-`motion_buffer_frames=5`, `motion_blur_kernel=21`, `extract_interval_s=1.0`).
-
-**Method:** three clips uploaded and extracted through the real running stack —
-two real dataset clips (CCD, UCF-Crime) and the synthetic clip used to verify
-extraction in OMNI-303, for comparison. `segments.motion_score` and `.admitted`
-read back per frame.
-
-| Clip | Rows | Unscored (warm-up) | Scored | Admitted | Scored score range |
-|---|---|---|---|---|---|
-| OMNI-303's synthetic 2-minute clip (ffmpeg `testsrc2`) | 120 | 5 | 115 | 115 | 4–6 |
-| CCD `Crash-1500/000413.mp4` (5 s, 10 fps) | 5 | **5** | 0 | 0 | — |
-| UCF-Crime `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` (12.9 s, 30 fps) | 13 | 5 | 8 | 5 | 0–36 |
-
-**Result: the gate discriminates on real footage, with no test data built to
-produce it.** UCF-Crime's clip scores 31–36 (of 64 cells) and is admitted from
-t=5–9s, then drops to exactly `0` and is not admitted from t=10–12s — a real
-scene going from motion to stillness, caught by the numbers alone.
-
-**Finding that affects slice 6: CCD clips currently produce zero gated frames.**
-A 5-second CCD clip yields only 5 sampled segments at the default 1-second
-extraction interval (recorded in OMNI-300/303). With the default
-`motion_buffer_frames` of 5, **all five of those segments fall inside the
-warm-up window** — the gate never has an earlier buffered frame to compare
-against, so none of CCD's 4,500 clips will ever produce a scored or admitted
-frame under today's defaults. Before slice 6 loads CCD, either
-`EXTRACT_INTERVAL_S` or `MOTION_BUFFER_FRAMES` needs a CCD-specific value (both
-are settings, not literals, so this is a config change, not a code change).
-
-**A clip that is not useful evidence for this metric:** OMNI-303's synthetic
-`testsrc2` clip admits 115 of 115 scored frames — it animates continuously, so
-it never holds still long enough to demonstrate discrimination. It remains
-valid evidence that extraction itself works (its original purpose); it should
-not be read as evidence about gating.
-
-**Not covered:** VIRAT was not run through gating live (OMNI-300/303 already
-established it decodes and extracts correctly; extrapolated from UCF-Crime's
-result rather than measured separately here). No threshold sweep was run across
-the dataset — the defaults were chosen to be legible in a test, not tuned
-against real footage at scale. Full write-up in `docs/context/week-03-04.md`.
-
----
-
-## 2026-09-23 — Algorithm 1 rework: stride Δ fixes the CCD finding above (OMNI-303/304)
-
-**What changed:** the rework note in `docs/tickets/week-03-04.md` traced the CCD
-finding above to its actual cause — sampling one frame per second before gating,
-which is not part of Algorithm 1's own pseudocode (Phase A §3.5.1 / Appendix B.1).
-The rework removes sampling (every decoded frame is now gated) and replaces the
-5-**sample** warm-up buffer with a 2Δ-**second** one, Δ being a stride measured in
-time. A JPEG is now written only for admitted frames — a row is still written for
-every decoded frame, so this is not a return to the disk cost sampling existed to
-avoid.
-
-**Method:** the same two real clips, re-run through the real running stack after
-the rework, extracted with the real defaults (`motion_grid_size=8`,
-`motion_cell_threshold=25.0`, `motion_min_active_cells=3`, `motion_stride_s=0.5`,
-`motion_blur_kernel=21`).
-
-| Clip | Rows (= decoded frames) | Scored (past 2Δ warm-up) | Admitted | Files on disk |
+| Clip | Rows (= decoded frames) | Scored (after the 2Δ warm-up) | Admitted | Files on disk |
 |---|---|---|---|---|
-| CCD `Crash-1500/000413.mp4` (5 s, 10 fps) | **50** | 40 | 24 | 24 frames + 24 thumbs |
-| UCF-Crime `Anomaly-Videos-Part-1/Arson/Arson049_x264.mp4` (12.9 s, 30 fps) | 386 | 356 | 52 | 52 frames + 52 thumbs |
+| CCD `000413.mp4` (5 s, 10 fps) | **50** | 40 | 24 | 24 frames + 24 thumbnails |
+| UCF-Crime `Arson049` (12.9 s, 30 fps) | 386 | 356 | 52 | 52 frames + 52 thumbnails |
 
-**Result: the CCD finding above no longer holds.** CCD went from 0 scored frames
-(all 5 of its old sampled rows stuck in an unfillable warm-up) to 40 scored and 24
-admitted, out of 50 rows — one row per decoded frame, matching `docs/tickets/
-week-03-04.md`'s acceptance ("a 5-second CCD clip at 10 fps yields 50 gated
-frames, not 5"). File count on disk equals admitted-row count exactly for both
-clips, confirming JPEGs are written only for admitted frames.
+**Result:** a row for every decoded frame; image files only for admitted frames, equal in
+number. A 5 s CCD clip yields 50 gated frames, which the acceptance asked for.
 
-**Deviation recorded, per OMNI-304's own checklist:** frames are blurred
-(`cv2.GaussianBlur`) before differencing; the pseudocode does not call for this.
-Without it, two frames of a perfectly still scene still differ pixel by pixel
-from sensor noise alone, which would either force `MOTION_CELL_THRESHOLD` higher
-(risking missed real motion) or admit noise as motion. Kept as a deliberate,
-documented departure — see `services/ingestion/app/pipeline.py`'s `MotionGate`
-docstring.
+**Superseded first run, same day** (1 s sampling and a 5-sample buffer, removed because
+Algorithm 1 has no sampling step): CCD 5 rows, **0 scored**; UCF 13 rows, 8 scored, 5
+admitted (scores 31-36 of 64 cells at t = 5-9 s, then 0 at t = 10-12 s).
 
-**A real numerical bug found and fixed during this work, unrelated to the
-sampling change:** the initial time-based implementation could spuriously fall
-back into "warm-up" for a frame or two after scoring had already started,
-because comparing accumulated floating-point timestamps exactly against `2Δ`
-flickers by a few ULPs right at the boundary. Caught by a test asserting no
-`None` score ever follows a real one; fixed with a small (`1e-6` s) epsilon on
-both the warm-up and buffer-pruning comparisons. Recorded in
-`docs/context/week-03-04.md`.
+**Not covered:** VIRAT (not re-run after the rework); a 2-minute clip; a threshold sweep
+at dataset scale (see OMNI-318).
 
-**Not covered:** no literal 2-minute/3,600-row clip was run — CCD (50 rows) and
-UCF-Crime (386 rows) both confirm rows-equal-decoded-frames exactly, which is
-the same proportional claim at smaller scale. VIRAT was not re-run live after the
-rework (established separately that it decodes correctly, OMNI-300/303). No
-threshold sweep at dataset scale.
+## OMNI-305 · Heartbeat admissions · 2026-09-23
 
----
-
-## 2026-09-23 — Heartbeat frames (OMNI-305): a static clip, and CCD's real coverage gain
-
-**Claim under test:** Algorithm 1 step 5 — a frame is admitted at least once every
-`HEARTBEAT_INTERVAL_S` even when the motion gate finds nothing, so a recording
-with no detected motion anywhere in it does not contribute zero admitted frames.
-
-**Method:** two real clips, uploaded and extracted through the real running
-stack with the real defaults (`heartbeat_interval_s=1.0`, `motion_stride_s=0.5`,
-`motion_grid_size=8`, `motion_cell_threshold=25.0`, `motion_min_active_cells=3`).
+Defaults as above, heartbeat 1.0 s.
 
 | Clip | Rows | Admitted | By reason |
 |---|---|---|---|
-| Freshly encoded, genuinely static, 8 s / 10 fps | 80 | 7 | 7 heartbeat, 0 motion |
-| CCD `Crash-1500/000413.mp4` (5 s, 10 fps) | 50 | **26** | 24 motion, **2 heartbeat** |
+| Static, freshly encoded, 8 s at 10 fps | 80 | 7 | 7 heartbeat, 0 motion |
+| CCD `000413.mp4` (5 s, 10 fps) | 50 | **26** | 24 motion, **2 heartbeat** |
 
-**Result: heartbeat does the one thing it exists to do, on real footage in both
-directions.** The static clip — which the motion gate alone admits nothing from,
-by construction — gets 7 admitted frames, one every second from t=1s to t=7s,
-matching the ticket's acceptance shape exactly ("a completely static clip still
-produces a handful of admitted frames rather than none"). CCD, which already had
-real motion coverage from the OMNI-303/304 rework (24 admitted, recorded above),
-gains **2 more admitted frames it did not have before** — two moments where
-motion never crossed threshold, now represented anyway. CCD's admitted count
-went from 24/50 to 26/50 with no change to the motion gate itself.
+**Result:** a clip with no motion still gets one frame a second (t = 1 s to 7 s); CCD gains
+2 frames it had no motion admission for.
 
-**Not covered:** no literal 5-minute static clip was run — the 8-second live clip
-and a 300-second scheduling trace (`services/ingestion/tests/test_heartbeat.py`)
-both demonstrate the same property at smaller scale. `HEARTBEAT_INTERVAL_S`'s
-default (1.0 s) was not tuned for this ticket, only wired to something that reads
-it for the first time. Full write-up in `docs/context/week-03-04.md`.
+**Not covered:** a 5-minute static clip (a 300 s scheduling trace in
+`services/ingestion/tests/test_heartbeat.py` covers the same property). The 1.0 s default
+is untuned.
 
----
+## OMNI-306 · Re-gating moves the admitted set both ways · 2026-09-23
 
-## 2026-09-23 — Re-runnable gating re-decodes, in both directions (OMNI-306)
+A CCD clip, extracted, then re-gated twice through `POST /videos/{id}/gate`.
 
-**Claim under test:** `POST /videos/{id}/gate` re-scores a video's frames from a
-fresh decode of the source, updating existing segment rows in place — never
-deleting or creating rows — and can move the admitted set in either direction,
-not just narrow it.
-
-**Method:** a real CCD clip, extracted then re-gated twice through the real
-running stack, via a throwaway operator account (deleted afterward).
-
-| Step | `min_active_cells` | Admitted | Rows | Same row IDs as before? | Time |
+| Step | `min_active_cells` | Admitted | Rows | Same row ids? | Time |
 |---|---|---|---|---|---|
-| Initial extraction | 3 (default) | 26 | 50 | — | — |
-| Re-gate #1 | 60 (near-impossible) | 4 | 50 | yes | 0.3 s |
-| Re-gate #2 | 1 (lenient) | 32 | 50 | yes | — |
+| Extraction | 3 (default) | 26 | 50 | - | - |
+| Re-gate 1 | 60 | 4 | 50 | yes | 0.3 s |
+| Re-gate 2 | 1 | 32 | 50 | yes | - |
 
-**Result: re-gating genuinely re-scores, in both directions, with no new
-rows.** The lenient run (32 admitted) admits *more* frames than the original
-extraction (26) — not merely returning to it, exceeding it — which is only
-possible because the endpoint re-decodes the source rather than re-scoring
-whatever happened to already have a JPEG (most rows don't have one; only
-admitted frames do, since OMNI-303's rework). Row `id`s and `created_at`
-timestamps were identical across all three states, confirmed by direct
-comparison, not inferred from a stable row count. File count on disk after the
-final run (32) matched the admitted count exactly.
+**Result:** re-gating admits frames that were discarded before (32 against 26), with no
+new rows: ids and `created_at` identical in all three states. Files on disk after the last
+run: 32, equal to admitted.
 
-**The decision this measures:** the ticket asked for a deliberate choice
-between re-decoding (correct, slower) and re-scoring only the frames already on
-disk (fast, but can only ever discard more, never reveal a previously-discarded
-frame). Re-decoding was chosen because the alternative cannot satisfy OMNI-310's
-own acceptance criterion (dragging a slider must reveal more frames going one
-way, not just fewer going the other) in one direction at all — not a
-performance trade-off, a correctness one. Full reasoning in
-`docs/context/week-03-04.md`.
+**Not covered:** long recordings (see OMNI-310 for a 30 fps clip).
 
-**Not covered:** 0.3 s is on a 5-second clip; nothing about how re-decoding
-scales to a 10-minute recording was measured, which is what will actually
-determine whether this endpoint stays fast enough for OMNI-310's "about a
-second" feel on realistic clip lengths.
+## OMNI-307/308 · Static routes serve footage without a token · 2026-09-23 and 09-24
 
----
-
-## 2026-09-23 — Thumbnail URLs are not covered by NFR-7 (OMNI-307)
-
-**Claim under test:** none directly — this is a gap found while building the
-frames API, worth measuring against NFR-7's own standard ("100% of endpoints
-must reject requests lacking a valid token") even though a static file route
-is not an "endpoint" in the sense TC-10 (`docs/results.md`, 2026-09-05)
-already covers.
-
-**Method:** `GET /videos/{id}/frames` returns a `thumb_url` served by Nginx
-directly off the `thumb_storage` volume (`location /thumbs/`), bypassing
-`query` — the design OMNI-307 explicitly asks for, so thumbnails don't route
-through the API on every grid load. Fetched a real thumbnail URL live, with no
-`Authorization` header at all:
+Requested with no `Authorization` header, through nginx:
 
 ```
-GET https://127.0.0.1/thumbs/1479/000030.jpg   (no token)
-200, content-type: image/jpeg, 8,489 bytes
+GET https://127.0.0.1/thumbs/1479/000030.jpg                                   -> 200 image/jpeg, 8,489 bytes
+GET https://127.0.0.1/media/ff810750e6cf4593a973ef7e0a727907_playback.mp4      -> 200 video/mp4
 ```
 
-**Result: 0% of thumbnail requests require authentication, against 100% for
-every route TC-10 covers.** Every other path in this system that touches
-recorded footage goes through `query`, which enforces a valid JWT on every
-request (OMNI-107, verified by TC-10). Thumbnails are the first exception:
-Nginx's static-file route has no concept of the token this app otherwise
-requires everywhere. Anyone who has or guesses a thumbnail URL — a short,
-predictable `/thumbs/{video_id}/{frame_index:06d}.jpg` — can view it.
+**Result:** 0% of requests to `/thumbs/` or `/media/` need a token, against 100% of API
+routes (TC-10). Thumbnail paths are predictable (`/thumbs/{video_id}/{frame_index:06d}.jpg`).
+NFR-7 fails on these two routes; open in `known-issues.md`.
 
-**Not fixed:** no signed URLs, no auth-checking proxy in front of the static
-route. Not asked for by OMNI-307 or any other ticket in this sprint; recorded
-as a real, live-demonstrated gap for whoever scopes access control on frame
-data next, not treated as covered by TC-10 just because it wasn't tripped by
-it. Full context in `docs/context/week-03-04.md`.
+**Also measured:** the H.264 playback copy for a CCD clip (MPEG-4 Part 2 in, H.264 out,
+both confirmed with `ffprobe`) added **0.66 s** to the upload, probe and transcode together,
+on a 5 s clip. The transcode runs inside the upload request with a 150 s timeout that has
+not been measured against long recordings.
 
----
+## OMNI-310 · Threshold sweep and re-gate latency · 2026-09-25
 
-## 2026-09-24 — The same auth gap, now over whole recordings (OMNI-308)
+One 10 s, 30 fps, 320x240 upload (UCF `Abuse029`, 300 frames), re-gated through the API at
+each cell threshold, then a full frames fetch; restored to 25 afterwards.
 
-**Claim under test:** the same measurement as the entry above, against
-`/media/`, the new Nginx route OMNI-308 adds for the player's `<video>`
-element.
-
-**Method:** uploaded a real CCD clip through the real running stack; fetched
-its playback URL through Nginx with no `Authorization` header.
-
-```
-GET https://127.0.0.1/media/ff810750e6cf4593a973ef7e0a727907_playback.mp4   (no token)
-200, content-type: video/mp4
-```
-
-**Result: the exposure OMNI-307 found is now materially larger.** `/thumbs/`
-exposes small preview images; `/media/` exposes complete recordings, the same
-way, with the same absent authentication. Still 0% of requests to either
-static route require a token, against 100% for every route TC-10 covers.
-
-**Also measured while checking this:** the real transcode a non-H.264 source
-needs — CCD's clip, genuine MPEG-4 Part 2 re-confirmed via `ffprobe`, encoded
-to genuine H.264 (also re-confirmed, not assumed from ffmpeg's own exit code)
-— added negligible time to the upload: **0.66 s** total for probe and
-transcode together, on a 5-second clip. Nothing about how this scales to a
-real multi-minute recording was measured; the transcode runs synchronously,
-inside the same request the probe already runs in, with a 150-second timeout
-that is a generous guess, not a measurement.
-
-**Not fixed, same reasoning as OMNI-307's entry:** not asked for by this
-sprint. Recorded so the two gaps are visible together, not read as one
-smaller issue repeated. Full context in `docs/context/week-03-04.md`.
-
-## 2026-09-25 — Threshold sweep and re-gate latency on a 30 fps clip (OMNI-310)
-
-**Method:** through the real API, a throwaway operator account, one 10 s, 30 fps,
-320x240, 300-frame upload (Abuse029). `POST /videos/{id}/gate` with each
-`cell_threshold` in turn, then a full frames fetch; restored to the original 25.
-
-| threshold | admitted | of which motion / heartbeat | gate + frames fetch |
+| Threshold | Admitted | Motion / heartbeat | Gate + frames fetch |
 |---|---|---|---|
 | 1 | 257 | 257 / 0 | 1.97 s |
 | 10 | 165 | 162 / 3 | 2.02 s |
@@ -538,233 +205,143 @@ smaller issue repeated. Full context in `docs/context/week-03-04.md`.
 | 40 | 13 | 4 / 9 | 1.47 s |
 | 50, 75, 100 | 9 | 0 / 9 | 1.36-1.63 s |
 
-**Result:** the count falls monotonically as the threshold rises, and discarded
-frames come back as it is lowered (48 at the default, 257 at 1). From 50 up the
-gate admits only the nine heartbeat frames, so a slider wider than about 60
-spends the rest of its travel on no change. On every step the frames endpoint's
-admitted count equalled the gate response's.
+**Result:** the count falls monotonically as the threshold rises and discarded frames come
+back as it falls. From 50 up only the nine heartbeat frames remain, so slider travel above
+about 60 changes nothing. On every step the frames endpoint agreed with the gate response.
 
-**Against OMNI-310's "in about a second":** not met on this clip. A re-gate
-takes **1.4-2.0 s**, against 0.3 s on the 5 s, low-frame-rate CCD clip
-measured under OMNI-306. Profiled in-container: decode 0.22 s, motion scoring
-0.83 s (0.57 s of it the 21x21 Gaussian blur), JPEG writes negligible, the
-rest being HTTP and updating 300 rows. In the browser a burst of drags settled in about one second per run at high thresholds (few frames admitted). Cost scales with frame count, so a
-longer or higher-resolution recording will be slower still; that was not
-measured.
+**Against the ticket's "about a second":** not met, **1.4-2.0 s** (0.3 s on the 5 s,
+10 fps CCD clip in OMNI-306). Profiled in the container: decode 0.22 s, motion scoring
+0.83 s (0.57 s of it the 21x21 blur), JPEG writes negligible, the rest HTTP and updating
+300 rows. In the browser a burst of drags settled in about a second at high thresholds.
 
-**Not changed:** the blur and scoring are Algorithm 1 as documented, so they
-were left alone. The threshold-independent part (blur, diff, per-cell means) is
-recomputed on every re-gate; storing it once would make a re-gate a comparison
-instead of a decode. Recorded as an option, not built. Full context in
-`docs/context/week-03-04.md`.
+**Not covered:** longer or higher-resolution recordings; the cost grows with frame count.
 
-## 2026-09-25 — NFR-5 across a consumer kill and a broker recreate, and what the durable path costs (OMNI-311)
+## OMNI-311 · NFR-5 across a consumer kill and a broker recreate, and the queue's cost · 2026-09-25
 
-**Method:** the real stack, a throwaway operator account, a synthetic 60 s, 30 fps,
-320x240 clip (1,800 frames) uploaded through the API and removed afterwards.
-Three runs, each checked by reading every stored frame back through
+A synthetic 60 s, 30 fps, 320x240 clip (1,800 frames), every stored frame read back through
 `GET /videos/{id}/frames`.
 
 | Scenario | What was done | Outcome |
 |---|---|---|
-| Consumer killed mid-run | `docker kill` on the consumer with 402 segments stored | 419 stored by the time it was dead, **629 waiting in the queue**, video still `extracting`, not `failed`. After restarting the consumer: **1,800 of 1,800** stored, frame indexes 0-1799 each exactly once |
-| Uninterrupted run | same clip, no failure | 1,800 stored; **1,360 admitted, identical to the killed run** |
-| Broker container recreated | consumer stopped, 1,800 messages queued, `rm -sf` then `up -d` on the broker | **1,800 still queued** afterwards; consumer started; **1,800 of 1,800** stored, none duplicated |
+| Consumer killed mid-run | `docker kill` with 402 segments stored | 419 stored when it died, **629 waiting in the queue**, video `extracting`, not `failed`. After restart: **1,800 of 1,800**, frame indexes 0-1799 each once |
+| Uninterrupted | same clip | 1,800 stored, **1,360 admitted, identical to the killed run** |
+| Broker recreated | consumer stopped, 1,800 queued, `rm -sf` then `up -d` on the broker | **1,800 still queued**; after starting the consumer, **1,800 of 1,800**, none duplicated |
 
-**Result:** in these runs no accepted segment was lost or stored twice, across
-the death of the consumer and the destruction of the broker container. That
-is one clip and three failures, not a soak test; it is evidence for NFR-5's
-"lost = 0" on the path between the gate and the database, not proof for every
-failure. It does not cover a crash of ingestion part-way through publishing, or
-of query while an extraction waits (see the context notes for what those do).
+**Result:** no accepted segment lost or stored twice. One clip and three runs, not a soak
+test.
 
-**What the queue costs:** every message is persistent and each publish waits
-for the broker's confirmation, which includes a disk sync. Ingestion's
-`/extract/publish` took **3.5-4.4 s for 300 frames** and **21.8-27.0 s for
-1,800 frames**, roughly 12-15 ms per frame, of which decoding and gating is
-about 3 ms. Extracting the 300-frame clip used to take about 2 s end to end
-and now takes 4.6-5.6 s. Scaling linearly, a 10-minute 30 fps recording (18,000
-frames) would take about 4 minutes to publish. Not measured at that size.
+**What the durable path costs:** persistent messages, each publish waiting for the broker's
+confirm (a disk sync). `/extract/publish` took **3.5-4.4 s for 300 frames** and
+**21.8-27.0 s for 1,800**, about 12-15 ms per frame, of which decode and gate are about
+3 ms. The 300-frame extraction went from about 2 s to 4.6-5.6 s end to end. A 10-minute
+30 fps recording (18,000 frames) would take about 4 minutes to publish (extrapolated, not
+measured).
 
-**Not changed:** publishing confirms one message at a time. Confirming in
-batches (asynchronous confirms, or several channels) would share the disk sync
-and should be much faster; it was not built because no requirement asks for
-it yet and the dataset clips are 5-13 s. Recorded as the obvious next step if
-long recordings matter. Full context in `docs/context/week-03-04.md`.
+**Not covered:** ingestion crashing part-way through publishing; query crashing while an
+extraction waits.
 
-## 2026-09-26 — Live capture from the RTSP simulator: rate, start time, release, and what it stores (OMNI-312)
+## OMNI-312 · Live capture: rate, start, stop, storage · 2026-09-26
 
-**Method:** the real stack, a throwaway admin account and camera, the simulator's
-`cam01` (a 15 fps H.264 stream, 320x240). Started and stopped through the API
-(`POST /cameras/{id}/start` and `/stop`); rows counted in the database, open
-streams counted as established TCP connections from the ingestion container to
-the simulator (port 8554, read from `/proc/net/tcp`). Sampling interval 0.2 s
-(the default). Everything created was removed afterwards.
+The simulator's `cam01` (15 fps, 320x240 H.264), started and stopped through the API; rows
+counted in the database; open streams counted as established TCP connections from
+ingestion to port 8554 (`/proc/net/tcp`). Sampling every 0.2 s (default).
 
 | Measurement | Result |
 |---|---|
-| Rows arriving | strictly growing at every 2.5 s check for 20 s; **about 4.1 rows/s** (88 rows, 75 admitted, after 20 s) |
-| Why not 5/s | 0.2 s samples on a 15 fps stream land on every third or fourth frame (0.20-0.27 s apart) |
-| Newest row's age when read | 0.2 s (one observation, includes the polling delay; not the NFR-1 measurement, which is OMNI-316) |
+| Rows arriving | growing at every 2.5 s check for 20 s; **about 4.1 rows/s** (88 rows, 75 admitted, after 20 s) |
+| Why not 5/s | 0.2 s samples on a 15 fps stream land every third or fourth frame (0.20-0.27 s apart) |
+| Newest row's age when read | 0.2 s (one reading, includes polling; the NFR-1 measurement is OMNI-316) |
 | Every row | `source_type = camera`, `camera_id` set, `video_id` null, `timestamp_s` = Unix time |
-| Stop | **0.0-0.1 s**; rows stayed frozen for the 6 s checked afterwards |
-| Streams left open after a stop | **0, in 14 of 14 start/stop cycles** (1 open while running, each time) |
-| Restart without restarting the service | resumed (89 to 114 rows), into a new folder per start, so no file was overwritten |
-| Start time | **about 7 s** (3.8-7.1 s over 6 starts), which is the simulator's wait for its next keyframe |
+| Stop | **0.0-0.1 s**; rows frozen for the 6 s checked afterwards |
+| Streams left open after a stop | **0, in 14 of 14 start/stop cycles** (1 while running) |
+| Restart without restarting the service | resumed (89 to 114 rows), into a new folder per start |
+| Start time | **about 7 s** (3.8-7.1 s over 6 starts), the simulator's wait for its next keyframe |
 
-**Start failures found and fixed on the way:** the first version waited for a
-frame twice (once in a reachability check, once in the worker), which took
-**about 17 s** per start (16.7-17.8 s over 8 starts); and the check's 5 s
-first-frame limit failed healthy starts intermittently (two of the first handful of
-attempts, neither counted precisely), because the simulator's first frame takes 3-5 s or more. The check now waits
-for the stream to open, not for a frame, and the worker's own first frame is
-the confirmation; 6 of 6 starts succeeded afterwards.
+**Storage:** **24.2 KB per admitted frame** (16 KB frame + 8 KB thumbnail at 320x240; 98
+frames took 2.3 MB). At this clip's ~3.7 admitted frames a second, about **7.7 GB per
+camera per day**; a static scene (heartbeat only) about **2.1 GB**. Real cameras' frames
+are larger.
 
-**What it costs to store:** **24.2 KB per admitted frame** (a 16 KB frame and an
-8 KB thumbnail at 320x240; 98 admitted frames took 2.3 MB). Nothing prunes them
-yet. At this clip's rate of about 3.7 admitted frames a second that is roughly
-**7.7 GB per camera per day**; for a static scene, where only the once-a-second
-heartbeat admits, about **2.1 GB per camera per day**. A real camera's frames
-are larger. This is for slice 16's retention job to bound; it is recorded here
-so it is not a surprise.
+**Not covered:** several cameras (OMNI-317), long runs, CPU per camera.
 
-**Not measured:** more than one camera at once (OMNI-317), how long a capture
-runs before anything degrades, and CPU per camera. Full context in
-`docs/context/week-03-04.md`.
+## OMNI-313 · Source killed mid-capture: detection, backoff, recovery · 2026-09-26
 
-## 2026-09-26 — Killing the simulator mid-capture: detection, backoff and recovery (OMNI-313)
-
-**Method:** the real stack and the simulator's `cam01` (15 fps), a throwaway admin
-account and camera, started through the API. `docker compose stop mediamtx`
-mid-capture, camera status polled through `GET /cameras` every 0.05-0.2 s, the
-worker's own state read from ingestion's `GET /workers`, retry waits read from
-ingestion's log; then `docker compose start mediamtx`. Two outages: 76 s and
-25 s. Reconnection settings at their defaults (first retry 1 s, doubling, cap
-30 s, jitter 20%).
+`cam01`, `docker compose stop mediamtx` mid-capture, status polled through `GET /cameras`
+every 0.05-0.2 s, worker state from `GET /workers`, retry waits from ingestion's log, then
+`docker compose start mediamtx`. Outages of 76 s and 25 s. Backoff at defaults: first retry
+1 s, doubling, cap 30 s, jitter 20%.
 
 | Measurement | Result |
 |---|---|
-| Camera status after the stop | flipped `connected` to `unreachable` **0.4 s** after the stop command was issued (the container itself took 0.8 s to stop) |
-| Rows while down | frozen (53 before, 53 after 26 s; 53 after 76 s) |
-| `last_seen_at` while down | frozen at the last frame, not advancing |
-| `last_seen_at` while healthy | advances (checked 5 s apart) |
-| Retry waits, 76 s outage | **0.95, 2.24, 3.74, 9.42, 17.62, 26.74 s** (1, 2, 4, 8, 16, 30 with jitter), 5 failed attempts before one worked |
+| Status after the stop | `connected` to `unreachable` **0.4 s** after the stop command (the container took 0.8 s to stop) |
+| Rows while down | frozen (53 before, 53 after 26 s, 53 after 76 s) |
+| `last_seen_at` | frozen while down; advances while healthy (checked 5 s apart) |
+| Retry waits, 76 s outage | **0.95, 2.24, 3.74, 9.42, 17.62, 26.74 s**, 5 failed attempts before one worked |
 | Retry waits, 25 s outage | 1.03, 2.32, 3.47 s, 3 failed attempts |
-| Recovery, 76 s outage | camera `connected` **20.5 s** after the simulator was started; capture resumed by itself |
-| Recovery, 25 s outage | **11.4 s** after the simulator was started; +14 rows within a few seconds |
-| Integrity across the gap (25 s outage) | no duplicate moments, frame indexes unbroken, one capture session, **54 thumbnail files for 54 admitted rows** |
-| After a stop | worker registry empty, 0 open connections to the simulator |
+| Recovery, 76 s outage | `connected` **20.5 s** after the simulator started; capture resumed by itself |
+| Recovery, 25 s outage | **11.4 s** after the simulator started; +14 rows within a few seconds |
+| Integrity across the gap (25 s outage) | no duplicate moments, frame indexes unbroken, one session, **54 thumbnails for 54 admitted rows** |
+| After a stop | worker registry empty, 0 open connections |
 
-**Result:** the acceptance case held: the simulator was killed mid-capture, the
-camera reported `unreachable` within a second, and when the simulator returned
-capture resumed with no one touching it. The waits grew as designed instead of
-retrying every 100 ms.
+**Result:** detected within a second, retries backed off as designed, capture resumed with
+no action. Recovery time is the next retry wait (up to the 30 s cap), plus the simulator
+restarting its feed, plus the first keyframe (about 5-7 s).
 
-**What the recovery time is made of:** the wait before the next attempt (up to
-the 30 s cap), the simulator restarting its own feed, and the wait for the first
-keyframe (about 5-7 s). So a camera that comes back can go unnoticed for about
-the cap plus that; a lower cap trades that against how often a long-dead camera
-is retried.
+**Not covered:** a stream that stalls without closing (would take the 10 s read timeout);
+several cameras dropping at once; a broker restart during capture.
 
-**Two measurements in the first run were wrong and are not used:** the
-"time to flip" read 0.0 s because `docker compose stop` blocks until the
-container has stopped, so polling began after the flip had already happened;
-and thumbnail files were compared with rows while capture was still running (52
-against 50), which only measured frames in flight. Both were fixed for the
-second run.
+## OMNI-314 · Throttling downstream during live capture · 2026-09-26
 
-**Not measured:** a stream that stalls without closing (the case here closes
-its connection, so the drop was seen at once; a silent stall would take the 10 s
-read timeout), several cameras dropping together (what the jitter is for), and a
-broker restart during capture. Full context in `docs/context/week-03-04.md`.
+`cam01` (about 4.2 sampled frames/s). Worker counters (`GET /workers`), broker queue depth
+(`rabbitmqctl`) and ingestion memory (`docker stats`) read every few seconds. In-process
+queue 10 frames; run 2 set `LIVE_MAX_BACKLOG=40` (default 2,000), reverted afterwards.
 
-## 2026-09-26 — Throttling downstream during a live capture: drops climb, memory and queues stay flat (OMNI-314)
-
-**Method:** the real stack and the simulator's `cam01` (about 4.2 sampled frames a
-second), a throwaway admin account and camera, started through the API. Two
-deliberate throttles, each held while the worker's counters (`GET /workers`),
-the broker queue depth (`rabbitmqctl`), and the ingestion container's memory
-(`docker stats`) were read every few seconds, then released. Defaults: in-process
-queue of 10 frames; the second run set `LIVE_MAX_BACKLOG=40` (default 2000) so a
-backlog could be reached in seconds, and was reverted afterwards.
-
-**1. Broker frozen for 24 s** (`docker compose pause rabbitmq`: publishing stalls)
+**Broker frozen 24 s** (`docker compose pause rabbitmq`)
 
 | | healthy | +4 s | +13 s | +22 s | after release |
 |---|---|---|---|---|---|
 | dropped | 0 | 9 | 44 | 83 | **107**, then no more |
-| published | 84 | 101 | 101 | 101 | resumed, +38 every 5 s |
+| published | 84 | 101 | 101 | 101 | +38 every 5 s |
 | in-process queue | 0/10 | 10/10 | 10/10 | 10/10 | 0/10 |
 | ingestion memory | 186 MiB | 194 | 194 | 194 | 187-188 |
 
-**2. Consumer paused for 40 s** (`docker compose pause consumer`, backlog limit 40)
+**Consumer paused 40 s** (`docker compose pause consumer`, backlog limit 40)
 
 | | healthy | +4 s | +17 s | +29 s | +43 s | after release |
 |---|---|---|---|---|---|---|
 | dropped | 0 | 0 | 23 | 74 | 131 | **166**, then no more |
-| broker queue (messages) | 0 | 31 | 52 | 52 | 52 | 0 within 5 s |
+| broker queue | 0 | 31 | 52 | 52 | 52 | 0 within 5 s |
 | ingestion memory | 129 MiB | 129 | 129 | 129 | 130 | 130 |
 
-**Result:** the acceptance held in both. `dropped` climbed steadily while the
-throttle lasted and stopped the moment it was lifted; memory moved by 8 MiB at
-most and came back; the in-process queue sat at its bound of 10 and the durable
-queue at 52 rather than growing. In the second run the queue is 40 ready plus the
-10 the consumer was holding unacknowledged plus about a second of lag, which is
-the limit doing its job. At this camera's rate an unbounded queue would have added
-about 170 messages over the same 43 s (arithmetic from the rate, not a separate
-run).
+**Result:** drops climbed during the throttle and stopped when it lifted; memory moved 8 MiB
+at most; the in-process queue held at 10 and the durable queue at 52 (40 ready + 10
+unacknowledged + about a second of lag). The books balanced exactly: captured 404 =
+published 297 + dropped 107 + queued 0; captured 512 = published 346 + dropped 166 +
+queued 0. `GET /cameras/{id}/stats` agreed on dropped. Capture kept running through both.
+107 drops logged **5** warnings, 166 logged **8** (one at the start of a run of drops, then
+a summary about every 5 s).
 
-**Nothing went missing without being counted.** After each run the worker's own
-books balanced exactly: captured 404 = published 297 + dropped 107 + queued 0, and
-captured 512 = published 346 + dropped 166 + queued 0. `GET /cameras/{id}/stats`
-agreed with the worker on dropped (107 and 166); its `captured` was 7 and 2 ahead
-only because the camera kept running between the two reads. Capture carried on
-through both throttles, and the worker was still `running` after a 24 s broker
-freeze.
+**Healthy:** 0 dropped, `fps_effective` 4.1-4.3, queue empty.
 
-**Visible in the log, without flooding it:** 107 drops produced **5** warnings and
-166 produced **8**: one when a stretch of drops began, then a summary about every
-5 s giving the count, the reason (`processing` or `backlog`), the running total
-and the queue depth.
+**Not covered:** memory at real resolutions; a broker freeze longer than the 30 s
+heartbeat; several cameras. Queue sizes are untuned.
 
-**Healthy, for comparison:** 0 dropped, `fps_effective` 4.1-4.3, in-process queue
-empty. After a stop, `fps_effective` and `uptime_s` read 0 while the totals stay.
+## OMNI-316 · NFR-1 first half and TC-1 first half · 2026-09-26
 
-**Not measured:** memory at a real resolution (these frames are 320x240, about
-230 KB; ten of them at 1080p would be about 60 MB, which is arithmetic, not a
-measurement), a broker freeze longer than the 30 s heartbeat, and several cameras
-at once. The defaults (queue of 10 frames, backlog limit of 2000) are untuned.
-Full context in `docs/context/week-03-04.md`.
+**Conditions:** one consumer, prefetch 10; live sampling 0.2 s, 10-frame in-process queue;
+gate defaults (grid 8, threshold 25, 3 cells, stride 0.5 s, heartbeat 1 s). Live: `cam01`
+(15 fps, 320x240 H.264, constant motion); `cam05` for TC-1 (motion and still stretches).
+File: `Arson049` (30 fps, 320x240) looped to 38.7 s (1,158 frames) or 64.5 s (1,930),
+extracted through `POST /videos/{id}/extract`. 30 s windows after a 6 s warm-up. Host,
+Docker VM and database clocks agree within 1 ms (database minus host +1.3 ms and +0.3 ms).
+Script: `scripts/measure_capture_latency.py`.
 
-## 2026-09-26 — TC-1 (first half) and NFR-1 capture-to-stored latency (OMNI-316)
+**What is measured:** capture = `segments.timestamp_s` (the worker read the frame); stored
+= `segments.created_at` (database time at insert; commit follows within 1-2 ms).
+API-visible = first seen by a poller on `GET /cameras/{id}/frames` every 100 ms. Excludes
+camera-to-decoder time and the searchable half (slice 7). Every frame counted.
 
-**Conditions.** One machine runs everything: Windows 11 Home, Intel Core
-i7-1165G7 (4 cores, 8 threads), 15.7 GB RAM; Docker Desktop with 8 CPUs and 7.6 GiB
-for all containers (query, ingestion, consumer, frontend, nginx, PostgreSQL 16,
-RabbitMQ 3.13, the RTSP simulator). One consumer, prefetch 10; the live worker
-samples at 0.2 s with a 10-frame in-process queue; motion gate at its defaults
-(grid 8, per-cell threshold 25, 3 active cells, stride 0.5 s, heartbeat 1 s). The
-live source is the simulator: `cam01`, 15 fps, 320x240 H.264, in constant motion;
-`cam05` for TC-1, which mixes motion and still stretches. The uploaded file is
-real footage from the archive (Arson049, 30 fps, 320x240) looped to 38.7 s (1,158
-frames) or 64.5 s (1,930 frames), extracted through the real
-`POST /videos/{id}/extract`. Each window is 30 s, after a 6 s warm-up. The host,
-the Docker VM and the database agree on the time to within a millisecond (database
-minus host +1.3 ms and +0.3 ms, each +/- under 1 ms), so latencies are good to a few
-milliseconds. Reproduce with `scripts/measure_capture_latency.py`.
-
-**What is measured.** *Capture* is `segments.timestamp_s`, the moment the worker
-read the frame from the stream. *Stored* is `segments.created_at`, the database's
-time at the insert; the commit follows within a millisecond or two. A second figure,
-*readable via the API*, is when a poller on the real `GET /cameras/{id}/frames`
-(every 100 ms) first saw an admitted frame, so it also carries up to 100 ms of
-polling. This is the first half of NFR-1 only: it excludes the time a frame spent
-between the camera and the decoder, and the time to make it searchable (slice 7).
-Every frame is counted, admitted or discarded.
-
-### NFR-1, first half: capture to stored (5 s is the limit)
-
-| Scenario | Frames | p50 | p95 | p99 | max | API-visible max | Broker queue peak |
+| Scenario | Frames | p50 | p95 | p99 | max | API-visible max | Queue peak |
 |---|---|---|---|---|---|---|---|
 | Live alone, `cam01`, run 1 | 126 | 9 ms | 18 ms | 41 ms | **49 ms** | 180 ms | not sampled |
 | Live alone, `cam01`, run 2 | 125 | 9 ms | 23 ms | 28 ms | **28 ms** | 184 ms | 0 |
@@ -773,209 +350,115 @@ Every frame is counted, admitted or discarded.
 | Live + 1,158-frame file, `cam05` | 128 | 258 ms | 3,512 ms | 3,799 ms | **3,977 ms** | 3,869 ms | 323 |
 | Live + **1,930-frame file**, `cam01` | 127 | 1,368 ms | 5,956 ms | 6,138 ms | **6,139 ms** | 6,266 ms | 544 |
 
-No frames were dropped and there were no decode errors in any run.
+No drops and no decode errors in any run.
 
-**Result.**
-- **A live camera on its own is far inside the limit:** worst frame 49 ms, roughly a
-  hundred times under 5 s, and readable through the API within 0.2 s.
-- **With a file being extracted at the same time the requirement is only just met,
-  and fails for a longer file.** With a 1,158-frame file the worst live frame took
-  4.67-4.91 s (4.80-4.98 s through the API), passing by 0.1-0.3 s; with a
-  1,930-frame file it took **6.14 s**, so the 5 s bound is **not met** in that
-  condition. The `cam05` run, where fewer frames need JPEGs, stayed under 4 s.
-- **Why:** live frames and the file's segments share one queue and one consumer, in
-  first-in first-out order. Extraction decodes the whole file and then publishes
-  every frame, so it puts a burst of messages ahead of the live frames: the broker
-  queue peaked at 323-544 messages and stayed above 100 for 19-22 s, and the live
-  frames waited behind it. The burst grows with the file, so the delay does too. 544
-  messages taking about 6 s to clear is roughly 90 a second, the same order as the
-  ~10 ms per message that OMNI-311 measured for publishing; the consumer's own rate
-  was not measured separately, so that is arithmetic, not a finding about the
-  consumer.
-- **Load at the same time (run 1, 100% = one core, average):** ingestion 23% alone,
-  123% with the file (peak 361%); consumer 3% to 47%; RabbitMQ 47% to 76%;
-  PostgreSQL 3% to 19%. The 1,158-frame extraction took 24-33 s with live capture
-  running, against 20.9 s for 1,200 frames on an otherwise idle stack (OMNI-311).
+**NFR-1 result:** live alone passes by about a hundred times (worst 49 ms, API-visible
+within 0.2 s). With a 1,158-frame file extracting it passes by 0.1-0.3 s; with a
+1,930-frame file it **fails at 6.14 s**. Cause: live frames and the file's segments share
+one queue and one consumer, first in first out; extraction publishes its frames in one
+burst (queue peak 323-544, above 100 for 19-22 s) and live frames wait behind it. 544
+messages in about 6 s is roughly 90/s, the same order as OMNI-311's ~10 ms per publish
+(arithmetic; the consumer's own rate was not measured here).
 
-**Not fixed.** The ticket asks for a measurement, and the remedy is a design
-decision. The obvious options are a separate queue (or priority) for live frames so
-they never wait behind a recording, a consumer that stores messages in batches, or
-publishing an extraction's frames as it decodes them instead of in one burst. None
-was built. Until one is, a long recording being extracted can push live latency past
-the requirement.
+**Load, run 1 (100% = one core, average):** ingestion 23% alone, 123% with the file (peak
+361%); consumer 3% to 47%; RabbitMQ 47% to 76%; PostgreSQL 3% to 19%. The 1,158-frame
+extraction took 24-33 s alongside live capture, against 20.9 s for 1,200 frames on an idle
+stack (OMNI-311).
 
-### TC-1, first half: a live camera and an uploaded file at the same time
+**TC-1, first half:**
 
-Both ran through ingestion together for the 30 s windows above (the file's
-extraction covered the whole window, in one run or two back to back).
-
-| | Decoded without error | Frames gated | Forwarded | of which motion / heartbeat | Discarded |
+| | Decoded without error | Gated | Forwarded | Motion / heartbeat | Discarded |
 |---|---|---|---|---|---|
-| Uploaded file (1,158 frames) | yes: every extraction `ready`, 1,158 of 1,158 | 1,158 | **209 (18%)** | 182 / 27 | 949 |
-| Uploaded file (1,930 frames) | yes: 1,930 of 1,930 | 1,930 | **357 (18%)** | 312 / 45 | 1,573 |
-| Live `cam05` (motion and stillness) | yes: worker `running`, 0 decode errors | 227 | **64 (28%)** | 32 / 32 | 163 |
-| Live `cam01` (constant motion) | yes | 235-326 | 213-296 (91%) | all motion | 22-30 |
+| File, 1,158 frames | yes, `ready`, 1,158 of 1,158 | 1,158 | **209 (18%)** | 182 / 27 | 949 |
+| File, 1,930 frames | yes, 1,930 of 1,930 | 1,930 | **357 (18%)** | 312 / 45 | 1,573 |
+| Live `cam05` | yes, `running`, 0 decode errors | 227 | **64 (28%)** | 32 / 32 | 163 |
+| Live `cam01` | yes | 235-326 | 213-296 (91%) | all motion | 22-30 |
 
-**Only frames with motion are forwarded.** "Forwarded" means admitted: the frames
-that get an image and go on to later slices; every frame still gets a row with its
-score (OMNI-303's rework), but a discarded one has no files. Checked from the stored
-rows, with **zero violations** in every run: every forwarded frame has a reason
-(motion or heartbeat) and a file; every motion admission scored at or above the
-threshold of 3 active cells; no heartbeat admission had motion; no discarded frame
-has a file or scored at or above the threshold; and the JPEG files on disk equal the
-forwarded frames exactly (209 of 209, 357, 64 of 64, 213, 296).
+**TC-1 result:** checked from the stored rows, **zero violations** in every run: every
+forwarded frame has a reason and a file; every motion admission scored at or above 3 active
+cells; no heartbeat admission had motion; no discarded frame has a file or scored at or
+above the threshold; JPEG files equal forwarded frames exactly (209, 357, 64, 213, 296).
 
-**What this does and does not show.** `cam01` forwards 91% because the simulated
-scene never stops moving, so it barely exercises the filter; `cam05` and the real
-footage do (18-28% forwarded, with heartbeats filling the still stretches). It shows
-the gate forwards only what its rule says it should, on both sources at once. It does
-not show that the rule picks the right frames, which is OMNI-318, or anything about
-the camera wall, which is TC-1's second half in slice 5.
+**Not covered:** whether the rule picks the right frames (OMNI-318); the camera wall
+(TC-1's second half, slice 5). `cam01` never stops moving, so it barely exercises the gate.
 
-## 2026-09-26 — Several feeds at once: what one machine sustains (OMNI-317, NFR-4, preliminary)
+## OMNI-317 · Several feeds at once (NFR-4, preliminary) · 2026-09-26
 
-**Conditions.** As for OMNI-316: one machine, Windows 11 Home, Intel Core
-i7-1165G7 (4 cores, 8 threads), 15.7 GB RAM, Docker Desktop with 8 CPUs and 7.6 GiB;
-every service, the RTSP simulator (ten looping ffmpeg feeds) and the measuring script
-run on it together, which is part of what is measured. The simulator's feeds are
-15 fps, 320x240 H.264; beyond ten cameras the same feeds are read twice. Each camera
-is sampled every 0.2 s (about 4.2 stored frames a second per camera from a 15 fps
-feed), with a 10-frame in-process queue, a backlog limit of 2,000, one consumer.
-Cameras are started four at a time, then given 8 s to settle before the window.
-Latency is capture-to-stored as in OMNI-316. Reproduce with
-`scripts/measure_concurrent_feeds.py`. Preliminary: one machine, one scene set, a
-handful of runs.
-
-### The answer
-
-**On this machine, 8 simultaneous feeds are sustained; 10 are not.** 8 feeds ran for
-6 minutes with no drops and no reconnects, the queue near empty, and the worst frame
-at 1.8 s. 9 is on the edge, 10 degrades within a minute, 11 and 12 break NFR-1
-outright, and frames start being **dropped at 15 feeds**.
+**Conditions:** the simulator's ten looping feeds (15 fps, 320x240 H.264; beyond ten the
+same feeds are read twice), each sampled every 0.2 s (about 4.2 stored frames/s per
+camera), 10-frame in-process queue, backlog limit 2,000, one consumer. Cameras started
+four at a time, 8 s to settle before the window. Latency as in OMNI-316. Script:
+`scripts/measure_concurrent_feeds.py`. One machine, one scene set, a handful of runs.
 
 | Feeds | Held for | Dropped | Stored per camera | Worst capture to stored | Queue peak | Verdict |
 |---|---|---|---|---|---|---|
 | 8 | **6 min** | 0 of 12,684 | 4.19/s | p99 1.4 s, **max 1.8 s** | 48 | **sustained** |
 | 8 | 3 min | 0 of 6,597 | 4.18/s | p99 0.8 s, max 1.2 s | 23 | sustained |
-| 9 | 3 min | 0 of 7,726 | 4.19/s | first 90 s: p99 up to 7.7 s (max 7.9 s); last 90 s: p99 0.6-1.0 s | 282 | **unreliable**: backed up early, recovered |
-| 10 | 3 min, three runs | 0 (one run with a heavier sampler: 598) | 4.19/s | max 12.0 s and 12.6 s (68 s with the heavier sampler) | 473-507 | **not sustained** |
+| 9 | 3 min | 0 of 7,726 | 4.19/s | first 90 s: p99 up to 7.7 s (max 7.9 s); last 90 s: p99 0.6-1.0 s | 282 | **unreliable** |
+| 10 | 3 min, three runs | 0 (598 in a run with a heavier CPU sampler) | 4.19/s | max 12.0 s and 12.6 s (68 s with the heavier sampler) | 473-507 | **not sustained** |
 | 11 | 3 min | 53 of 9,360 | 3.54/s | p99 45 s | 2,012 | fails |
 | 15 | 30 s | 44 of 4,023 (1.1%) | 3.75/s | p99 30.6 s | 1,559 | drops begin |
 | 20 | 30 s | 1,264 of 6,219 (20%) | 1.93/s | p99 42.9 s | 2,028 | overloaded |
 
-Every worker stayed `running` with no reconnects and no decode errors in every run.
+Every worker stayed `running`, no reconnects, no decode errors.
 
-**What makes 10 different from 8.** The queue is what tells them apart. At 8 feeds it
-stays near zero for the whole 6 minutes. At 10 it is fine for the first 30 s
-(mean depth 16, p99 1.5 s), then climbs and does not come back: mean depth 63, 230,
-307, 350, 403 over the next five 30 s slices, latency p99 reaching 12 s by minute
-three. The frames are still stored at the full rate, so nothing is lost yet, but each
-waits longer than the last, and once the queue reaches its limit frames are dropped
-(that is what happens at 11, and by 15). **A 30 s window hides this:** the first pass,
-in 30 s windows, made 10 feeds look fine (p99 1.0-1.4 s), and I first read it that way.
+**Result: 8 feeds sustained, 10 not.** At 8 the queue stays near zero for 6 minutes. At 10
+it is fine for 30 s (mean depth 16, p99 1.5 s), then climbs without recovering: mean depth
+63, 230, 307, 350, 403 over the next five 30 s slices, p99 12 s by minute three. A 30 s
+window hides this (30 s windows gave 10 feeds p99 1.0-1.4 s).
 
-**Where the ceiling comes from.** The consumer on its own stores **76-83 frames a
-second** (3,000 queued frames drained in 36-39 s, one transaction each; 83 on a cold
-machine, 76 after twenty minutes of load, so heat is not the limit). In the full stack
-the stored rate stopped scaling near **50-56 a second** (12 feeds at 4.2 and 15 at 3.75
-are both that), because the consumer shares the machine with everything else: with 10
-feeds running, the whole machine's CPU read **92-99%** and its processor-performance
-counter 82-87% of nominal. Ten feeds offer about 42 frames a second, which is most
-of what the stack can absorb; eight offer 34. So the limiting resource on this
-machine is total CPU, not any one service.
+**Where the ceiling comes from:** the consumer alone stores **76-83 frames/s** (3,000
+queued frames drained in 36-39 s, one transaction each; 83 cold, 76 after twenty minutes of
+load). In the full stack the stored rate stops at **50-56/s** (12 feeds at 4.2, 15 at 3.75).
+With 10 feeds the machine's CPU read **92-99%**, processor performance 82-87% of nominal.
+Ten feeds offer about 42 frames/s, eight about 34. The limit is total CPU on one machine,
+not one service.
 
-**Cost per feed (first-pass runs, averages, 100% = one core):** ingestion 22% for one
-feed, 143% for ten, 256% for twenty; memory 203 MiB, 388 MiB and 722 MiB (about 20-27
-MiB per camera). At ten feeds: consumer 44%, RabbitMQ 80%, PostgreSQL 12%, query 17%,
-the simulator 22%. RabbitMQ's CPU figure spikes to 230-330% even with one camera and at
-idle, so its peaks say nothing about load. **Bringing feeds up is slow:** about 3.9 s
-per camera (27-29 s for 8, 37-42 s for 10, 77 s for 20), consistent with the start-up
-reachability check running one at a time.
+**Cost per feed (100% = one core, averages):** ingestion 22% for one feed, 143% for ten,
+256% for twenty; memory 203, 388 and 722 MiB (about 20-27 MiB per camera). At ten feeds:
+consumer 44%, RabbitMQ 80%, PostgreSQL 12%, query 17%, simulator 22%. RabbitMQ spikes to
+230-330% even idle, so its peaks mean nothing. Starting feeds takes about 3.9 s per camera
+(27-29 s for 8, 37-42 s for 10, 77 s for 20).
 
-### One lever, measured
+**0.5 s sampling instead of 0.2 s** (1.88 stored frames/s per camera): **10 feeds sustained
+for 3 minutes**, 0 dropped of 3,893, queue peak 18, p99 0.1-0.4 s in five of six slices
+(1.6 s in one), worst frame 1.7 s. A setting (`LIVE_SAMPLE_INTERVAL_S`), reverted
+afterwards.
 
-Sampling each camera every **0.5 s instead of 0.2 s** (1.88 stored frames a second per
-camera) lets **10 feeds be sustained for 3 minutes**: 0 dropped of 3,893, queue peak
-18, p99 0.1-0.4 s in five of six slices (1.6 s in one), worst frame 1.7 s. That is a
-setting (`LIVE_SAMPLE_INTERVAL_S`), not a code change, and it was reverted afterwards.
-Whether 0.5 s is enough for what slices 7 and 8 need to find in a frame is a separate
-question, not measured.
+**How much to trust it:** measuring changes the result at the edge (a PowerShell CPU
+sampler turned 10 feeds from 12 s max and 0 drops into 68 s and 598 drops); the headline
+numbers for 8-11 feeds and for 0.5 s come from runs without it. Runs at the edge vary.
+**Not covered:** more than 6 minutes; separate machines; frames larger than 320x240 (so
+this is optimistic); two consumers.
 
-### What this means for slice 5
+## OMNI-318 · Motion gate retention on dataset footage (preliminary) · 2026-09-26
 
-Ten concurrent feeds are graded there. **As configured, this machine does not sustain
-ten** (the answer the ticket hoped to find early), and the margin at eight is small: a
-recording extracted at the same time already breaks NFR-1 for a live camera (OMNI-316).
-The candidates, in order of what was measured: a longer sampling interval (measured,
-above); a cheaper consumer (its per-message transaction is the obvious cost, and batching
-commits is the natural fix, unmeasured); a separate queue for live frames (OMNI-316's
-finding); moving the simulator or the services off the one machine. None was built.
+**Conditions:** the 38 local clips through the real pipeline at the **default parameters,
+untouched**: grid 8, threshold 25, 3 cells, stride 0.5 s (first 1 s of each clip is
+warm-up), blur 21, heartbeat 1.0 s. Retention = admitted frames / all frames. Clips are
+3.5-37 s (CCD 5 s): a small sample, not the datasets' statistics. Script:
+`scripts/measure_gate_retention.py`.
 
-### How much to trust it
-
-- **Instrumentation changes the result.** A run that also polled the machine's CPU
-  counters from PowerShell every few seconds behaved much worse (10 feeds: max 68 s,
-  598 drops) than the same case without it (12 s, 0 drops), because the machine was
-  already at its limit. The headline numbers for 8, 9, 10 and 11 feeds and for 0.5 s
-  sampling come from runs with the CPU samplers off; the first-pass ladder (1 to 20)
-  used a container-CPU sampler and shows the same shape.
-- **Runs at the edge vary.** Ten feeds gave p99 1.0 s and 1.4 s in two 30 s windows and
-  12 s at the end of three-minute ones; nine backed up and recovered within one run.
-  Expect the edge to move with whatever else the machine is doing.
-- **Not measured:** more than six minutes; the same feeds on separate machines; frames
-  larger than 320x240 (a real camera's frames cost more to gate and store, so this is
-  optimistic); two consumers.
-
-## 2026-09-26 — Motion gate retention on dataset footage (OMNI-318, preliminary)
-
-**Conditions.** 38 local clips through the real pipeline (upload, extract, gate every
-frame, rows stored), at the **default parameters, untouched**: 8x8 grid, cell threshold
-25, at least 3 active cells, stride 0.5 s (so the first 1 s of every clip is a warm-up
-with no motion score), Gaussian blur kernel 21, heartbeat 1.0 s. Retention is forwarded
-(admitted) frames over all frames, counted at each clip's own frame rate. Reproduce with
-`scripts/measure_gate_retention.py`. Clips are the ones on disk (3.5 to 37 s; the CCD clips
-are 5 s), so this is a small sample, not the datasets' statistics.
-
-| Group (clips) | Camera | Frames | Forwarded | **Retention** | Per clip: min / median / max | By motion / by heartbeat |
+| Group (clips) | Camera | Frames | Forwarded | **Retention** | Per clip min / median / max | Motion / heartbeat |
 |---|---|---|---|---|---|---|
-| CCD crash (10) | dash-cam, daylight, 640x360 10 fps | 500 | 285 | **57.0%** | 28% / 52% / 80% | 55.0% / 2.0% |
-| CCD normal (10) | dash-cam, almost all night, 1280x720 10 fps | 500 | 52 | **10.4%** | 8% / 8% / 32% | 3.2% / 7.2% |
-| UCF-Crime anomaly (10) | fixed CCTV, 320x240 30 fps | 4,698 | 932 | **19.8%** | 3% / 16% / 88% | 17.6% / 2.3% |
-| UCF-Crime normal (5) | fixed CCTV, 320x240 30 fps | 2,077 | 274 | **13.2%** | 3% / 3% / 60% | 10.4% / 2.8% |
-| VIRAT (3) | fixed ground camera, 1280x720 24 fps | 1,435 | 67 | **4.7%** | 4% / 4% / 6% | 0.8% / 3.9% |
+| CCD crash (10) | dash-cam, daylight, 640x360, 10 fps | 500 | 285 | **57.0%** | 28 / 52 / 80% | 55.0 / 2.0% |
+| CCD normal (10) | dash-cam, almost all night, 1280x720, 10 fps | 500 | 52 | **10.4%** | 8 / 8 / 32% | 3.2 / 7.2% |
+| UCF-Crime anomaly (10) | fixed CCTV, 320x240, 30 fps | 4,698 | 932 | **19.8%** | 3 / 16 / 88% | 17.6 / 2.3% |
+| UCF-Crime normal (5) | fixed CCTV, 320x240, 30 fps | 2,077 | 274 | **13.2%** | 3 / 3 / 60% | 10.4 / 2.8% |
+| VIRAT (3) | fixed ground camera, 1280x720, 24 fps | 1,435 | 67 | **4.7%** | 4 / 4 / 6% | 0.8 / 3.9% |
 
-**Dash-cam (CCD crash): the gate does little.** 6 of 10 clips keep half or more, and
-four (000288, 000289, 000290, 000418) keep 40 of 50 frames: **every frame that could be
-scored** (the other 10 are the warm-up). Median active cells there is 6 to 16 of 64. The
-camera moves, so much of the picture changes and the gate cannot tell that from something
-happening. The other four crash clips keep 28 to 38%. This is the outcome the ticket
-calls a finding. It is the daylight dash-cam case only: the CCD "normal" clips here are
-night footage, near black, and 9 of 10 never trigger on motion at all (retention 8% is
-the heartbeat), which says the gate is quiet in the dark, not that it works on a moving
-camera.
+**Result:** on fixed cameras the gate behaves sensibly: quiet scenes fall to the heartbeat
+floor (**3% at 30 fps**, 4% at 24, 8% at 10), busy ones keep more (UCF Robbery089 88%,
+RoadAccidents027 70%, a busy normal clip 60%). Six of 15 UCF clips and two of three VIRAT
+clips never triggered on motion. On daylight dash-cam footage it mostly does not: 6 of 10
+crash clips keep half or more, and four (000288, 000289, 000290, 000418) keep 40 of 50,
+**every scoreable frame** (median 6-16 active cells of 64), because camera motion looks like
+scene motion. The CCD normal clips are night footage, near black; 9 of 10 never trigger on
+motion, which says the gate is quiet in the dark, not that it handles a moving camera.
 
-**Fixed camera: the gate keeps little.** On quiet scenes retention falls to the
-heartbeat floor: **3% at 30 fps** (one frame a second), 4% at 24 fps, 8% at 10 fps.
-That floor is what a scene with nothing in it costs; it is not a threshold effect.
-Six of the 15 UCF clips and two of the three VIRAT clips never triggered on motion at
-all. Busy scenes keep more: UCF Robbery089 88%, RoadAccidents027 70%, a busy normal clip
-60%, so the gate follows activity on a fixed camera.
+**Exploration, not tuning** (other thresholds, 3 cells, rest default):
 
-**Sentence for the acceptance:** on the fixed-camera footage (UCF-Crime 13-20%, VIRAT
-4.7%, down to the 3-4% heartbeat floor on quiet clips) the gate behaves sensibly, and on
-the daylight dash-cam footage (CCD crash, 57%, four clips at every scoreable frame) it
-mostly does not, because camera motion is indistinguishable from scene motion.
-
-**No clip is an empty corridor.** The nearest are VIRAT's outdoor scenes and the quiet
-UCF "normal" clips, which sit at the heartbeat floor. That is evidence the gate admits
-very little when little happens, not a test on an empty corridor.
-
-### Exploration, labelled as such (not tuning; the defaults above are the result)
-
-Re-gating the same clips at other cell thresholds (3 active cells, other parameters
-default) shows what would change the picture:
-
-| Group | default (25) | threshold 50 | threshold 100 |
+| Group | 25 (default) | 50 | 100 |
 |---|---|---|---|
 | CCD crash | 57.0% | 29.8% | 14.8% |
 | CCD normal | 10.4% | 8.0% | 8.0% |
@@ -983,81 +466,52 @@ default) shows what would change the picture:
 | UCF-Crime normal | 13.2% | 9.9% | 6.2% |
 | VIRAT | 4.7% | 4.0% | 4.0% |
 
-Raising the threshold lowers dash-cam retention, but it lowers the fixed-camera clips
-with real activity too, so it does not by itself separate a moving camera from a moving
-subject. No setting was adopted. Whether the gate should compensate for camera motion is
-a design question for Algorithm 1, not a value to pick from this table.
+A higher threshold lowers dash-cam retention but also cuts fixed-camera clips with real
+activity, so it does not separate camera motion from subject motion. No setting adopted.
 
-### How much to trust it
+**How much to trust it:** 38 clips chosen by what is on disk, most dash-cam ones 5 s; a
+group is dominated by its longest clips (UCF Fighting023 and Arrest013 are nearly half the
+anomaly frames); CCD normal is night only; the same 21 px blur is a larger share of a
+320x240 frame (effect not measured). **Not covered:** whether the admitted frames contain
+the event. No clip is an empty corridor; the nearest are VIRAT and the quiet UCF normal
+clips, at the heartbeat floor.
 
-- 38 clips, chosen by what is on disk, most of the dash-cam ones only 5 s. A group's
-  retention is dominated by its longest clips (UCF Fighting023 and Arrest013 are nearly
-  half of the UCF anomaly frames)
-- The CCD normal clips are night footage, so they do not stand for daytime normal driving
-- 320x240 UCF clips and 1280x720 clips share the same 21 px blur, which is a larger
-  share of a small frame; whether that changes what the gate sees was not measured
-- Retention says how much is kept, not whether the *right* frames were kept; nothing here
-  checks that admitted frames contain the event
+## OMNI-319 · Definition of done for slices 3-4, and a worker restart mid-capture · 2026-09-26
 
-## 2026-09-26 — Definition of done for slices 3 and 4, and a worker restart mid-capture (OMNI-319)
-
-**Conditions.** The whole stack brought down (`docker compose down`, volumes kept) and up
-again with `docker compose up -d`, then `scripts/verify_definition_of_done.py` against it:
-real API, database, broker and containers, the simulator's `cam02` feed at the default
-sampling (every 0.2 s) and gate parameters, one machine as in OMNI-316. All 44 checks passed there, and on one run before it on the stack as it was. The first run had 28 of 29 passing: the one failure was my check, which polled the counter every 3 s although the worker reports totals every 5 s; the premise was wrong and was fixed, not the result. It creates a throwaway admin, cameras and videos and removes them.
+**Conditions:** `docker compose down` (volumes kept), `up -d`, then
+`scripts/verify_definition_of_done.py` against the real stack; `cam02` at default sampling
+(0.2 s) and gate parameters. **44 of 44 checks passed**, and again on one run against the
+stack as it was. Throwaway admin, cameras and videos removed afterwards.
 
 | Definition of done | Result |
 |---|---|
-| A recording that is still, then moves: early frames discarded, moving ones admitted | A 12 s clip (6 s still, 6 s moving, 15 fps): still part **0 of 90 frames admitted for motion**, 5 by the heartbeat; moving part **90 of 90 admitted** |
-| Moving the threshold visibly changes the counts | Admitted frames at cell threshold 5 / 25 / 100 / 200: **95 / 95 / 11 / 11** |
-| Clicking a thumbnail seeks the player | Data and serving verified by script (a thumbnail is `image/jpeg`, its moment lies inside the recording, the playback stream answers a range request with 206). **Clicked in the browser on the fresh stack**: a real click on the 0:07.4 tile put the player at 7.366666 s, that frame's timestamp (through nginx at `https://localhost`; the frontend dev server on port 3000 cannot serve the media) |
-| Start a camera: frames arrive continuously, counters climb | `captured` 30, 51, 73, 94 at 6 s intervals, 113 rows stored, camera `connected` |
-| Kill the simulator: unreachable, then recovers on its own | Status was `unreachable` by the time the stop command returned; **back to `connected` about 11 s after the simulator restarted**, with no action on the camera; frames flowing again |
-| Restart the worker mid-capture, nothing already accepted is lost | Four ways, below: **no frame lost in any** |
+| Still then moving: early frames discarded, moving ones admitted | 12 s clip (6 s still, 6 s moving, 15 fps): still part **0 of 90 admitted for motion**, 5 by heartbeat; moving part **90 of 90** |
+| Moving the threshold changes the counts | admitted at threshold 5 / 25 / 100 / 200: **95 / 95 / 11 / 11** |
+| Clicking a thumbnail seeks the player | by script: thumbnail is `image/jpeg`, its moment is inside the recording, the playback stream answers a range request with 206. In the browser on the fresh stack: clicking the 0:07.4 tile put the player at 7.366666 s, that frame's timestamp (through nginx at `https://localhost`) |
+| Start a camera: frames arrive, counters climb | `captured` 30, 51, 73, 94 at 6 s intervals; 113 rows; `connected` |
+| Kill the simulator: unreachable, then recovers | `unreachable` by the time the stop returned; **`connected` about 11 s after the simulator restarted**, no action on the camera |
+| Restart the worker mid-capture, nothing accepted is lost | four ways, below: **no frame lost** |
 
-### Restart mid-capture
+**Restart mid-capture.** Ground truth is the disk: a worker writes each admitted frame's JPEG
+before publishing it, and frame indexes count every frame of a session. A row without a
+file, or a gap in a session's indexes, is a loss; a file without a row is a frame the broker
+never confirmed.
 
-Ground truth is the disk: a worker writes each admitted frame's JPEG before it publishes
-it, and the rows carry a frame index that counts every frame of a capture session. So a
-row whose file is missing, or a gap inside a session's indexes, is a real loss, and a file
-without a row is a frame the broker never confirmed.
-
-| Action, at 14 s into a capture | Rows before -> after | Gaps in the session | Rows without a file | Files without a row |
+| Action, 14 s into a capture | Rows before -> after | Gaps | Rows without a file | Files without a row |
 |---|---|---|---|---|
-| `docker compose restart ingestion` (graceful) | 60 -> 62 | none | 0 | 0 |
+| `docker compose restart ingestion` | 60 -> 62 | none | 0 | 0 |
 | `docker compose kill ingestion` (SIGKILL) | 58 -> 61 | none | 0 | 0 |
-| consumer stopped 15 s, started (queue held 64-66 messages meanwhile) | 60 -> 198 | none | 0 | 0 |
-| consumer `kill -9` for 15 s, started (queue held 64 messages) | 60 -> 193 | none | 0 | 0 |
+| consumer stopped 15 s (queue held 64-66) | 60 -> 198 | none | 0 | 0 |
+| consumer `kill -9` for 15 s (queue held 64) | 60 -> 193 | none | 0 | 0 |
 
-After either restart of ingestion, capture can be started again and arrives as a new
-session, with the old rows intact (62 -> 96 rows and similar). The queue drained to zero
-after every action.
+After either ingestion restart, capture restarts as a new session with the old rows intact
+(62 -> 96 and similar). The queue drained to zero after every action. The loss detector was
+self-tested (a missing row, a missing file and a restarted session are each flagged).
 
-**What this does not show.**
-- **Nothing resumes the workers.** After both ingestion restarts the worker was gone
-  (`GET /workers` empty) and the camera **still read `connected`**, with nobody capturing,
-  until capture was started again. This was known since OMNI-312 and is now measured. It is
-  a gap in the camera's status, not in the data, and it was not fixed here
-- **The window between writing a JPEG and the broker confirming it was not hit.** The kill
-  landed at a random moment three times and found no file without a row, so a frame
-  in flight at that instant was not observed, and the rule for it (never confirmed, so not
-  "accepted") is by construction, not by test. Frames still in the worker's in-process
-  queue (at most 10) when it is killed are lost the same way: they were never accepted
-- **The detector was checked:** a self-test feeds it rows with a missing row, a missing file
-  and a restarted session and it flags each. The guarantee itself (acknowledge after the
-  commit) was mutation-tested in OMNI-311
-- Broker restart during capture is a different case (the worker does not reconnect to the
-  broker, only to the camera) and was not run here
+**Not covered:** the moment between writing a JPEG and the broker's confirm (three random
+kills never hit it; a frame there is not "accepted" by construction, not by test); frames in
+the worker's in-process queue (up to 10) are lost on a kill the same way; a broker restart
+during capture. After an ingestion restart nothing resumes the worker and the camera still
+reads `connected` (open in `known-issues.md`).
 
-### One thing the plan said that the build does not do
-
-The plan says gating runs from stored frames, never from the video, so the threshold slider
-is fast. **Re-gating decodes the source video again** (OMNI-306 chose this: only admitted
-frames have a JPEG, so re-scoring stored frames could never bring a discarded one back).
-It took 1.4 to 2.0 s per re-gate on the short clips measured (OMNI-310), and that cost
-grows with the recording's length, which no test here covers.
-
-### The full suite
-
-`uv run pytest`: **304 passed**, run against a scratch database (the dev database was
-untouched, 3 videos before and after).
+`uv run pytest`: **304 passed**, against a scratch database.

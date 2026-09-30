@@ -22,7 +22,7 @@ statement links back to the video that supports it.
 | `data` | The five research datasets, one folder each. Never committed. |
 | `models` | Downloaded checkpoints and the ones trained here. Never committed. |
 | `notebooks` | Experiments and the charts that go into the project book. |
-| `docs` | Design notes, decisions, and `results.md` — every measurement, the week it is taken. |
+| `docs` | Design notes; `results.md` (every measurement, the week it is taken), `decisions.md`, `known-issues.md`. |
 | `scripts` | Small one-off helpers. |
 | `tests` | End-to-end checks across the whole system. |
 

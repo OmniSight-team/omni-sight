@@ -141,7 +141,7 @@ class MotionGate(FrameGate):
     One documented departure from the pseudocode: frames are blurred before
     differencing (see `_preprocess`). The pseudocode does not blur; without it,
     two frames of a perfectly still scene still differ pixel by pixel from
-    sensor noise alone, which the blur suppresses. Recorded in docs/results.md.
+    sensor noise alone, which the blur suppresses. Recorded in docs/decisions.md (D-4).
 
     One instance per extraction: it holds a buffer of earlier frames, so it
     carries state across calls the way a stateless function could not, and

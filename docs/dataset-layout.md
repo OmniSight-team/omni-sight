@@ -198,8 +198,8 @@ Normal clips have no label file. Every frame is negative.
   normal clips silently overwrote the crashes
 - **Every clip is 50 frames at 10 fps — 5 seconds end to end.** That bounds how
   much lead time SM-3 can ever measure, and is why the SM-3 target is set from
-  this data in slice 6 rather than fixed in advance. See `docs/results.md`,
-  2026-09-20
+  this data in slice 6 rather than fixed in advance. See `docs/decisions.md`,
+  D-2
 - **The normal clips come from a different source** — BDD100K — than the crashes.
   A model can learn to tell the two sources apart instead of learning what an
   accident looks like. Worth checking in slice 10 whether performance survives on
