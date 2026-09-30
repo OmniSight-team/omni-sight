@@ -275,9 +275,10 @@ def _open_stream(rtsp_url: str) -> cv2.VideoCapture:
 
 
 def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
-    """A worker whose frames go through the same `process_frame` and the same
-    queue as a file's (OMNI-312). Nothing about its records says "camera"
-    beyond `source_type`, and `video_id` is null."""
+    """A worker whose frames go through the same `process_frame`, the same gate
+    settings and the same queue as a file's (OMNI-312, OMNI-501). Nothing about
+    its records says "camera" beyond `source_type`, and `video_id` is null. The
+    one live-specific part is in the worker: it publishes admitted frames only."""
     started_at = time.time()
     # One folder per capture session: a frame's file is named by its index in
     # the session, and a restarted worker starts counting again, so sharing a
@@ -322,7 +323,6 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
             connection_parameters(settings), settings.segment_queue, settings.camera_event_queue
         ),
         make_process=make_process,
-        sample_interval_s=settings.live_sample_interval_s,
         clock=lambda: time.time(),
         backoff=Backoff(
             settings.live_reconnect_initial_s,
@@ -341,8 +341,8 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
 
 @app.post("/workers/start", response_model=WorkerStartResponse)
 def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
-    """Start capturing a camera: open its stream, and gate, publish and store
-    what it delivers until told to stop. Returns once the first frame has
+    """Start capturing a camera: open its stream, gate every frame it delivers
+    and publish the admitted ones until told to stop. Returns once the first frame has
     arrived, or with the reason it did not."""
     existing = workers.get(payload.camera_id)
     if existing is not None and existing.state in LIVE_STATES:

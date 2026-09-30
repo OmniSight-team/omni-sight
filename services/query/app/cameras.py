@@ -300,8 +300,10 @@ def camera_stats(
     db: Session = Depends(get_db),
     _user: User = Depends(_operator_or_admin),
 ) -> CameraStatsOut:
-    """How a live camera is keeping up: how many frames were sampled, how many of
-    those had to be dropped, and how fast frames are actually being processed.
+    """How a live camera is keeping up: how many frames were captured, how many
+    of those had to be dropped, what the gate did with the rest (admitted for
+    motion, admitted as a heartbeat, discarded), and how fast frames are actually
+    being gated.
 
     Read from what the worker last reported, not from the worker: the counters
     are the stored totals, and `uptime_s` and `fps_effective` come from the
@@ -325,6 +327,11 @@ def camera_stats(
     return CameraStatsOut(
         captured=stats.captured,
         dropped=stats.dropped,
+        gated=stats.gated,
+        admitted=stats.admitted_motion + stats.admitted_heartbeat,
+        admitted_motion=stats.admitted_motion,
+        admitted_heartbeat=stats.admitted_heartbeat,
+        discarded=stats.discarded,
         fps_effective=(stats.fps_effective or 0.0) if running else 0.0,
         uptime_s=(now - stats.session_started_at).total_seconds() if running else 0.0,
     )

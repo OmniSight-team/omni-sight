@@ -1,5 +1,5 @@
-"""OMNI-312, 313 and 314: the live capture worker, its reconnection, and its
-bounded queue.
+"""OMNI-312, 313, 314 and 501: the live capture worker, its reconnection, its
+bounded queue, and gating every frame while publishing only the admitted ones.
 
 Driven with a scripted fake stream and a fake clock — no camera, no broker — so
 the tests are deterministic. Frames go through the real `process_frame` and
@@ -199,7 +199,7 @@ class RecordingBackoff(live.Backoff):
         return delay
 
 
-def _worker(tmp_path, clock, capture, publisher, *, camera_id=7, interval=0.19, make_process=None, **extra):
+def _worker(tmp_path, clock, capture, publisher, *, camera_id=7, make_process=None, **extra):
     """A worker over one capture (or a `Script.open`), processing frames through
     the real `process_frame`."""
     frames_dir, thumbs_dir = tmp_path / "frames", tmp_path / "thumbs"
@@ -237,7 +237,6 @@ def _worker(tmp_path, clock, capture, publisher, *, camera_id=7, interval=0.19, 
         open_capture=(lambda: capture) if not callable(getattr(capture, "open", None)) else capture.open,
         make_publisher=lambda: publisher,
         make_process=make_process or real_make_process,
-        sample_interval_s=interval,
         clock=clock,
         **extra,
     )
@@ -279,7 +278,7 @@ def _finish(worker):
 # --- what a worker publishes -------------------------------------------------
 
 
-def test_it_samples_the_stream_instead_of_processing_every_frame(tmp_path):
+def test_every_frame_is_gated_and_none_is_skipped_before_the_gate(tmp_path):
     clock = FakeClock()
     capture = FakeCapture(clock, frames=75)  # three seconds of a 25 fps camera
     publisher = FakePublisher()
@@ -290,15 +289,34 @@ def test_it_samples_the_stream_instead_of_processing_every_frame(tmp_path):
     assert _until(lambda: worker.grabbed == 75)
     worker.stop(WAIT_S)
 
-    assert worker.grabbed == 75  # every frame was read...
-    # ...but only one in five was processed: a 0.19 s interval lands on every
-    # fifth 0.04 s frame (0.24 s is the first at or past 0.04 + 0.19).
-    assert worker.published == len(publisher.records) == 15
-    times = [record.timestamp_s for record in publisher.records]
-    assert all(later - earlier >= 0.19 for earlier, later in itertools.pairwise(times))
+    # Algorithm 1 has no sampling step: what the stream delivered is what the
+    # gate was shown, frame for frame.
+    assert worker.grabbed == worker.captured == worker.gated == 75
+    assert worker.process_makes[0].seen == 75
+    assert worker.dropped == 0
 
 
-def test_a_sampled_frame_is_an_ordinary_camera_segment(tmp_path):
+def test_only_an_admitted_frame_is_published(tmp_path):
+    clock = FakeClock()
+    publisher = FakePublisher()
+    worker = _worker(tmp_path, clock, FakeCapture(clock, frames=60), publisher)
+    worker._backoff = live.Backoff(60, 60)
+
+    worker.start(WAIT_S)
+    assert _until(lambda: worker.grabbed == 60)
+    worker.stop(WAIT_S)
+
+    # The gate here admits every second frame.
+    assert worker.gated == 60 and worker.admitted == 30 and worker.discarded == 30
+    assert worker.published == len(publisher.records) == 30
+    assert all(record.admitted and record.admission_reason == "motion" for record in publisher.records)
+    # A discarded frame leaves nothing behind: no message, and no file either.
+    frames = sorted(path.name for path in (tmp_path / "frames").iterdir())
+    thumbs = sorted(path.name for path in (tmp_path / "thumbs").iterdir())
+    assert frames == thumbs == [f"{record.frame_index:06d}.jpg" for record in publisher.records]
+
+
+def test_an_admitted_frame_is_an_ordinary_camera_segment_with_its_clip(tmp_path):
     clock = FakeClock()
     publisher = FakePublisher()
     worker = _worker(tmp_path, clock, FakeCapture(clock, frames=40), publisher, camera_id=7)
@@ -313,30 +331,139 @@ def test_a_sampled_frame_is_an_ordinary_camera_segment(tmp_path):
     assert {record.source_type for record in records} == {"camera"}
     assert {record.camera_id for record in records} == {7}
     assert {record.video_id for record in records} == {None}
-    assert [record.frame_index for record in records] == list(range(len(records)))
+    # The index counts every gated frame, as a file's does, so the admitted
+    # ones (every second frame here) are not consecutive.
+    assert [record.frame_index for record in records] == list(range(1, 40, 2))
     # Stamped with the clock's own time, not seconds from some zero.
     assert all(record.timestamp_s > START for record in records)
+    for record in records:
+        assert Path(record.frame_path).is_file() and Path(record.thumb_path).is_file()
+        assert record.clip_start_s < record.clip_end_s == record.timestamp_s
 
 
-def test_only_an_admitted_frame_gets_files_exactly_as_for_a_file(tmp_path):
+# --- Algorithm 1 on a live stream (OMNI-501) ---------------------------------
+
+STILL_FRAMES = 100  # four seconds of a 25 fps camera with nothing happening
+MOVING_FRAMES = 100  # then four seconds with something crossing the picture
+STRIDE_S = 0.5
+HEARTBEAT_S = 1.0
+
+
+class StillThenMovingCapture(FakeCapture):
+    """A scene that does not change at all for `STILL_FRAMES`, and then has a
+    bright block crossing it."""
+
+    def retrieve(self):
+        frame = np.full((96, 128, 3), 40, dtype=np.uint8)
+        moving = self.delivered - STILL_FRAMES
+        if moving > 0:
+            left = (moving * 4) % 96
+            frame[30:66, left : left + 32] = (0, 200, 255)
+        return True, frame
+
+
+def _algorithm_1_worker(tmp_path, clock, publisher, **extra):
+    """A worker with the gate a real camera gets: `MotionGate` inside
+    `HeartbeatGate`, the settings' defaults, through the real `process_frame`."""
+    frames_dir, thumbs_dir = tmp_path / "frames", tmp_path / "thumbs"
+
+    def make_process():
+        gate = pipeline.HeartbeatGate(
+            pipeline.MotionGate(
+                grid_size=8, cell_threshold=25.0, min_active_cells=3, stride_s=STRIDE_S, blur_kernel=21
+            ),
+            heartbeat_interval_s=HEARTBEAT_S,
+            stride_s=STRIDE_S,
+            start_s=clock.now,
+        )
+
+        def process(frame, timestamp_s, index):
+            return pipeline.process_frame(
+                frame,
+                pipeline.FrameSource(
+                    source_type="camera", frame_index=index, timestamp_s=timestamp_s, camera_id=7
+                ),
+                gate,
+                frames_dir,
+                thumbs_dir,
+                thumb_width=32,
+                frame_quality=80,
+                thumb_quality=60,
+            )
+
+        return process
+
+    capture = StillThenMovingCapture(clock, frames=STILL_FRAMES + MOVING_FRAMES)
+    worker = _worker(tmp_path, clock, capture, publisher, make_process=make_process, **extra)
+    worker._backoff = live.Backoff(60, 60)
+    return worker
+
+
+def _run_still_then_moving(tmp_path, **extra):
     clock = FakeClock()
     publisher = FakePublisher()
-    worker = _worker(tmp_path, clock, FakeCapture(clock, frames=60), publisher)
-    worker._backoff = live.Backoff(60, 60)
-
+    worker = _algorithm_1_worker(tmp_path, clock, publisher, **extra)
     worker.start(WAIT_S)
-    assert _until(lambda: worker.grabbed == 60)
+    assert _until(lambda: worker.grabbed == STILL_FRAMES + MOVING_FRAMES)
     worker.stop(WAIT_S)
+    moving_from = START + STILL_FRAMES * FRAME_PERIOD_S
+    still = [r for r in publisher.records if r.timestamp_s <= moving_from]
+    moving = [r for r in publisher.records if r.timestamp_s > moving_from]
+    return worker, publisher, still, moving
 
-    admitted = [r for r in publisher.records if r.admitted]
-    discarded = [r for r in publisher.records if not r.admitted]
-    assert admitted and discarded
-    for record in admitted:
-        assert Path(record.frame_path).is_file() and Path(record.thumb_path).is_file()
+
+def test_a_still_then_moving_stream_publishes_only_the_frames_the_gate_admits(tmp_path):
+    worker, publisher, still, moving = _run_still_then_moving(tmp_path)
+
+    assert worker.gated == STILL_FRAMES + MOVING_FRAMES  # every frame was gated
+    assert all(record.admitted for record in publisher.records)  # and only admitted ones went out
+    assert len(publisher.records) < worker.gated
+
+    # Nothing moves: the only frames kept are the heartbeat's, one a second.
+    assert {record.admission_reason for record in still} == {"heartbeat"}
+    assert 3 <= len(still) <= 4
+    gaps = [later.timestamp_s - earlier.timestamp_s for earlier, later in itertools.pairwise(still)]
+    assert all(gap >= HEARTBEAT_S - 1e-6 for gap in gaps)
+    assert all(record.motion_score == 0.0 for record in still)  # scored, and found still
+
+    # Something moves: frames are admitted for the motion itself.
+    motion = [record for record in moving if record.admission_reason == "motion"]
+    assert len(motion) > MOVING_FRAMES // 2
+    assert all(record.motion_score >= 3 for record in motion)
+
+
+def test_each_admitted_live_frame_carries_its_causal_clip(tmp_path):
+    _, publisher, still, moving = _run_still_then_moving(tmp_path)
+
+    assert still and moving  # heartbeat admissions and motion admissions alike
+    for record in publisher.records:
+        # Pseudocode lines 7-8: W = Buffer.window([t - 2Δ, t]); forward(f_t, W).
         assert record.clip_end_s == record.timestamp_s
-    for record in discarded:
-        assert record.frame_path is None and record.thumb_path is None
-        assert record.motion_score == 1.0  # still scored, still stored
+        assert record.clip_start_s == pytest.approx(record.timestamp_s - 2 * STRIDE_S)
+
+
+def test_the_gate_counters_balance_exactly(tmp_path):
+    worker, publisher, _still, _moving = _run_still_then_moving(tmp_path)
+
+    assert worker.captured == worker.gated + worker.dropped
+    assert worker.gated == worker.admitted + worker.discarded
+    assert worker.admitted == worker.admitted_motion + worker.admitted_heartbeat
+    by_reason = [record.admission_reason for record in publisher.records]
+    assert worker.admitted_motion == by_reason.count("motion") > 0
+    assert worker.admitted_heartbeat == by_reason.count("heartbeat") > 0
+    assert worker.discarded == worker.gated - len(publisher.records) > 0
+    assert worker.published == len(publisher.records)
+
+
+def test_the_counters_still_balance_when_frames_are_dropped(tmp_path):
+    # A queue of two on a stream delivered as fast as it can be read: most
+    # frames never reach the gate.
+    worker, publisher, _still, _moving = _run_still_then_moving(tmp_path, queue_size=2)
+
+    assert worker.dropped > 0
+    assert worker.captured == STILL_FRAMES + MOVING_FRAMES == worker.gated + worker.dropped
+    assert worker.gated == worker.admitted + worker.discarded
+    assert worker.published == worker.admitted == len(publisher.records)
 
 
 # --- lifecycle ---------------------------------------------------------------
@@ -573,8 +700,12 @@ def test_no_frame_is_lost_or_counted_twice_across_a_reconnection(tmp_path):
     # The frame read to prove a reconnection works is used, not thrown away and
     # not read again: what was grabbed is exactly what the captures delivered.
     assert worker.grabbed == sum(capture.delivered for capture in script.opened)
+    assert worker.gated == worker.captured == worker.grabbed  # and every one was gated
+    # One count across the gap: it carries on, it does not start again from zero
+    # (the gate here admits every second frame, so not every index is stored).
     indexes = [record.frame_index for record in publisher.records]
-    assert indexes == list(range(len(indexes)))  # one unbroken count across the gap
+    assert indexes == sorted(set(indexes))
+    assert max(indexes) >= 25  # frames from after the gap are numbered on from before it
 
 
 def test_every_stream_it_opened_is_released(tmp_path):
@@ -665,11 +796,11 @@ def test_a_worker_waiting_to_reconnect_reports_what_it_is_doing(tmp_path):
 
 
 def _flood(tmp_path, clock, publisher, *, queue_size, **extra):
-    """A worker on a stream that goes on for ever, sampled every frame so the
-    processing side is easily outrun."""
+    """A worker on a stream that goes on for ever and delivers far faster than
+    a camera, so the processing side is easily outrun."""
     capture = FakeCapture(clock, pace_s=0.0005)
     return _worker(
-        tmp_path, clock, capture, publisher, interval=0.0, queue_size=queue_size, **extra
+        tmp_path, clock, capture, publisher, queue_size=queue_size, **extra
     )
 
 
@@ -711,7 +842,7 @@ def test_the_stream_keeps_being_read_while_processing_is_stuck(tmp_path):
         worker.stop(WAIT_S)
 
 
-def test_every_sampled_frame_is_accounted_for_as_published_or_dropped(tmp_path):
+def test_every_captured_frame_is_accounted_for_as_gated_or_dropped(tmp_path):
     clock = FakeClock()
     stalled = threading.Event()
     publisher = FakePublisher(block=stalled)
@@ -723,12 +854,13 @@ def test_every_sampled_frame_is_accounted_for_as_published_or_dropped(tmp_path):
     worker.stop(WAIT_S)
 
     # Nothing vanished without being counted.
-    assert worker.captured == worker.published + worker.dropped
-    assert worker.published == len(publisher.records) > 0
+    assert worker.captured == worker.gated + worker.dropped
+    assert worker.gated == worker.admitted + worker.discarded
+    assert worker.published == worker.admitted == len(publisher.records) > 0
     assert worker.dropped >= 30
 
 
-def test_a_dropped_frame_does_not_leave_a_hole_in_the_frame_numbering(tmp_path):
+def test_a_dropped_frame_does_not_disturb_the_frame_numbering(tmp_path):
     clock = FakeClock()
     stalled = threading.Event()
     publisher = FakePublisher(block=stalled)
@@ -739,8 +871,12 @@ def test_a_dropped_frame_does_not_leave_a_hole_in_the_frame_numbering(tmp_path):
     time.sleep(0.1)
     worker.stop(WAIT_S)
 
+    # A dropped frame takes no index: the gated frames are numbered 0, 1, 2...
+    # with nothing missing, so the gate here (every second frame) admits exactly
+    # the odd ones. Files are named by the index, so no two frames may share one.
     indexes = [record.frame_index for record in publisher.records]
-    assert indexes == list(range(len(indexes)))  # files are named by it; a gap would point nowhere
+    assert indexes == list(range(1, 2 * len(indexes), 2))
+    assert all(Path(record.frame_path).is_file() for record in publisher.records)
 
 
 def test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame(tmp_path, caplog):
@@ -788,7 +924,7 @@ def test_a_healthy_pipeline_drops_nothing_and_logs_nothing(tmp_path, caplog):
     publisher = FakePublisher()
     # A stream paced in real time, so processing (which is quick) keeps up. An
     # instant fake stream would outrun it and drop frames, which is correct.
-    capture = FakeCapture(clock, frames=200, pace_s=0.005)
+    capture = FakeCapture(clock, frames=200, pace_s=0.01)
     worker = _worker(tmp_path, clock, capture, publisher, queue_size=10)
     worker._backoff = live.Backoff(60, 60)
     with caplog.at_level(logging.WARNING, logger="app.live_capture"):
@@ -797,7 +933,7 @@ def test_a_healthy_pipeline_drops_nothing_and_logs_nothing(tmp_path, caplog):
         worker.stop(WAIT_S)
 
     assert worker.dropped == 0
-    assert worker.captured == worker.published
+    assert worker.captured == worker.gated == 200
     assert not [r for r in caplog.records if "dropping" in r.message]
 
 
@@ -809,7 +945,7 @@ def test_frames_are_dropped_rather_than_added_to_a_queue_that_is_already_too_dee
     publisher = FakePublisher(backlog=500)  # the consumer has fallen far behind
     worker = _worker(
         tmp_path, clock, FakeCapture(clock, frames=100), publisher,
-        interval=0.0, max_backlog=100, backlog_check_interval_s=0.0,
+        max_backlog=100, backlog_check_interval_s=0.0,
     )
     worker._backoff = live.Backoff(60, 60)
 
@@ -827,7 +963,7 @@ def test_publishing_resumes_once_the_backlog_has_drained(tmp_path):
     capture = FakeCapture(clock, pace_s=0.001)
     worker = _worker(
         tmp_path, clock, capture, publisher,
-        interval=0.0, max_backlog=100, backlog_check_interval_s=0.0,
+        max_backlog=100, backlog_check_interval_s=0.0,
     )
     worker.start(WAIT_S)
     try:
@@ -846,7 +982,7 @@ def test_the_backlog_is_not_asked_for_on_every_frame(tmp_path):
     publisher = FakePublisher(backlog=0)
     worker = _worker(
         tmp_path, clock, FakeCapture(clock, frames=200), publisher,
-        interval=0.0, max_backlog=100, backlog_check_interval_s=5.0,
+        max_backlog=100, backlog_check_interval_s=5.0,
     )
     worker._backoff = live.Backoff(60, 60)
 
@@ -854,14 +990,14 @@ def test_the_backlog_is_not_asked_for_on_every_frame(tmp_path):
     assert _until(lambda: worker.grabbed == 200)
     worker.stop(WAIT_S)
 
-    assert len(publisher.records) > 100
+    assert worker.gated == 200 and len(publisher.records) == 100
     assert publisher.backlog_reads < 5  # a round trip per second at most, not one per frame
 
 
 def test_without_a_limit_the_backlog_is_never_read(tmp_path):
     clock = FakeClock()
     publisher = FakePublisher(backlog=10**9)
-    worker = _worker(tmp_path, clock, FakeCapture(clock, frames=50), publisher, interval=0.0)
+    worker = _worker(tmp_path, clock, FakeCapture(clock, frames=50), publisher)
     worker._backoff = live.Backoff(60, 60)
 
     worker.start(WAIT_S)
@@ -890,10 +1026,14 @@ def test_running_totals_are_reported_periodically_and_are_cumulative(tmp_path):
     assert first["camera_id"] == 7 and first["worker_id"] == worker.worker_id
     assert first["running"] is True and first["started_at"] == worker.started_at
     # Totals, not increments: each report can only be at or above the last.
+    counters = ("captured", "dropped", "gated", "admitted_motion", "admitted_heartbeat", "discarded")
     for earlier, later in itertools.pairwise(reports):
-        assert later["captured"] >= earlier["captured"]
-        assert later["dropped"] >= earlier["dropped"]
+        assert all(later[counter] >= earlier[counter] for counter in counters)
     assert reports[-1]["captured"] > reports[0]["captured"]
+    assert reports[-1]["gated"] > reports[0]["gated"]
+    # The gate's counters balance in every report, not only in the last one.
+    for report in reports:
+        assert report["gated"] == report["admitted_motion"] + report["admitted_heartbeat"] + report["discarded"]
 
 
 def test_the_first_report_goes_out_at_once_not_after_a_full_interval(tmp_path):
@@ -925,6 +1065,10 @@ def test_a_final_report_says_the_worker_stopped_and_carries_its_last_totals(tmp_
     assert final["running"] is False
     assert final["captured"] == worker.captured
     assert final["dropped"] == worker.dropped
+    # Sent after the queue was drained, so nothing is in flight and both hold exactly.
+    assert final["captured"] == final["gated"] + final["dropped"]
+    assert final["gated"] == final["admitted_motion"] + final["admitted_heartbeat"] + final["discarded"]
+    assert (final["admitted_motion"], final["discarded"]) == (worker.admitted_motion, worker.discarded)
 
 
 def test_the_final_report_carries_the_drops_too(tmp_path):
@@ -954,19 +1098,22 @@ def test_failing_to_report_stats_does_not_stop_the_capture(tmp_path):
         worker.stop(WAIT_S)
 
 
-def test_the_effective_rate_is_the_frames_actually_processed_per_second(tmp_path):
+def test_the_effective_rate_is_the_frames_actually_gated_per_second(tmp_path):
     clock = FakeClock()
     publisher = FakePublisher()
-    # 500 frames of 25 fps is 20 s of stream; one sample per 0.2 s is 5 a second.
+    # 250 frames of 25 fps is 10 s of stream, all of it inside the window. Every
+    # frame is gated, so the rate is the stream's own: 25 a second, although
+    # only half of them are admitted and published.
     worker = _worker(
-        tmp_path, clock, FakeCapture(clock, frames=500, pace_s=0.004), publisher,
-        interval=0.19, fps_window_s=10.0,
+        tmp_path, clock, FakeCapture(clock, frames=250, pace_s=0.002), publisher,
+        fps_window_s=10.0,
     )
     worker._backoff = live.Backoff(60, 60)
     worker.start(WAIT_S)
-    assert _until(lambda: worker.grabbed == 500 and worker.published >= 90)
+    assert _until(lambda: worker.grabbed == 250 and worker.gated == 250)
 
-    assert worker.fps_effective() == pytest.approx(5.0, abs=0.7)
+    assert worker.published == 125
+    assert worker.fps_effective() == pytest.approx(25.0, abs=0.5)
     worker.stop(WAIT_S)
 
 
@@ -978,7 +1125,7 @@ def test_the_effective_rate_falls_when_frames_are_dropped(tmp_path):
     try:
         assert _until(lambda: worker.dropped >= 20)
         clock.now += 30.0  # long enough for the window to hold nothing
-        assert worker.fps_effective() == 0.0  # sampled plenty, processed none
+        assert worker.fps_effective() == 0.0  # captured plenty, gated nothing recently
     finally:
         stalled.set()
         worker.stop(WAIT_S)
@@ -1006,6 +1153,7 @@ def test_a_snapshot_carries_the_counters(tmp_path):
         assert snapshot["dropped"] >= 5 and snapshot["captured"] >= snapshot["dropped"]
         assert snapshot["queue_size"] == 2 and snapshot["queue_depth"] <= 2
         assert {"fps_effective", "uptime_s", "dropped_backlog", "published"} <= set(snapshot)
+        assert {"gated", "admitted", "admitted_motion", "admitted_heartbeat", "discarded"} <= set(snapshot)
     finally:
         stalled.set()
         worker.stop(WAIT_S)

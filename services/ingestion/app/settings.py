@@ -43,13 +43,9 @@ class Settings(CommonSettings):
     # kernel).
     motion_blur_kernel: int = Field(21, ge=1)
 
-    # Live capture (OMNI-312). A stream is read frame by frame, but only one
-    # frame per this many seconds is processed and published — never every
-    # frame of a 25 fps camera. Not the file extractor's setting: that path has
-    # no sampling step since OMNI-303's rework, it gates every frame; a live
-    # stream cannot afford to, one camera per core, so it has its own. A
-    # departure from Algorithm 1, still open: docs/decisions.md, D-9.
-    live_sample_interval_s: float = Field(0.2, gt=0)
+    # Live capture (OMNI-312). There is no sampling setting: every decoded frame
+    # of a stream is gated with the motion settings above, the same as a file's
+    # (OMNI-501; docs/decisions.md, D-9), and only admitted frames are published.
     # How long a start waits for the stream to open and deliver a first frame.
     # A stream sends nothing useful until its next keyframe, which on the
     # simulator is several seconds after connecting (3-4.5 s measured), so this
@@ -84,10 +80,10 @@ class Settings(CommonSettings):
     # retried at the shortest delay for ever.
     live_backoff_reset_s: float = Field(10.0, ge=0)
 
-    # The bounded queue between capture and processing (OMNI-314). A sampled frame
+    # The bounded queue between capture and processing (OMNI-314). A decoded frame
     # waits here for the processing thread; when it is full the frame is dropped
     # and counted, so a slow gate or broker costs frames, not memory. Ten frames
-    # is about two seconds at the default sampling interval, and at 1080p about
+    # is about two thirds of a second of a 15 fps stream, and at 1080p about
     # 60 MB, whatever happens downstream.
     live_queue_size: int = Field(10, ge=1)
     # The most segments the durable queue may hold before live frames are dropped

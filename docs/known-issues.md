@@ -15,6 +15,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-8 | Storage grows about 7.7 GB per camera per day, nothing prunes | Disk | OMNI-312 | Slice 16 (retention) |
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
+| K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
 
 ---
 
@@ -34,6 +35,9 @@ At 0.2 s sampling: 8 feeds sustained, 9 unreliable, 10 backs up within a minute 
 50-56 frames/s, ten feeds offer about 42. At 0.5 s sampling ten feeds are sustained (worst
 1.7 s). Tied to D-9 (the sampling interval is an open deviation). K-1 makes the margin at
 eight smaller.
+**2026-09-30 (OMNI-501):** sampling is removed and live cameras store admitted frames only,
+so these numbers describe a load that no longer exists. One camera gates 15 frames/s at
+36-39% of one core in ingestion; several feeds at once are not measured yet (OMNI-509).
 **Fix candidates, most measured first:** a longer sampling interval (measured); batched
 consumer commits (unmeasured); a separate live queue (K-1); services off the one machine.
 
@@ -74,6 +78,10 @@ batched confirms.
 
 24.2 KB per admitted frame at 320x240: about 7.7 GB per camera per day in constant motion,
 2.1 GB for a static scene; real cameras are larger. Nothing prunes until slice 16.
+**2026-09-30 (OMNI-501):** those figures are from 0.2 s sampling (at most about 4.2 stored
+frames/s). Every frame is now gated, so a scene in constant motion can store up to the
+feed's own rate (15/s on the simulator), about 3.5 times as much; `cam05` stored 3.1-3.3/s.
+Not measured per day.
 
 ## K-9 · Failure cases not tested
 
@@ -95,6 +103,24 @@ batched confirms.
   against a long recording
 - The frontend dev server on port 3000 cannot serve `/media/`; use nginx at
   `https://localhost`
+- `scripts/measure_capture_latency.py` and `scripts/measure_concurrent_feeds.py` still
+  speak of sampled frames and of discarded live rows, which no longer exist since OMNI-501
+  (their "discarded" line will read n=0). To be brought up to date when they are rerun
+  (OMNI-502, OMNI-509)
+- The camera screen does not show the new gate counters (`gated`, `admitted`, `discarded`);
+  they are in `GET /cameras/{id}/stats` only
+- `LIVE_QUEUE_SIZE` = 10 was sized for 5 frames/s (about 2 s); at 15 frames/s it is about
+  0.7 s. No drops on one camera (OMNI-501); not checked under load
+
+## K-11 · The restart loss check no longer fits live rows
+
+`scripts/verify_definition_of_done.py` (OMNI-319) decides that a frame was lost across a
+restart from three things: a row without a file, a file without a row, and **a gap in a
+session's frame indexes**. Since OMNI-501 a live camera stores admitted frames only while the
+index still counts every gated frame, so gaps are normal and the third check will report
+loss where there is none. Read from the code, not run. The first two checks still hold.
+**Fix candidate:** drop the gap check for live sessions and rely on files against rows, or
+compare the stored rows with the `admitted` counter.
 
 ---
 

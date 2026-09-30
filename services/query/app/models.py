@@ -208,23 +208,48 @@ class CameraStats(Base):
     camera_id: Mapped[int] = mapped_column(
         ForeignKey("cameras.id", ondelete="CASCADE"), primary_key=True
     )
-    # Frames sampled from the stream and offered to the pipeline, and of those the
+    # Frames decoded from the stream and offered to the pipeline, and of those the
     # ones dropped because it could not keep up (OMNI-314). Cumulative across every
     # capture session the camera has had.
     captured: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     dropped: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    # What the gate did with the frames it was shown (OMNI-501). A live camera
+    # stores admitted frames only, so these are the only record of the discarded
+    # ones. `captured = gated + dropped` and `gated = admitted_motion +
+    # admitted_heartbeat + discarded`, for everything captured since these
+    # columns were added.
+    gated: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    admitted_motion: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    admitted_heartbeat: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    discarded: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     # When the newest frame was read from the stream.
     last_frame_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Everything below is bookkeeping for one capture session (OMNI-314). A live
     # worker reports its own running totals, not increments, and the consumer
-    # adds to `captured` and `dropped` above only what it has not already counted
-    # for that worker, so a report delivered twice or late cannot count the same
-    # frames twice.
+    # adds to the counters above only what it has not already counted for that
+    # worker, so a report delivered twice or late cannot count the same frames
+    # twice.
     session_id: Mapped[str | None] = mapped_column(String)
     session_captured: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
     session_dropped: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    session_gated: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    session_admitted_motion: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    session_admitted_heartbeat: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    session_discarded: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
     # When the current session began; NULL once the worker has said it stopped.

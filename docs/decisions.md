@@ -10,11 +10,11 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-2 | SM-3 measured as mean time-to-accident, target set from CCD in slice 6 | 2026-09-20 | Target pending (slice 6) |
 | D-3 | Files: every decoded frame is gated, no sampling step | 2026-09-23 | Done |
 | D-4 | **Deviation:** blur before differencing | 2026-09-23 | Done |
-| D-5 | **Addition:** a row for every frame, image files only for admitted frames | 2026-09-23 | Done |
+| D-5 | **Addition:** a row for every frame of a file, image files only for admitted frames; live cameras store admitted frames only | 2026-09-23, 09-30 | Done |
 | D-6 | Re-gating decodes the source again | 2026-09-23 | Done |
 | D-7 | H.264 playback copy made at upload | 2026-09-24 | Done |
 | D-8 | Durable queue: persistent messages, confirm per publish, ack after commit | 2026-09-25 | Done |
-| D-9 | **Deviation:** live capture samples every 0.2 s before the gate | 2026-09-26 | **Open: settle with NFR-4 in slice 5** |
+| D-9 | Live capture gates every frame; the sampling deviation is removed | 2026-09-30 | Done |
 | D-10 | Live worker drops frames when downstream is slow, and counts them | 2026-09-26 | Done |
 | D-11 | Reconnect with exponential backoff and jitter | 2026-09-26 | Done |
 | D-12 | Camera start waits for the stream to open, not for a frame | 2026-09-26 | Done |
@@ -91,6 +91,12 @@ row; writing a JPEG for every frame is the disk cost sampling used to avoid. Alg
 only forwards admitted frames; the rows for discarded ones are an addition, not a change to
 what is admitted.
 
+**Live cameras store admitted frames only** (OMNI-501, 2026-09-30) — a row per frame at
+15 fps is about 1.3 million rows per camera per day; the counters keep the gate explainable
+(`camera_stats`: `gated`, `admitted_motion`, `admitted_heartbeat`, `discarded`, beside
+`captured` and `dropped`). The row for every frame stays for files, where the threshold
+slider needs the discarded scores.
+
 **Heartbeat (step 5):** `HEARTBEAT_INTERVAL_S` = 1.0 s, untuned.
 
 ## D-6 · Re-gating decodes the source again · 2026-09-23
@@ -119,19 +125,26 @@ a broker recreate with 1,800 of 1,800 frames (OMNI-311). **Cost:** 12-15 ms per 
 because confirms are one at a time; batching them was not built (open in
 `known-issues.md`).
 
-## D-9 · Deviation: live capture samples every 0.2 s before the gate · 2026-09-26 · OPEN
+## D-9 · Live capture gates every frame · opened 2026-09-26, done 2026-09-30
 
-**What:** the live worker reads the stream frame by frame but gates and publishes only one
-frame per `LIVE_SAMPLE_INTERVAL_S` = 0.2 s (about 4.2 frames/s from a 15 fps feed). This is
-the same kind of sampling D-3 removed from files; Algorithm 1 gates every frame.
+**Was (a deviation, 2026-09-26 to 09-30):** the live worker read the stream frame by frame
+but gated and published only one frame per `LIVE_SAMPLE_INTERVAL_S` = 0.2 s (about 4.2
+frames/s from a 15 fps feed), the same kind of sampling D-3 removed from files. The reason
+given in the code was that a live stream "cannot afford to" gate every frame. At 0.2 s this
+machine sustained 8 feeds, not 10 (OMNI-317).
 
-**Reason in the code** (`settings.py`): a live stream "cannot afford to" gate every frame,
-one camera per core. **Evidence:** at 0.2 s this machine sustains 8 feeds, not 10; at 0.5 s
-it sustains 10 (OMNI-317). Gating every frame (15/s per camera) was not measured.
+**Now (OMNI-501):** Algorithm 1 as written, no sampling. Every decoded frame of a live
+stream goes through the same `MotionGate` and `process_frame()` as a file, with the same
+settings (Δ, grid, threshold, active cells, blur, heartbeat). `LIVE_SAMPLE_INTERVAL_S` is
+removed. The deviation is closed; D-4 (blur) is the only one left in the gate.
 
-**To settle in slice 5**, where NFR-4 (10 feeds) is graded: the final interval and its
-justification against NFR-4. Until then this is a recorded deviation, not a finished
-decision.
+**Why sampling was the wrong lever:** the load in OMNI-317 came from storing a row for
+every sampled frame, not from gating. The live worker now publishes only admitted frames
+(D-5), so the gate sees 15 frames/s and the queue sees what it admits.
+
+**Evidence:** `cam05`, two 60 s runs: 15.0 frames/s gated, 0 dropped, 3.1-3.3 frames/s
+admitted and stored, ingestion at 36-39% of one core (`results.md`, OMNI-501). One camera
+only; ten feeds are measured in OMNI-509.
 
 ## D-10 · Live worker drops and counts · 2026-09-26
 

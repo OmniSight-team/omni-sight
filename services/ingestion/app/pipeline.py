@@ -73,9 +73,10 @@ class SegmentRecord:
     frame_path and thumb_path are None unless the frame was admitted: writing
     a JPEG for every decoded frame of a 30 fps video is not affordable at
     slice 6 scale, so only admitted (and, from OMNI-305, heartbeat) frames get
-    one. A row is still written for every gated frame regardless — rows are
-    cheap, JPEGs are not, and the discarded scores are what make the gate
-    inspectable and the threshold slider (OMNI-310) possible.
+    one. For a file a row is still written for every gated frame regardless —
+    rows are cheap, JPEGs are not, and the discarded scores are what make the
+    gate inspectable and the threshold slider (OMNI-310) possible. A live
+    camera's discarded frames are counted, not stored (OMNI-501).
     """
 
     video_id: int | None

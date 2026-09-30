@@ -77,14 +77,22 @@ class CameraStopResponse(BaseModel):
 
 
 class CameraStatsOut(BaseModel):
-    """How a live camera is keeping up (OMNI-314)."""
+    """How a live camera is keeping up (OMNI-314), and what the gate did with
+    its frames (OMNI-501). The counters are totals across every capture session."""
 
-    # Frames sampled from the stream and offered to the pipeline, across every
-    # capture session. Sampling itself is not a drop.
+    # Frames decoded from the stream and offered to the pipeline.
     captured: int
     # Of those, the ones thrown away because the pipeline could not keep up.
     dropped: int
-    # Frames actually processed per second, recently. Zero when not capturing.
+    # The rest, which the gate was shown: `captured = gated + dropped`.
+    gated: int = 0
+    # What the gate decided: `gated = admitted + discarded`. Only admitted frames
+    # are stored; `admitted` is the two reasons added together.
+    admitted: int = 0
+    admitted_motion: int = 0
+    admitted_heartbeat: int = 0
+    discarded: int = 0
+    # Frames actually gated per second, recently. Zero when not capturing.
     fps_effective: float
     # Seconds the current capture session has been running. Zero when not capturing.
     uptime_s: float

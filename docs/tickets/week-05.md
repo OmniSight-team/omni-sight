@@ -93,22 +93,22 @@ gating.
 **The change:** gate every decoded frame, exactly as files do; publish **only admitted
 frames** (Algorithm 1 forwards only admitted frames); count the rest.
 
-- [ ] Remove sampling from the live worker: **every decoded frame** goes through the same
+- [x] Remove sampling from the live worker: **every decoded frame** goes through the same
       `MotionGate` and `process_frame()` as a file, with the same settings (stride Δ, grid,
       threshold, active cells, blur, heartbeat) **[FR-1b]**
-- [ ] Remove `LIVE_SAMPLE_INTERVAL_S` from settings, `.env.example` and docs
-- [ ] For a live camera, publish a segment **only when the frame is admitted** (motion or
+- [x] Remove `LIVE_SAMPLE_INTERVAL_S` from settings, `.env.example` and docs
+- [x] For a live camera, publish a segment **only when the frame is admitted** (motion or
       heartbeat). Discarded live frames get no row and no file
-- [ ] Each admitted live frame carries its causal clip `[t - 2Δ, t]` (`clip_start_s`,
+- [x] Each admitted live frame carries its causal clip `[t - 2Δ, t]` (`clip_start_s`,
       `clip_end_s`), exactly like a file: pseudocode lines 7-8, `forward(f_t, W)`
-- [ ] Per-camera counters in `camera_stats`: `gated`, `admitted` (motion / heartbeat) and
+- [x] Per-camera counters in `camera_stats`: `gated`, `admitted` (motion / heartbeat) and
       `discarded`, beside `captured` and `dropped`; exposed by `GET /cameras/{id}/stats`
-- [ ] Still one `process_frame()`, two producers. The only live-specific part is what gets
+- [x] Still one `process_frame()`, two producers. The only live-specific part is what gets
       published
-- [ ] `docs/decisions.md`: D-9 becomes **Done** (Algorithm 1 as written, no sampling); D-5
+- [x] `docs/decisions.md`: D-9 becomes **Done** (Algorithm 1 as written, no sampling); D-5
       gains one line: *live cameras store admitted frames only — a row per frame at 15 fps
       is about 1.3 million rows per camera per day; the counters keep the gate explainable*
-- [ ] Tests: a scripted capture of still-then-moving frames publishes only admitted ones,
+- [x] Tests: a scripted capture of still-then-moving frames publishes only admitted ones,
       and the counters balance: `captured = gated + dropped`, `gated = admitted + discarded`
 
 **Acceptance:** `cam05` for 60 s: `gated` is about 15/s, every stored row is admitted with a

@@ -143,6 +143,11 @@ class WorkerInfo(BaseModel):
     captured: int = 0
     dropped: int = 0
     dropped_backlog: int = 0
+    gated: int = 0
+    admitted: int = 0
+    admitted_motion: int = 0
+    admitted_heartbeat: int = 0
+    discarded: int = 0
     queue_depth: int = 0
     queue_size: int = 0
     fps_effective: float = 0.0

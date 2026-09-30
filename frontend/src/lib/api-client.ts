@@ -164,11 +164,18 @@ export async function testCameraConnection(id: number): Promise<CameraTestResult
 }
 
 export interface CameraStats {
-  // Frames sampled from the stream and offered to the pipeline, and of those the
+  // Frames decoded from the stream and offered to the pipeline, and of those the
   // ones dropped because it could not keep up. Lifetime totals.
   captured: number;
   dropped: number;
-  // Frames actually processed per second, and seconds the current capture has
+  // What the gate did with the rest: captured = gated + dropped, and
+  // gated = admitted + discarded. Only admitted frames are stored.
+  gated: number;
+  admitted: number;
+  admitted_motion: number;
+  admitted_heartbeat: number;
+  discarded: number;
+  // Frames actually gated per second, and seconds the current capture has
   // been running. Both are 0 when the camera is not being captured, so
   // `uptime_s > 0` is how the screen tells running from stopped.
   fps_effective: number;

@@ -13,8 +13,8 @@ are in `known-issues.md`; how the work went is in `context/`.
 | NFR-7 | 100% of endpoints reject a request without a valid token | API routes: 100% (TC-10). `/thumbs/` and `/media/`: 0% | **Fail** on the two static routes | 2026-09-24 | OMNI-307/308 |
 | NFR-5 | Data lost on failure or crash = 0 | 0 lost in 9 failure cases: restart, down/up, query killed mid-upload, consumer killed, broker recreated, ingestion restarted and killed, consumer stopped and killed mid-capture | **Pass** in the cases tested | 2026-09-12 to 09-26 | NFR-5, OMNI-311, OMNI-319 |
 | FR-1a | Accept live camera feeds and uploaded files | Files: one clip per dataset `ready`, metadata equal to `ffprobe`. Live: ~4.1 frames/s stored, recovers by itself after the source is killed | **Pass** | 2026-09-21, 09-26 | OMNI-300, OMNI-312, OMNI-313 |
-| FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57% | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26 | OMNI-304, OMNI-305, OMNI-318 |
-| FR-3 | Store each segment with time, source and image | A row for every decoded frame; image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-26 | OMNI-304, OMNI-316 |
+| FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57%. Live: every frame gated (15.0/s), 20-22% kept on `cam05`, counters balance | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26, 09-30 | OMNI-304, OMNI-305, OMNI-318, OMNI-501 |
+| FR-3 | Store each segment with time, source and image | Files: a row for every decoded frame. Live: a row for every admitted frame. Image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-30 | OMNI-304, OMNI-316, OMNI-501 |
 | NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Live alone: max 49 ms. With a 1,158-frame file extracting: max 4.67-4.91 s. With a 1,930-frame file: max 6.14 s | **Pass** alone, **fail** with a long file extracting | 2026-09-26 | OMNI-316 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
@@ -515,3 +515,54 @@ during capture. After an ingestion restart nothing resumes the worker and the ca
 reads `connected` (open in `known-issues.md`).
 
 `uv run pytest`: **304 passed**, against a scratch database.
+
+## OMNI-501 · Algorithm 1 on a live camera: every frame gated, admitted frames stored (preliminary) · 2026-09-30
+
+**Conditions:** the real stack on the machine above, nothing else capturing;
+`scripts/verify_live_gate.py --camera cam05 --seconds 60`; one camera, `cam05` (the
+simulator's synthetic clip with motion and still stretches, 320x240, 15 fps); default gate
+settings (Δ 0.5 s, grid 8, threshold 25, 3 active cells, blur 21, heartbeat 1.0 s); no
+sampling setting exists any more. Two runs. The window starts 5 s after the camera is
+started; the session totals cover the whole capture, read after the stop. Throwaway admin,
+camera and frames removed afterwards.
+
+| In the 60 s window | Run 1 | Run 2 |
+|---|---|---|
+| Window | 60.6 s | 60.7 s |
+| Frames read from the stream | 909 (15.00/s) | 910 (15.00/s) |
+| Frames gated | 910 (15.02/s) | 910 (15.00/s) |
+| Admitted and published | 200 (3.30/s): 163 motion, 37 heartbeat | 185 (3.05/s): 148 motion, 37 heartbeat |
+| Discarded (counted, not stored) | 710 | 725 |
+| Dropped / decode errors | 0 / 0 | 0 / 0 |
+| `fps_effective` reported while running | 15.10 | 15.00 |
+| Ingestion CPU, average / peak (100% = one core) | 39% / 62% | 36% / 48% |
+| Consumer, Postgres CPU, average | 3%, 2% | 2%, 1% |
+
+| Whole session, after the stop | Run 1 | Run 2 |
+|---|---|---|
+| `captured = gated + dropped` | 996 = 996 + 0 | 996 = 996 + 0 |
+| `gated = admitted + discarded` | 996 = 205 + 791 | 996 = 190 + 806 |
+| `admitted = motion + heartbeat` | 205 = 163 + 42 | 190 = 148 + 42 |
+| Stored rows | 205, all admitted, all with a reason | 190, all admitted, all with a reason |
+| Frame files / thumbnails on disk | 205 / 205 | 190 / 190 |
+| Clip `[t - 2Δ, t]` on every row, largest error | 0 s | 0 s |
+| Largest gap between two stored frames | 1.068 s | 1.073 s |
+
+The largest gap is the heartbeat interval (1.0 s) plus one frame (67 ms): on a still stretch
+the heartbeat admits the first frame at or after it falls due.
+
+Run 1 printed 9 of 10 checks: the failing one was the script's own window check, which
+required frames read to equal frames gated exactly from two snapshots of a running worker
+(909 against 910, one frame in flight). The check now allows a frame at each end of the
+window; the result was not changed. Run 2: 10 of 10. The exact balances are the session
+totals, read after the stop.
+
+**Not covered:** more than one camera at a time (OMNI-509); a run longer than a minute; a
+feed faster than 15 fps or larger than 320x240; the worker's counters while frames are being
+dropped (unit tests only). RabbitMQ's CPU averaged 39-42% with peaks of 305-329% in both
+runs at about 3 messages/s; three samples taken afterwards with nothing capturing read
+140%, 0.7% and 0.3%, so the peaks are RabbitMQ's own and not this load, and are not
+explained. In the same three idle samples ingestion read 8-14% (it runs with `--reload`),
+so the 36-39% above is not all the camera's.
+
+`uv run pytest`: **312 passed**, against a scratch database.

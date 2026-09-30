@@ -54,10 +54,11 @@ name: `rtsp://mediamtx:8554/cam01`.
 ## Capturing a feed (OMNI-312)
 
 Add one of the addresses above as a camera (Add Camera form, or `POST /cameras`),
-then start it: `POST /cameras/{id}/start`. The ingestion service opens the feed,
-samples it (`LIVE_SAMPLE_INTERVAL_S`), and its frames appear as segments;
-`GET /cameras/{id}/frames?since=<timestamp_s>` lists them. `POST
-/cameras/{id}/stop` ends it and releases the stream.
+then start it: `POST /cameras/{id}/start`. The ingestion service opens the feed
+and gates every frame of it (Algorithm 1, the same settings as a file), and the
+frames the gate admits appear as segments; `GET
+/cameras/{id}/frames?since=<timestamp_s>` lists them. `POST /cameras/{id}/stop`
+ends it and releases the stream.
 
 Expect a start to take five to ten seconds: a stream sends nothing useful until
 its next keyframe, and the simulator's comes several seconds after connecting.
@@ -69,7 +70,10 @@ capture resumes by itself (`docker compose start mediamtx`). Nothing needs to be
 restarted.
 
 `GET /cameras/{id}/stats` shows how a captured feed is keeping up: `captured` (frames
-sampled), `dropped` (of those, thrown away because the pipeline could not keep up),
-`fps_effective` and `uptime_s`. To see it drop frames, freeze the broker for a while
+decoded), `dropped` (of those, thrown away because the pipeline could not keep up),
+`gated` (the rest), `admitted` (`admitted_motion` plus `admitted_heartbeat`, the only
+frames stored), `discarded`, `fps_effective` (frames gated per second) and `uptime_s`.
+The counters balance: `captured = gated + dropped` and `gated = admitted + discarded`.
+To see it drop frames, freeze the broker for a while
 (`docker compose pause rabbitmq`, then `unpause`): `dropped` climbs, memory does not.
 

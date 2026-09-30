@@ -392,7 +392,8 @@ def test_frames_need_a_sign_in_and_an_operator_or_admin():
 # --- stats (OMNI-314) ------------------------------------------------------------
 
 
-def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.0, reported_ago_s=2.0):
+def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.0, reported_ago_s=2.0,
+               admitted_motion=0, admitted_heartbeat=0, discarded=0):
     now = datetime.now(UTC)
     with SessionLocal() as session:
         session.add(
@@ -400,6 +401,10 @@ def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.
                 camera_id=camera_id,
                 captured=captured,
                 dropped=dropped,
+                gated=admitted_motion + admitted_heartbeat + discarded,
+                admitted_motion=admitted_motion,
+                admitted_heartbeat=admitted_heartbeat,
+                discarded=discarded,
                 fps_effective=fps,
                 session_started_at=None if started_ago_s is None else now - timedelta(seconds=started_ago_s),
                 reported_at=now - timedelta(seconds=reported_ago_s),
@@ -414,7 +419,11 @@ def test_a_camera_that_has_never_been_captured_reads_zero(operator):
     resp = client.get(f"/cameras/{camera_id}/stats", headers=operator)
 
     assert resp.status_code == 200
-    assert resp.json() == {"captured": 0, "dropped": 0, "fps_effective": 0.0, "uptime_s": 0.0}
+    assert resp.json() == {
+        "captured": 0, "dropped": 0,
+        "gated": 0, "admitted": 0, "admitted_motion": 0, "admitted_heartbeat": 0, "discarded": 0,
+        "fps_effective": 0.0, "uptime_s": 0.0,
+    }
 
 
 def test_a_running_camera_reports_its_counters_its_rate_and_its_uptime(operator):
@@ -423,10 +432,27 @@ def test_a_running_camera_reports_its_counters_its_rate_and_its_uptime(operator)
 
     body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
 
-    assert set(body) == {"captured", "dropped", "fps_effective", "uptime_s"}
+    assert set(body) == {
+        "captured", "dropped", "gated", "admitted", "admitted_motion", "admitted_heartbeat",
+        "discarded", "fps_effective", "uptime_s",
+    }
     assert body["captured"] == 1234 and body["dropped"] == 56
     assert body["fps_effective"] == 4.5
     assert 89.0 < body["uptime_s"] < 95.0  # about 90 s, now
+
+
+def test_stats_say_what_the_gate_did_with_the_frames(operator):
+    """OMNI-501: a live camera stores admitted frames only, so the counters are
+    what explains the rest."""
+    camera_id = _camera()
+    _set_stats(camera_id, captured=900, dropped=10, admitted_motion=120, admitted_heartbeat=45, discarded=725)
+
+    body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
+
+    assert (body["admitted_motion"], body["admitted_heartbeat"], body["discarded"]) == (120, 45, 725)
+    assert body["admitted"] == 165  # the two reasons together
+    assert body["gated"] == body["admitted"] + body["discarded"] == 890
+    assert body["captured"] == body["gated"] + body["dropped"]
 
 
 def test_a_camera_whose_worker_has_stopped_keeps_its_totals_but_reads_zero_for_rate_and_uptime(operator):

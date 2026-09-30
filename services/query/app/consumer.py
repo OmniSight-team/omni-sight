@@ -44,6 +44,18 @@ logger = logging.getLogger("app.consumer")
 
 MAX_BACKOFF_S = 30.0
 
+# The running totals a stats report carries. Each is a column of `camera_stats`
+# with a `session_` twin holding how much of it has been counted for the current
+# worker.
+STATS_COUNTERS = (
+    "captured",
+    "dropped",
+    "gated",
+    "admitted_motion",
+    "admitted_heartbeat",
+    "discarded",
+)
+
 
 class Outcome(Enum):
     STORED = "stored"
@@ -170,8 +182,9 @@ def apply_camera_stats(body: bytes) -> Outcome:
     (OMNI-314). Returns only after the commit.
 
     The report carries the worker's totals for its own session. What is added to
-    the camera's lifetime `captured` and `dropped` is the difference from the last
-    total counted for that worker, never the total itself, so a report delivered
+    each of the camera's lifetime counters (`STATS_COUNTERS`) is the difference
+    from the last total counted for that worker, never the total itself, so a
+    report delivered
     twice adds nothing the second time, and one arriving late (below what is
     already counted) adds nothing at all. The rate and the session start are only
     taken from a report at least as recent as the last one, so a late report
@@ -194,14 +207,14 @@ def apply_camera_stats(body: bytes) -> Outcome:
             select(CameraStats).where(CameraStats.camera_id == report.camera_id).with_for_update()
         ).scalar_one()
 
-        if stats.session_id != report.worker_id:
+        new_session = stats.session_id != report.worker_id
+        if new_session:
             stats.session_id = report.worker_id
-            stats.session_captured = 0
-            stats.session_dropped = 0
-        stats.captured += max(0, report.captured - stats.session_captured)
-        stats.dropped += max(0, report.dropped - stats.session_dropped)
-        stats.session_captured = max(stats.session_captured, report.captured)
-        stats.session_dropped = max(stats.session_dropped, report.dropped)
+        for counter in STATS_COUNTERS:
+            counted = 0 if new_session else getattr(stats, f"session_{counter}")
+            reported = getattr(report, counter)
+            setattr(stats, counter, getattr(stats, counter) + max(0, reported - counted))
+            setattr(stats, f"session_{counter}", max(counted, reported))
 
         made_at = datetime.fromtimestamp(report.at, UTC)
         if stats.reported_at is None or made_at >= stats.reported_at:

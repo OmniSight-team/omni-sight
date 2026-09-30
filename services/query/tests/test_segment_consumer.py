@@ -449,12 +449,19 @@ def test_a_late_frame_never_moves_last_seen_backwards():
 
 
 def _report(camera_id, *, worker="worker-1", captured=0, dropped=0, at=1_790_000_100.0,
-            started_at=1_790_000_000.0, fps=5.0, running=True, last_frame_at=None) -> bytes:
+            started_at=1_790_000_000.0, fps=5.0, running=True, last_frame_at=None,
+            motion=0, heartbeat=0, discarded=0) -> bytes:
     return CameraStatsReport(
         camera_id=camera_id, worker_id=worker, started_at=started_at, at=at,
         captured=captured, dropped=dropped, fps_effective=fps, running=running,
         last_frame_at=last_frame_at,
+        gated=motion + heartbeat + discarded, admitted_motion=motion,
+        admitted_heartbeat=heartbeat, discarded=discarded,
     ).model_dump_json().encode()
+
+
+def _gate_counters(row) -> tuple[int, int, int, int]:
+    return (row.gated, row.admitted_motion, row.admitted_heartbeat, row.discarded)
 
 
 def _stats(camera_id) -> CameraStats:
@@ -514,6 +521,47 @@ def test_a_new_capture_session_adds_to_the_lifetime_totals():
     row = _stats(camera_id)
     assert (row.captured, row.dropped) == (140, 4)  # both sessions
     assert row.session_id == "second" and row.session_captured == 40
+
+
+def test_the_gate_counters_are_folded_in_like_the_others():
+    """OMNI-501: gated, admitted (motion and heartbeat) and discarded."""
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, captured=100, motion=10, heartbeat=5, discarded=85))
+
+    later = _report(camera_id, captured=150, motion=18, heartbeat=7, discarded=125, at=1_790_000_105.0)
+    apply_camera_stats(later)
+    apply_camera_stats(later)  # delivered twice: counted once
+
+    row = _stats(camera_id)
+    # The totals, not the two reports added together.
+    assert _gate_counters(row) == (150, 18, 7, 125)
+    assert row.gated == row.admitted_motion + row.admitted_heartbeat + row.discarded
+    assert row.captured == row.gated + row.dropped
+
+
+def test_the_gate_counters_add_up_across_capture_sessions():
+    camera_id = _camera()
+    apply_camera_stats(_report(camera_id, worker="first", captured=100, motion=10, heartbeat=5, discarded=85))
+
+    apply_camera_stats(_report(camera_id, worker="second", captured=40, motion=1, heartbeat=9, discarded=30))
+
+    row = _stats(camera_id)
+    assert _gate_counters(row) == (140, 11, 14, 115)
+    assert row.session_gated == 40 and row.session_discarded == 30
+
+
+def test_a_report_from_before_the_gate_counters_existed_still_applies():
+    camera_id = _camera()
+    old_style = (
+        b'{"kind": "stats", "camera_id": %d, "worker_id": "old", "started_at": 1790000000.0, '
+        b'"at": 1790000100.0, "captured": 50, "dropped": 2, "fps_effective": 4.0}' % camera_id
+    )
+
+    assert apply_camera_message(old_style) is Outcome.STORED
+
+    row = _stats(camera_id)
+    assert (row.captured, row.dropped) == (50, 2)
+    assert _gate_counters(row) == (0, 0, 0, 0)
 
 
 def test_a_running_report_records_the_rate_and_when_the_session_began():
