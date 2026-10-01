@@ -1,3 +1,5 @@
+from typing import Literal
+
 from omnisight_common import CommonSettings
 from pydantic import Field
 
@@ -41,6 +43,12 @@ class Settings(CommonSettings):
     # Without a limit the broker hands a single consumer the whole backlog, so a
     # second consumer would sit idle while the first works through it.
     segment_prefetch: int = Field(10, ge=1)
+    # OMNI-502: which segments this consumer process stores. "files" reads the
+    # file queue (`segment_queue`) and the camera queue (status changes and
+    # stats); "live" reads the live queue (`live_segment_queue`) only. Two
+    # services in docker-compose.yml, one of each, same image and code, so a
+    # recording being stored never delays a live frame.
+    consumer_role: Literal["files", "live"] = "files"
     # OMNI-313: a stored live frame refreshes its camera's `last_seen_at`, but no
     # more than once in this many seconds. Updating it on every frame would be a
     # write to one row five times a second per camera for a number nobody reads

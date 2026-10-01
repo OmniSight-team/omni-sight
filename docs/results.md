@@ -15,7 +15,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-1a | Accept live camera feeds and uploaded files | Files: one clip per dataset `ready`, metadata equal to `ffprobe`. Live: ~4.1 frames/s stored, recovers by itself after the source is killed | **Pass** | 2026-09-21, 09-26 | OMNI-300, OMNI-312, OMNI-313 |
 | FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57%. Live: every frame gated (15.0/s), 20-22% kept on `cam05`, counters balance | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26, 09-30 | OMNI-304, OMNI-305, OMNI-318, OMNI-501 |
 | FR-3 | Store each segment with time, source and image | Files: a row for every decoded frame. Live: a row for every admitted frame. Image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-30 | OMNI-304, OMNI-316, OMNI-501 |
-| NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Live alone: max 49 ms. With a 1,158-frame file extracting: max 4.67-4.91 s. With a 1,930-frame file: max 6.14 s | **Pass** alone, **fail** with a long file extracting | 2026-09-26 | OMNI-316 |
+| NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Every frame gated, live on its own queue: live alone max 106-472 ms; with a 1,930-frame file extracting max **147-373 ms** (was 6.14 s on one shared queue) | **Pass**, alone and with a long file extracting (preliminary: one camera, two runs) | 2026-10-01 | OMNI-316, OMNI-502 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -566,3 +566,53 @@ explained. In the same three idle samples ingestion read 8-14% (it runs with `--
 so the 36-39% above is not all the camera's.
 
 `uv run pytest`: **312 passed**, against a scratch database.
+
+## OMNI-502 · NFR-1 with live frames on their own queue (preliminary) · 2026-10-01
+
+**Conditions:** the machine above; the full stack with two consumers, `consumer` (file
+queue and camera queue) and `consumer-live` (live queue only), prefetch 10 each; every live
+frame gated (OMNI-501), admitted frames stored; gate defaults. Live: `cam01` (15 fps,
+320x240, constant motion, so most frames are admitted and stored: about 12 a second).
+File: `Arson049` looped to 64.5 s, **1,930 frames** at 30 fps, extracted through
+`POST /videos/{id}/extract`, started at the start of the window. 30 s windows after a 6 s
+warm-up. Clocks: database minus host -1.0 and -0.7 ms. Script:
+`scripts/measure_capture_latency.py --camera cam01 --loops 5 --runs AB`, two runs. Measured
+as in OMNI-316 (capture = `timestamp_s`, stored = `created_at`, API-visible = first seen by
+a poller every 100 ms); every stored live frame in the window counted.
+
+| Scenario | Live frames stored | p50 | p95 | p99 | max | API-visible max | File queue peak | Live queue peak |
+|---|---|---|---|---|---|---|---|---|
+| Live alone, run 1 | 357 | 18 ms | 298 ms | 451 ms | **472 ms** | 653 ms | 0 | 0 |
+| Live alone, run 2 | 348 | 12 ms | 31 ms | 49 ms | **106 ms** | 229 ms | 0 | 0 |
+| Live + 1,930-frame file, run 1 | 348 | 30 ms | 82 ms | 130 ms | **147 ms** | 327 ms | 330 | 0 |
+| Live + 1,930-frame file, run 2 | 349 | 30 ms | 222 ms | 318 ms | **373 ms** | 569 ms | 306 | 0 |
+
+No drops and no decode errors. The file was extracted completely both times (1,930 of
+1,930, `ready`, 47.5 s and 50.5 s); its queue stayed above 100 for 16-18 s while the live
+queue never held a message at a 200 ms sample.
+
+**NFR-1 result:** with the 1,930-frame file extracting, the worst live frame is **147 ms and
+373 ms**, against 6.14 s on one shared queue (OMNI-316). Passes.
+
+**Compared with OMNI-316, live alone is slower** (max 106-472 ms against 28-49 ms): the
+camera now stores about 12 frames a second instead of about 4 (every frame gated, OMNI-501),
+and the whole stack is busier (ingestion 57-62% of a core on average alone). Run 1's tail
+(p95 298 ms) did not repeat in run 2 and is not explained.
+
+**Load, average (100% = one core), live alone / with the file:** ingestion 57-62% / 158-175%
+(peaks 131-141% / 368-380%); `consumer-live` 13-15% / 17-18%; `consumer` 0% / 35-36%;
+PostgreSQL 8-9% / 18-20%; RabbitMQ 66-86% / 69-79% (peaks 292-316% in every window, as in
+OMNI-501).
+
+**TC-1 first-half checks** (same script): file 1,930 gated, 357 forwarded (312 motion, 45
+heartbeat), 0 violations, files equal rows; live 0 violations, files equal rows (1,083 and
+1,119 rows over both windows). The script's live line says "frames gated" but counts stored
+rows, which since OMNI-501 are the admitted frames only.
+
+**Not covered:** more than one camera (OMNI-509); a file longer than 1,930 frames or two
+files at once; `cam05` (the camera with still stretches) against the file; the searchable
+half of NFR-1 (slice 7); a broker or consumer restart during this run (acknowledgement after
+commit on the live queue is covered by a test against the real broker,
+`test_segment_consumer.py`).
+
+`uv run pytest`: **316 passed**, against a scratch database.

@@ -18,6 +18,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-10 | Live worker drops frames when downstream is slow, and counts them | 2026-09-26 | Done |
 | D-11 | Reconnect with exponential backoff and jitter | 2026-09-26 | Done |
 | D-12 | Camera start waits for the stream to open, not for a frame | 2026-09-26 | Done |
+| D-13 | Live frames on a queue and a consumer of their own | 2026-10-01 | Done |
 
 ---
 
@@ -165,3 +166,22 @@ The reachability check before a start waits for the stream to open, not for a fr
 worker's own first frame confirms it. Waiting for a frame twice made a start take about 17 s
 and failed healthy starts, because the simulator's first frame takes 3-5 s. Start is now
 about 7 s (OMNI-312).
+
+## D-13 · Live frames on a queue and a consumer of their own · 2026-10-01
+
+**Why:** NFR-1. Live frames and a file's segments shared one queue and one consumer, first in
+first out, and an extraction publishes its frames in one burst; a live frame waited behind
+it, 6.14 s with a 1,930-frame file (K-1, OMNI-316).
+
+**What (OMNI-502):** live workers publish to `omnisight.segments.live`; file extraction keeps
+`omnisight.segments`. A second consumer service, `consumer-live`, runs the same image and
+code with `CONSUMER_ROLE=live` and reads the live queue only, not even the camera queue, so
+nothing waits in front of a live frame inside the process either. `consumer` keeps the file
+queue and the camera status and stats queue. Both queues are declared the same way (durable,
+with a dead-letter queue); messages are persistent and confirmed by the same publisher, and
+acknowledged after the commit by the same callback (D-8, NFR-5). `LIVE_MAX_BACKLOG` now
+measures the live queue only, so a large upload no longer makes live capture drop frames.
+
+**Not chosen:** a priority queue on one consumer (live frames would still share that one
+consumer's throughput with the file, and wait behind messages it already holds; not
+measured), batched commits (OMNI-510, only if NFR-4 needs it).

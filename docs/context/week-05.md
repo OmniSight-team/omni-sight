@@ -185,3 +185,91 @@ runs.
 
 Live capture follows Algorithm 1 as written: every frame gated, admitted frames forwarded
 with their clip, the rest counted. D-9 is closed. All acceptance points hold on `cam05`.
+
+---
+
+## OMNI-502 · Live frames never wait behind a recording
+
+Done 2026-10-01, on `slice-05-camera-wall`. Numbers and conditions are in
+`docs/results.md` (OMNI-502); the design is D-13 in `docs/decisions.md`.
+
+### Why this ticket exists
+
+NFR-1: a captured frame stored in under 5 s. OMNI-316 measured 49 ms for live alone but
+6.14 s while a 1,930-frame file was extracted, because both shared one queue and one
+consumer, first in first out (K-1).
+
+### What was done
+
+- **A second durable queue.** `live_segment_queue` = `omnisight.segments.live` in the
+  shared settings (`services/common/omnisight_common/settings.py`). The live worker's
+  publisher now uses it (`_live_worker_for` in ingestion's `main.py`); file extraction keeps
+  `omnisight.segments`. Declared with the same `declare_segment_queue`, so it is durable and
+  has its own dead-letter queue
+- **A second consumer service**, `consumer-live` in `docker-compose.yml`: same image, same
+  command, same code, with `CONSUMER_ROLE=live`. The role is a new query setting
+  (`consumer_role`, `files` by default; `consumer` sets `files` explicitly). `queues_for()`
+  in `consumer.py` maps the role to its queues: `files` reads the file queue and the camera
+  queue (status and stats), `live` reads the live queue only. I kept the camera queue off
+  the live consumer so nothing at all is handled in front of a live frame in that process;
+  status and stats messages are a few per camera every 5 s and stay where they were
+- **Same guarantees on both:** nothing about publishing or acknowledging changed, only the
+  queue name. Persistent messages and a confirm per publish come from the same
+  `SegmentPublisher`; the live consumer runs the same `_on_message`, which acknowledges after
+  `store_segment` has committed. A new test publishes a live frame, makes the commit fail,
+  and finds the message still on the live queue, then stored once on a second try
+- **`LIVE_MAX_BACKLOG`** now measures the live queue, because the worker's publisher reads
+  the depth of the queue it publishes to. So a large upload no longer makes live capture drop
+  frames. Comment in `settings.py` updated
+- **`scripts/measure_capture_latency.py`:** samples both queues' depth, reports
+  `consumer-live`'s CPU, and no longer prints a "discarded frames" latency line (no such live
+  rows since OMNI-501)
+- **Tests:** four in `test_segment_consumer.py`: each role reads its own queue; the live
+  consumer stores live frames and leaves five waiting file messages untouched; the file
+  consumer does not take live frames; ack after commit on the live queue. `start()` takes a
+  `queue` argument for these
+- **Docs:** D-13 in `decisions.md`; K-1 moved to *Fixed* in `known-issues.md` with the
+  numbers; K-11 notes that `verify_definition_of_done.py` now also waits on the wrong queue;
+  the K-10 item about the measuring scripts narrowed to `measure_concurrent_feeds.py`; NFR-1
+  scoreboard row updated
+
+### A detour
+
+The first test run hung for five minutes and I stopped it: the whole stack had been stopped
+since the day before (every container exited), so the tests were waiting on a database that
+was not there. `docker compose up -d` started everything, including the new
+`consumer-live`, and the suite then passed. No data was involved; the scratch database had
+not been created.
+
+### Verification performed
+
+- **Stack:** both consumers log their role on start: `files` on `omnisight.segments` with
+  camera events, `live` on `omnisight.segments.live` without. `rabbitmqctl list_queues`: both
+  queues durable, one consumer each, plus their dead-letter queues
+- **`uv run pytest`: 316 passed** (312 before), against a scratch database
+  (`omni502_scratch`, dropped afterwards). `ruff` clean on the files touched (apart from the
+  known `B008`)
+- **`measure_capture_latency.py --camera cam01 --loops 5 --runs AB`, two runs:**
+  - live + the 1,930-frame file: worst live frame **147 ms and 373 ms** (was 6.14 s); file
+    queue peak 330 and 306, live queue peak 0 at every 200 ms sample; the file extracted in
+    full both times (1,930 of 1,930, 47.5 and 50.5 s)
+  - live alone: worst 472 ms and 106 ms
+  - TC-1 first-half checks: 0 violations, files equal rows, for the file and for live
+- Everything the script created was removed (it deletes the video through the API and the
+  camera rows directly)
+
+### Not verified
+
+- More than one camera with the file (OMNI-509 measures ten feeds)
+- `cam05` against the file; only `cam01` was run, as in OMNI-316's 1,930-frame row
+- A kill of `consumer-live` or a broker restart during live capture on the real stack;
+  ack-after-commit on the live queue is tested against the real broker, not killed live
+- Why live alone in run 1 had a p95 of 298 ms when run 2 had 31 ms. Live alone is also
+  slower than OMNI-316's 28-49 ms, which fits storing about 12 frames a second instead of
+  about 4, but that was not isolated
+
+### Result
+
+K-1 is fixed: with the longest file OMNI-316 used extracting, live frames are stored in
+under 0.4 s, and NFR-1's first half passes with a recording extracting. Preliminary: one
+machine, one camera, two runs.

@@ -123,12 +123,12 @@ balance exactly.
 live alone 49 ms worst, but 6.14 s while a 1,930-frame file was extracted, because both
 share one queue and one consumer, first in first out (K-1).
 
-- [ ] A second durable queue for live segments; file extraction keeps the existing one
-- [ ] A second consumer service in `docker-compose.yml` (same image, same code, the queue
+- [x] A second durable queue for live segments; file extraction keeps the existing one
+- [x] A second consumer service in `docker-compose.yml` (same image, same code, the queue
       name from settings) that consumes only the live queue
-- [ ] Same guarantees on both: persistent messages, publisher confirms, ack after commit
+- [x] Same guarantees on both: persistent messages, publisher confirms, ack after commit
       **[NFR-5]**
-- [ ] Rerun `scripts/measure_capture_latency.py`: live alone, and live + the 1,930-frame file
+- [x] Rerun `scripts/measure_capture_latency.py`: live alone, and live + the 1,930-frame file
 
 **Acceptance:** with the 1,930-frame file extracting, the worst live frame is **under 5 s**.
 Update the NFR-1 scoreboard row in `docs/results.md`, and move K-1 to *Fixed* in

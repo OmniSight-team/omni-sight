@@ -28,6 +28,10 @@ class CommonSettings(BaseSettings):
     # Overridable so a test can use a queue of its own instead of competing
     # with the real consumer for the real one.
     segment_queue: str = "omnisight.segments"
+    # OMNI-502: live cameras' segments go through a queue of their own, read by a
+    # consumer of their own, so a live frame never waits behind a recording's
+    # burst of thousands (K-1, NFR-1). `segment_queue` above carries files only.
+    live_segment_queue: str = "omnisight.segments.live"
     # OMNI-313: a camera going unreachable, or coming back, as the capture worker
     # notices it.
     camera_event_queue: str = "omnisight.camera_events"

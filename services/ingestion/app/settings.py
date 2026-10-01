@@ -88,8 +88,9 @@ class Settings(CommonSettings):
     live_queue_size: int = Field(10, ge=1)
     # The most segments the durable queue may hold before live frames are dropped
     # instead of added to it, so a consumer that has fallen behind cannot let the
-    # broker's queue grow for ever. 0 turns the limit off. The queue is shared
-    # with file extraction, so a large upload waiting to be stored counts too.
+    # broker's queue grow for ever. 0 turns the limit off. It is the live queue
+    # that is measured (OMNI-502): a large upload waiting to be stored is on the
+    # file queue and does not count.
     live_max_backlog: int = Field(2000, ge=0)
     # How often a worker sends its counters to `camera_stats`.
     live_stats_interval_s: float = Field(5.0, gt=0)

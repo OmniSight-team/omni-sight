@@ -5,7 +5,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 
 | # | Issue | Affects | Found | Must be dealt with by |
 |---|---|---|---|---|
-| K-1 | Live latency breaks 5 s while a long file is extracted | NFR-1 | OMNI-316 | Slice 5 |
 | K-2 | 10 concurrent feeds not sustained at 0.2 s sampling | NFR-4 | OMNI-317 | Slice 5 |
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
 | K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
@@ -18,15 +17,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
 
 ---
-
-## K-1 · Live latency breaks 5 s while a long file is extracted
-
-Live alone: worst frame 49 ms. With a 1,158-frame file extracting: 4.67-4.91 s. With a
-1,930-frame file: **6.14 s**. Live frames and the file's segments share one queue and one
-consumer; extraction publishes its frames in one burst (queue peak 323-544) and live frames
-wait behind it. The delay grows with the file.
-**Fix candidates:** a separate queue or priority for live frames; a consumer that commits in
-batches; publishing while decoding instead of in one burst.
 
 ## K-2 · 10 concurrent feeds not sustained
 
@@ -103,10 +93,10 @@ Not measured per day.
   against a long recording
 - The frontend dev server on port 3000 cannot serve `/media/`; use nginx at
   `https://localhost`
-- `scripts/measure_capture_latency.py` and `scripts/measure_concurrent_feeds.py` still
-  speak of sampled frames and of discarded live rows, which no longer exist since OMNI-501
-  (their "discarded" line will read n=0). To be brought up to date when they are rerun
-  (OMNI-502, OMNI-509)
+- `scripts/measure_concurrent_feeds.py` still speaks of sampled frames and reads only the
+  file queue's depth; to be brought up to date when it is rerun (OMNI-509).
+  `measure_capture_latency.py` was updated in OMNI-502, apart from its TC-1 live line, which
+  says "frames gated" for what are stored (admitted) rows
 - The camera screen does not show the new gate counters (`gated`, `admitted`, `discarded`);
   they are in `GET /cameras/{id}/stats` only
 - `LIVE_QUEUE_SIZE` = 10 was sized for 5 frames/s (about 2 s); at 15 frames/s it is about
@@ -119,6 +109,8 @@ restart from three things: a row without a file, a file without a row, and **a g
 session's frame indexes**. Since OMNI-501 a live camera stores admitted frames only while the
 index still counts every gated frame, so gaps are normal and the third check will report
 loss where there is none. Read from the code, not run. The first two checks still hold.
+Since OMNI-502 it also waits for the wrong queue to empty: it reads the file queue
+(`segment_queue`), and live frames are on `omnisight.segments.live`.
 **Fix candidate:** drop the gap check for live sessions and rely on files against rows, or
 compare the stored rows with the `admitted` counter.
 
@@ -126,4 +118,18 @@ compare the stored rows with the `admitted` counter.
 
 ## Fixed
 
-(none yet)
+| # | Issue | Affected | Found | Fixed |
+|---|---|---|---|---|
+| K-1 | Live latency breaks 5 s while a long file is extracted | NFR-1 | OMNI-316 | OMNI-502, 2026-10-01 |
+
+### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
+
+**Was:** live alone, worst frame 49 ms. With a 1,158-frame file extracting: 4.67-4.91 s.
+With a 1,930-frame file: **6.14 s**. Live frames and the file's segments shared one queue
+and one consumer; extraction publishes its frames in one burst (queue peak 323-544) and live
+frames waited behind it.
+**Fix (OMNI-502, D-13):** live frames on their own queue, `omnisight.segments.live`, read by
+a consumer of their own, `consumer-live`.
+**Result:** with the 1,930-frame file extracting, worst live frame **147 ms and 373 ms** in
+two runs; the file queue peaked at 306-330 and the live queue at 0 (`results.md`, OMNI-502).
+One camera; ten feeds are OMNI-509.

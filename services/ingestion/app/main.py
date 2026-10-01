@@ -276,7 +276,8 @@ def _open_stream(rtsp_url: str) -> cv2.VideoCapture:
 
 def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
     """A worker whose frames go through the same `process_frame`, the same gate
-    settings and the same queue as a file's (OMNI-312, OMNI-501). Nothing about
+    settings and the same kind of durable queue as a file's (OMNI-312, OMNI-501);
+    its own queue, so it never waits behind a recording (OMNI-502). Nothing about
     its records says "camera" beyond `source_type`, and `video_id` is null. The
     one live-specific part is in the worker: it publishes admitted frames only."""
     started_at = time.time()
@@ -320,7 +321,7 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
         camera_id,
         open_capture=lambda: _open_stream(rtsp_url),
         make_publisher=lambda: SegmentPublisher(
-            connection_parameters(settings), settings.segment_queue, settings.camera_event_queue
+            connection_parameters(settings), settings.live_segment_queue, settings.camera_event_queue
         ),
         make_process=make_process,
         clock=lambda: time.time(),

@@ -95,6 +95,8 @@ services:
   # OMNI-311: reads segments off the queue and writes the rows. The query
   # image with a different command, so it can be killed and restarted without
   # touching the API — which is exactly what the acceptance test does to it.
+  # Since OMNI-502 this one stores files' segments and applies camera status
+  # and stats; `consumer-live` below stores live frames.
   consumer:
     build:
       context: .
@@ -110,6 +112,37 @@ services:
     environment:
       POSTGRES_HOST: postgres
       RABBITMQ_HOST: rabbitmq
+      CONSUMER_ROLE: files
+    volumes:
+      - ./services/common:/workspace/services/common
+      - ./services/query:/workspace/services/query
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # OMNI-502: the same consumer for live cameras' frames only, from a queue of
+  # their own (`omnisight.segments.live`), so a live frame never waits behind a
+  # recording's burst of segments on the queue above. Same image, same code,
+  # same guarantees (persistent messages, acknowledged after the commit); only
+  # the role differs.
+  consumer-live:
+    build:
+      context: .
+      dockerfile: services/query/Dockerfile
+    restart: unless-stopped
+    command:
+      [
+        "uv", "run", "--package", "omnisight-query", "python", "-m", "app.consumer"
+      ]
+    working_dir: /workspace/services/query
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+      CONSUMER_ROLE: live
     volumes:
       - ./services/common:/workspace/services/common
       - ./services/query:/workspace/services/query
