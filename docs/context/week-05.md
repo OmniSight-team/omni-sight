@@ -492,3 +492,69 @@ The wall can ask what every camera is doing and get an answer from evidence: `li
 killed, and no camera reads `live` without a worker. K-5 is fixed. Two things for Ahmad:
 the resume lives in query, not ingestion (D-15), and a paused stream comes back as `live`
 for a moment at each read timeout (K-13).
+
+---
+
+## OMNI-505 · Rewind buffer
+
+Done 2026-10-02, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-505); the data
+model note is D-16 in `docs/decisions.md`.
+
+### Why this ticket exists
+
+*Rewind a feed a few minutes to see what led up to something.* The ticket's point is that
+nothing new needs storing: a live camera already keeps every admitted frame (OMNI-501), and
+the heartbeat guarantees at least one a second, so the last few minutes are already on
+disk.
+
+### What was done
+
+- **`GET /cameras/{id}/buffer?minutes=N`** (operator or admin; N 1-10, default 5; anything
+  else is a 422): the camera's live frames (`video_id` null) that are admitted and have a
+  frame and a thumbnail, captured between now minus N minutes and now, oldest first. Each
+  has `segment_id`, `timestamp_s`, `reason` (motion or heartbeat), `thumb_url` and
+  `frame_url`. A recording made from the camera is not in it. The query runs on the existing
+  index on `(camera_id, timestamp_s)` for live rows. No paging: ten minutes is the most, and
+  the ticket did not ask for it
+- **`frame_url` needed a route.** Full frames are deliberately not served by nginx (only
+  thumbnails are, OMNI-307), and the ticket asks for a `frame_url`. Rather than add a static
+  route without a token (K-3 would grow), I added
+  `GET /cameras/{id}/frames/{segment_id}/image`, token-checked, which serves the frame file
+  only if the row is this camera's, live, admitted, and its path is inside the frames
+  folder; otherwise 404. Frames never change, so it sends `Cache-Control: private,
+  max-age=86400`. This route is my addition to make `frame_url` usable; the ticket only
+  named the field
+- **D-16** in `decisions.md`: the rewind buffer is the stored admitted frames, on disk, not a
+  separate buffer; a flip-book of stills at the gate's pace, not video
+- **Tests:** `test_rewind_buffer.py`, 11: the 5-minute window and its order (frames just
+  inside kept, 310 s and 900 s old left out), `minutes` setting the window, `minutes` limited
+  to 1-10, only this camera's admitted live frames (not another camera's, not a discarded
+  row, not a recording's), the fields and URLs, empty, missing camera, roles; and for the
+  image route: the full frame with the token, 401/403 without, 404 for another camera's frame
+  or a missing file, and a path outside the frames folder never served
+- **`scripts/verify_rewind_buffer.py`, new:** the acceptance
+
+### Verification performed
+
+- **`uv run pytest`: 372 passed, 1 skipped** (361 before), against a scratch database
+  (`omni505_scratch`, dropped). No migration in this ticket. `ruff` clean apart from the
+  known `B008`
+- **Acceptance, real stack, `cam05`, 300 s of capture, 12 of 12 checks:** the 5-minute buffer
+  returned **957 frames** (772 motion, 185 heartbeat), oldest first, the oldest 300.0 s before
+  the request, none outside the window, every frame with a reason, at most 1.07 s between two
+  frames; 166 KiB in 36 ms. One minute: 190 frames. `frame_url`: 20 of 20 sampled served the
+  full JPEG with the token, 401 without
+- Everything the script created was removed
+
+### Not verified
+
+- A camera in constant motion over the full ten minutes (about 7,000 frames, about 1.2 MB
+  of JSON, extrapolated)
+- More than one run
+- The scrubber that will use it (OMNI-508)
+
+### Result
+
+The rewind buffer works from what is already stored: after five minutes of capture it held
+957 frames, oldest first, none outside the window, each with its reason and a token-checked
+full frame. One addition beyond the ticket's words: the image route behind `frame_url`.

@@ -201,11 +201,11 @@ moves. That **is** the short-term buffer; no second copy.
 GET /cameras/{id}/buffer?minutes=5 -> [{segment_id, timestamp_s, reason, thumb_url, frame_url}]
 ```
 
-- [ ] Admitted frames from the last `minutes` (1–10, default 5), oldest first, from
+- [x] Admitted frames from the last `minutes` (1–10, default 5), oldest first, from
       `segments`
-- [ ] Data model note in `docs/decisions.md`: the rewind buffer is the stored admitted frames
+- [x] Data model note in `docs/decisions.md`: the rewind buffer is the stored admitted frames
       (on disk), not a separate buffer; a flip-book of frames, not video
-- [ ] Tests: window bounds, order, limit on `minutes`
+- [x] Tests: window bounds, order, limit on `minutes`
 
 **Acceptance:** after 5 minutes of capture, the buffer returns at least 300 frames, oldest
 first, none outside the window.

@@ -21,6 +21,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-13 | Live frames on a queue and a consumer of their own | 2026-10-01 | Done |
 | D-14 | The wall's preview: one file per camera, ETag from its write time, served by query | 2026-10-01 | Done |
 | D-15 | Camera state from evidence; query, not ingestion, resumes capture | 2026-10-02 | Done |
+| D-16 | The rewind buffer is the stored admitted frames, not a separate buffer | 2026-10-02 | Done |
 
 ---
 
@@ -239,3 +240,25 @@ but query calls, and that calls nothing but the broker.
 **Not chosen:** ingestion reading `cameras` from Postgres on startup (a database dependency
 for the service that only touches video); ingestion calling an internal route on query (a
 second direction of calls, and a route that would need its own protection).
+
+## D-16 · The rewind buffer is the stored admitted frames · 2026-10-02
+
+**Data model:** there is no separate short-term buffer. A live camera stores every frame the
+gate admits (OMNI-501), each as a `segments` row (`video_id` null) with a full JPEG under
+`/data/frames/camera-{id}/` and a thumbnail; the heartbeat admits at least one a second on a
+still scene, more when something moves. That **is** the last few minutes, on disk, so
+`GET /cameras/{id}/buffer?minutes=N` (1-10, default 5, OMNI-505) reads those rows: admitted
+frames whose capture time is in the last N minutes, oldest first. No second copy is kept,
+and nothing is held in memory.
+
+**What it is:** a flip-book of stills at the gate's pace, not video: about one frame a
+second on a still scene, up to the feed's frame rate in constant motion; frames the gate
+discarded are not in it.
+
+**Images:** each frame carries `thumb_url` (nginx, `/thumbs/`, no token, as every thumbnail
+since OMNI-307, K-3) and `frame_url`, a new route, `GET /cameras/{id}/frames/{segment_id}/image`,
+which serves the full frame through query with the token check, so full frames are still
+never served by nginx.
+
+**Not covered here:** how long frames are kept (until retention, slice 16; K-8) and the
+response size of ten minutes of a busy camera (no paging).

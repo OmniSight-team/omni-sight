@@ -5,6 +5,7 @@ from email.utils import formatdate
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from omnisight_common import CameraStatus, Role
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from app.ingestion_client import stop_worker as ingestion_stop_worker
 from app.live_state import derive_state, newest_frame_at
 from app.models import Camera, CameraStats, Segment, User, Video
 from app.schemas import (
+    CameraBufferFrameOut,
     CameraCreate,
     CameraCreateResponse,
     CameraFrameOut,
@@ -361,6 +363,86 @@ def list_camera_frames(
         )
         for segment in segments
     ]
+
+
+BUFFER_DEFAULT_MINUTES = 5
+BUFFER_MAX_MINUTES = 10
+FRAME_NOT_FOUND_MESSAGE = "frame not found"
+
+
+@router.get("/{camera_id}/buffer", response_model=list[CameraBufferFrameOut])
+def camera_buffer(
+    camera_id: int,
+    minutes: int = Query(BUFFER_DEFAULT_MINUTES, ge=1, le=BUFFER_MAX_MINUTES),
+    db: Session = Depends(get_db),
+    _user: User = Depends(_operator_or_admin),
+) -> list[CameraBufferFrameOut]:
+    """The last `minutes` of a camera, to rewind through (OMNI-505): its admitted
+    frames captured in that window, oldest first.
+
+    There is no separate buffer. A live camera stores every frame the gate
+    admits (OMNI-501), and the heartbeat admits at least one a second on a still
+    scene, more when something moves, so the stored frames already are the last
+    few minutes, as a flip-book of stills rather than video. The window ends now
+    and starts `minutes` before, by the frames' own capture time."""
+    if db.get(Camera, camera_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
+
+    now = datetime.now(UTC).timestamp()
+    segments = (
+        db.query(Segment)
+        .filter(
+            Segment.camera_id == camera_id,
+            Segment.video_id.is_(None),
+            Segment.admitted.is_(True),
+            Segment.thumb_path.is_not(None),
+            Segment.frame_path.is_not(None),
+            Segment.timestamp_s >= now - minutes * 60,
+            Segment.timestamp_s <= now,
+        )
+        .order_by(Segment.timestamp_s.asc())
+        .all()
+    )
+    return [
+        CameraBufferFrameOut(
+            segment_id=segment.id,
+            timestamp_s=segment.timestamp_s,
+            reason=segment.admission_reason,
+            thumb_url=_thumb_url(segment.thumb_path),
+            frame_url=f"/cameras/{camera_id}/frames/{segment.id}/image",
+        )
+        for segment in segments
+    ]
+
+
+@router.get(
+    "/{camera_id}/frames/{segment_id}/image",
+    response_class=FileResponse,
+    responses={200: {"content": {"image/jpeg": {}}}},
+)
+def camera_frame_image(
+    camera_id: int,
+    segment_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(_operator_or_admin),
+) -> FileResponse:
+    """One stored live frame at full size (OMNI-505), with the token check.
+    Full frames are deliberately not served by nginx (OMNI-307), and this keeps
+    it that way. A stored frame never changes, so it may be cached privately."""
+    segment = db.get(Segment, segment_id)
+    if (
+        segment is None
+        or segment.camera_id != camera_id
+        or segment.video_id is not None
+        or not segment.admitted
+        or segment.frame_path is None
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FRAME_NOT_FOUND_MESSAGE)
+    path = Path(segment.frame_path)
+    root = Path(settings.frames_path)
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FRAME_NOT_FOUND_MESSAGE)
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
 def _is_capturing(stats: CameraStats | None, now: datetime) -> bool:

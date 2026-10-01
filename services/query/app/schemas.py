@@ -113,6 +113,21 @@ class CameraLiveOut(BaseModel):
     last_frame_at: datetime | None
 
 
+class CameraBufferFrameOut(BaseModel):
+    """One frame of a camera's rewind buffer (OMNI-505): an admitted frame
+    already stored, not a copy."""
+
+    segment_id: int
+    # When the frame was captured, as Unix time in seconds.
+    timestamp_s: float
+    # Why the gate kept it: "motion" or "heartbeat".
+    reason: AdmissionReason
+    # The thumbnail, served by nginx (OMNI-307), and the full frame, served by
+    # this API with the token check.
+    thumb_url: str
+    frame_url: str
+
+
 class CameraFrameOut(BaseModel):
     """One stored frame of a live camera. Only admitted frames have a
     thumbnail, so only they are listed."""

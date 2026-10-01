@@ -18,6 +18,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Every frame gated, live on its own queue: live alone max 106-472 ms; with a 1,930-frame file extracting max **147-373 ms** (was 6.14 s on one shared queue) | **Pass**, alone and with a long file extracting (preliminary: one camera, two runs) | 2026-10-01 | OMNI-316, OMNI-502 |
 | FR-9, the wall's preview (no Phase A target) | 16 tiles polling one camera once a second, cheap; unchanged frames cost a 304 | Live feed: 960 of 960 polls 200, 387 KiB/s, query +15-17% of a core. Frozen feed: 432 of 480 polls 304, 45 KiB/s. Stopped: 404 at once | **Measured**; 304s only on a frozen feed (K-12) | 2026-10-01 | OMNI-503 |
 | FR-9, feed health (no Phase A target) | See at once which feeds are healthy; capture resumes after a restart with nobody pressing Start | Simulator paused: `frozen` 3.1-3.2 s after the last frame, `offline` at 30.6-30.8 s (not ~10 s: late frames at each read timeout, K-13), `live` again 15.6 s after unpausing. Ingestion restarted or killed: never `live` without a worker, capture back in 12.3-13.6 s | **Pass**, with K-13 open | 2026-10-02 | OMNI-504 |
+| FR-9, rewind (no Phase A target) | Rewind a feed a few minutes | After 5 min of capture on `cam05`: 957 frames in the 5-minute buffer, oldest first, none outside the window, full frames token-checked | **Pass** (one run) | 2026-10-02 | OMNI-505 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -708,3 +709,33 @@ restart (the same check runs at query's start; not run live).
 
 `uv run pytest`: **361 passed, 1 skipped**, against a scratch database; one earlier full run
 had one unrelated failure, K-14.
+
+## OMNI-505 · The rewind buffer after five minutes of capture (preliminary) · 2026-10-02
+
+**Conditions:** the machine above, the full stack, one camera (`cam05`, 320x240, 15 fps,
+motion and still stretches), gate defaults, captured for 300 s; then
+`GET https://localhost/api/cameras/{id}/buffer` (through nginx) for 1, 5 and 10 minutes.
+Script: `scripts/verify_rewind_buffer.py --camera cam05`, one run, **12 of 12 checks passed**.
+
+| Window | Frames | Motion / heartbeat | Oldest / newest | Largest gap | Response | Time |
+|---|---|---|---|---|---|---|
+| 1 min | 190 | 154 / 36 | 59.5 s / 0.5 s ago | 1.07 s | 33 KiB | 78 ms |
+| **5 min** | **957** | 772 / 185 | **300.0 s** / 0.6 s ago | 1.07 s | 166 KiB | 36 ms |
+| 10 min | 958 | 772 / 186 | 301.3 s / 0.9 s ago | 1.07 s | 166 KiB | 57 ms |
+
+(The 10-minute window holds the same frames: capture had run only about 5 minutes.)
+
+**Acceptance:** after 5 minutes of capture the buffer returned **957 frames** (at least 300
+required), **oldest first, none outside the window** (the oldest 300.0 s before the request,
+in every window). Every frame has a reason. No two consecutive frames are more than 1.07 s
+apart: the heartbeat (1 s) plus one frame. `frame_url` served the full JPEG with the token for
+20 of 20 sampled frames, and 401 without it. `thumb_url` is served by nginx without a token,
+as every thumbnail is (K-3).
+
+**Not covered:** a camera in constant motion (about 12 stored frames a second on `cam01`,
+so ten minutes would be about 7,000 frames and about 1.2 MB of JSON by this run's 177 bytes
+a frame, extrapolated, not measured); the buffer while frames are being stored (the window
+ends at the request; a frame still in the live queue appears on the next request);
+more than one run.
+
+`uv run pytest`: **372 passed, 1 skipped**, against a scratch database.
