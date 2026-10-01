@@ -38,6 +38,9 @@ services:
       - video_storage:/data/videos
       - frame_storage:/data/frames
       - thumb_storage:/data/thumbs
+      # OMNI-503: each live camera's current frame, written by ingestion and
+      # served from here with the token check (not by nginx, so K-3 does not grow).
+      - preview_storage:/data/previews:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +64,7 @@ services:
       - video_storage:/data/videos
       - frame_storage:/data/frames
       - thumb_storage:/data/thumbs
+      - preview_storage:/data/previews
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -202,5 +206,7 @@ volumes:
   video_storage:
   frame_storage:
   thumb_storage:
+  # OMNI-503: one small JPEG per live camera, replaced in place, never accumulated.
+  preview_storage:
   # OMNI-311: queued messages must outlive the container, not just a restart.
   rabbitmq_data:

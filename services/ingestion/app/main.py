@@ -28,6 +28,7 @@ from app.pipeline import (
     process_frame,
 )
 from app.playback import PlaybackError, ensure_playback_copy
+from app.preview import PreviewWriter, preview_path
 from app.publisher import PublishError, SegmentPublisher, publish_segments
 from app.schemas import (
     ExtractedSegment,
@@ -337,6 +338,12 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
         stats_interval_s=settings.live_stats_interval_s,
         drop_log_interval_s=settings.live_drop_log_interval_s,
         fps_window_s=settings.live_fps_window_s,
+        preview=PreviewWriter(
+            preview_path(settings.previews_path, camera_id),
+            max_side_px=settings.live_preview_max_side_px,
+            quality=settings.live_preview_jpeg_quality,
+        ),
+        preview_interval_s=settings.live_preview_interval_s,
     )
 
 

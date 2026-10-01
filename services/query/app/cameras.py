@@ -1,7 +1,10 @@
 import logging
+import os
 from datetime import UTC, datetime
+from email.utils import formatdate
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from omnisight_common import CameraStatus, Role
 from sqlalchemy.orm import Session
 
@@ -294,6 +297,67 @@ def list_camera_frames(
     ]
 
 
+def _is_capturing(stats: CameraStats | None, now: datetime) -> bool:
+    """Whether a worker is capturing the camera, by what it last reported: a
+    session that has not said it stopped, and a report recent enough to believe."""
+    return (
+        stats is not None
+        and stats.session_started_at is not None
+        and stats.reported_at is not None
+        and (now - stats.reported_at).total_seconds() <= settings.camera_stats_stale_s
+    )
+
+
+NO_PREVIEW_MESSAGE = "no preview yet: the camera has not delivered a frame"
+NOT_CAPTURING_MESSAGE = "camera is not being captured"
+
+
+@router.get(
+    "/{camera_id}/preview",
+    response_class=Response,
+    responses={200: {"content": {"image/jpeg": {}}}, 304: {"description": "unchanged since the ETag sent"}},
+)
+def camera_preview(
+    camera_id: int,
+    if_none_match: str | None = Header(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(_operator_or_admin),
+) -> Response:
+    """The camera's current frame, a small JPEG, cheap to poll (OMNI-503).
+
+    A camera wall asks for this about once a second per tile instead of holding a
+    video stream open. The ETag is the file's write time: a poll that sends it
+    back in `If-None-Match` and finds the same file gets a 304 and no image.
+    `Last-Modified` says when the frame was written, so a client can show its
+    age. 404, with the reason, when there is no frame yet or the camera is not
+    being captured: an old frame is never served as if it were current.
+    """
+    if db.get(Camera, camera_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
+    if not _is_capturing(db.get(CameraStats, camera_id), datetime.now(UTC)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NOT_CAPTURING_MESSAGE)
+
+    path = Path(settings.previews_path) / f"camera-{camera_id}.jpg"
+    try:
+        # Opened first and measured through the open file, so the ETag and the
+        # bytes belong to the same frame even if the worker replaces the file
+        # between the two (the rename swaps the name, not this open file).
+        with open(path, "rb") as handle:
+            written_ns = os.fstat(handle.fileno()).st_mtime_ns
+            etag = f'"{written_ns}"'
+            headers = {
+                "ETag": etag,
+                "Cache-Control": "no-cache",
+                "Last-Modified": formatdate(written_ns / 1e9, usegmt=True),
+            }
+            if if_none_match is not None and etag in (tag.strip() for tag in if_none_match.split(",")):
+                return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+            body = handle.read()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NO_PREVIEW_MESSAGE) from exc
+    return Response(content=body, media_type="image/jpeg", headers=headers)
+
+
 @router.get("/{camera_id}/stats", response_model=CameraStatsOut)
 def camera_stats(
     camera_id: int,
@@ -319,11 +383,7 @@ def camera_stats(
         return CameraStatsOut(captured=0, dropped=0, fps_effective=0.0, uptime_s=0.0)
 
     now = datetime.now(UTC)
-    running = (
-        stats.session_started_at is not None
-        and stats.reported_at is not None
-        and (now - stats.reported_at).total_seconds() <= settings.camera_stats_stale_s
-    )
+    running = _is_capturing(stats, now)
     return CameraStatsOut(
         captured=stats.captured,
         dropped=stats.dropped,

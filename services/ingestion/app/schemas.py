@@ -155,4 +155,7 @@ class WorkerInfo(BaseModel):
     reconnects: int = 0
     failed_attempts: int = 0
     last_frame_at: float | None = None
+    previews_written: int = 0
+    preview_errors: int = 0
+    last_preview_at: float | None = None
 

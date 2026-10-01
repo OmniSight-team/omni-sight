@@ -14,6 +14,9 @@ class CommonSettings(BaseSettings):
     # them, and the two must never disagree about the layout.
     frames_path: str = "/data/frames"
     thumbs_path: str = "/data/thumbs"
+    # OMNI-503: each live camera's current frame, `{previews_path}/camera-{id}.jpg`.
+    # Ingestion writes it, query serves it; the same path on both sides.
+    previews_path: str = "/data/previews"
 
     # RabbitMQ (OMNI-311). Here for the same reason as the paths above: ingestion
     # publishes and query consumes, and the two must agree on the broker and on

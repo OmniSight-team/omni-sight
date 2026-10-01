@@ -153,6 +153,11 @@ class LiveWorker:
         drop_log_interval_s: float = 5.0,
         fps_window_s: float = 10.0,
         backlog_check_interval_s: float = 1.0,
+        # OMNI-503: something with `write(frame)` and `clear()` (a
+        # `PreviewWriter`), given the current decoded frame at most once per
+        # `preview_interval_s`, admitted or not, and cleared when the worker ends.
+        preview: Any | None = None,
+        preview_interval_s: float = 0.5,
     ):
         self.camera_id = camera_id
         self.worker_id = uuid.uuid4().hex
@@ -167,6 +172,10 @@ class LiveWorker:
         self._drop_log_interval_s = drop_log_interval_s
         self._fps_window_s = fps_window_s
         self._backlog_check_interval_s = backlog_check_interval_s
+        self._preview = preview
+        self._preview_interval_s = preview_interval_s
+        self._preview_due_at: float | None = None
+        self._preview_failing = False
 
         self._stop = threading.Event()
         # Waits, returning True as soon as the worker is asked to stop. A test
@@ -222,6 +231,11 @@ class LiveWorker:
         self.reconnects = 0
         self.failed_attempts = 0
         self.last_frame_at: float | None = None
+        # The preview file (OMNI-503): how often it was replaced, how often that
+        # failed, and when it was last replaced.
+        self.previews_written = 0
+        self.preview_errors = 0
+        self.last_preview_at: float | None = None
 
         self._processed_at: deque[float] = deque()
         self._drops_since_log = 0
@@ -331,6 +345,9 @@ class LiveWorker:
             "reconnects": self.reconnects,
             "failed_attempts": self.failed_attempts,
             "last_frame_at": self.last_frame_at,
+            "previews_written": self.previews_written,
+            "preview_errors": self.preview_errors,
+            "last_preview_at": self.last_preview_at,
         }
 
     def _stats_report(self, running: bool) -> dict[str, Any]:
@@ -448,6 +465,7 @@ class LiveWorker:
             self._set_state(WorkerState.FAILED, str(exc)[:300])
         finally:
             self._release(capture)
+            self._clear_preview()
             self._capture_done.set()
             self._settled.set()
 
@@ -487,6 +505,7 @@ class LiveWorker:
             if not ok or frame is None:
                 self.decode_errors += 1
                 continue
+            self._maybe_preview(frame, now)
 
             self.captured += 1
             try:
@@ -495,6 +514,40 @@ class LiveWorker:
                 self._drop("processing")
             else:
                 self._next_index += 1
+
+    def _maybe_preview(self, frame: Any, now: float) -> None:
+        """Replace the preview with this frame if one is due (OMNI-503). Done here,
+        on the capture thread, so it is the frame the stream just delivered,
+        whether or not the pipeline keeps up with it. A preview that cannot be
+        written is counted and logged, and capture goes on: the preview is a
+        view of the camera, not part of what is stored."""
+        if self._preview is None:
+            return
+        if self._preview_due_at is not None and now < self._preview_due_at:
+            return
+        self._preview_due_at = now + self._preview_interval_s
+        try:
+            self._preview.write(frame)
+        except Exception as exc:  # noqa: BLE001 - never stop capture for the preview
+            self.preview_errors += 1
+            if not self._preview_failing:  # once per stretch of failures, not per frame
+                logger.warning(
+                    "could not write the camera preview",
+                    extra={"extra_fields": {"camera_id": self.camera_id, "error": str(exc)[:300]}},
+                )
+            self._preview_failing = True
+            return
+        self._preview_failing = False
+        self.previews_written += 1
+        self.last_preview_at = now
+
+    def _clear_preview(self) -> None:
+        if self._preview is None:
+            return
+        try:
+            self._preview.clear()
+        except Exception:
+            logger.warning("could not remove the camera preview", exc_info=True)
 
     def _lost(self, reason: str) -> None:
         """The stream dropped after working: say so at once, not on the next poll."""

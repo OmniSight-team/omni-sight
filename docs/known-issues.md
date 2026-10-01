@@ -15,6 +15,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
 | K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
+| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | OMNI-506 |
 
 ---
 
@@ -113,6 +114,19 @@ Since OMNI-502 it also waits for the wrong queue to empty: it reads the file que
 (`segment_queue`), and live frames are on `omnisight.segments.live`.
 **Fix candidate:** drop the gap check for live sessions and rely on files against rows, or
 compare the stored rows with the `admitted` counter.
+
+## K-12 · Preview polls on a live feed are never 304
+
+The preview's ETag is its write time (OMNI-503 as specified), and a live worker rewrites it
+every 0.5 s whether the scene moved or not. A tile polling once a second therefore always
+finds a new file: 960 of 960 polls were 200 on `cam05`, about 387 KiB/s for 16 tiles; 304s
+only came while the simulator was paused (432 of 480). OMNI-506's acceptance ("the network
+tab shows mostly 304s on still scenes") cannot be met this way; OMNI-504 and OMNI-507 need
+the ETag to change with every new frame, so they agree with what was built.
+**Options:** reword OMNI-506's acceptance to 304s on frozen or lost feeds (no code change;
+the bandwidth is 24.5 KiB per tile per second on `cam05`); or rewrite the preview only when
+the picture changed, with liveness taken from somewhere else. The first is the
+recommendation.
 
 ---
 

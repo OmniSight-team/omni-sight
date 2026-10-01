@@ -92,6 +92,12 @@ class Settings(CommonSettings):
     # that is measured (OMNI-502): a large upload waiting to be stored is on the
     # file queue and does not count.
     live_max_backlog: int = Field(2000, ge=0)
+    # The preview a camera wall polls (OMNI-503): the current decoded frame,
+    # admitted or not, written at most this often, scaled so its longest side is
+    # at most this many pixels. One file per camera, replaced, never accumulated.
+    live_preview_interval_s: float = Field(0.5, gt=0)
+    live_preview_max_side_px: int = Field(640, ge=16)
+    live_preview_jpeg_quality: int = Field(70, ge=1, le=100)
     # How often a worker sends its counters to `camera_stats`.
     live_stats_interval_s: float = Field(5.0, gt=0)
     # Drops are logged when a stretch of them begins and then summarised this

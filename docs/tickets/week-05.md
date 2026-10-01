@@ -145,17 +145,17 @@ current frame about once a second, not the stream.
 GET /cameras/{id}/preview -> image/jpeg   (ETag; 304 when unchanged)
 ```
 
-- [ ] The live worker writes the **current decoded frame** (admitted or not) as a small JPEG,
+- [x] The live worker writes the **current decoded frame** (admitted or not) as a small JPEG,
       at most once per `LIVE_PREVIEW_INTERVAL_S` (default 0.5 s), longest side capped at
       640 px, to a new `preview_storage` volume, one file per camera, replaced atomically
       (write a temp file, then rename)
-- [ ] `query` serves it **with the token check** (not an nginx static route, so K-3 does not
+- [x] `query` serves it **with the token check** (not an nginx static route, so K-3 does not
       grow) **[NFR-7]**
-- [ ] `ETag` from the file's write time; `If-None-Match` returns `304` with no body;
+- [x] `ETag` from the file's write time; `If-None-Match` returns `304` with no body;
       `Cache-Control: no-cache`
-- [ ] No preview yet, or camera stopped: `404` with a reason, never an old frame pretending
+- [x] No preview yet, or camera stopped: `404` with a reason, never an old frame pretending
       to be current
-- [ ] Tests: 200 with a token, 401 without, 304 on a matching ETag
+- [x] Tests: 200 with a token, 401 without, 304 on a matching ETag
 
 **Acceptance:** 16 clients polling one camera each second: record bytes per second and
 query's CPU. Unchanged frames cost a 304, not a JPEG.

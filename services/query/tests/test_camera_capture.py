@@ -10,6 +10,7 @@ services/ingestion/tests/test_live_capture.py, and the whole chain ran live
 against the simulator (docs/context/week-03-04.md).
 """
 
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -489,3 +490,121 @@ def test_stats_need_a_sign_in_and_an_operator_or_admin():
     assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.OPERATOR)).status_code == 200
     assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.ADMIN)).status_code == 200
 
+
+# --- the preview (OMNI-503) ------------------------------------------------------
+
+JPEG = b"\xff\xd8\xff\xe0 a small jpeg \xff\xd9"
+
+
+@pytest.fixture
+def previews(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "previews_path", str(tmp_path))
+    return tmp_path
+
+
+def _write_preview(previews, camera_id, body=JPEG, *, written_ns=None):
+    path = previews / f"camera-{camera_id}.jpg"
+    path.write_bytes(body)
+    if written_ns is not None:
+        os.utime(path, ns=(written_ns, written_ns))
+    return path
+
+
+def test_the_preview_is_the_current_frame_with_an_etag(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)  # being captured
+    _write_preview(previews, camera_id)
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    assert resp.content == JPEG
+    assert resp.headers["etag"].startswith('"') and resp.headers["etag"].endswith('"')
+    assert resp.headers["cache-control"] == "no-cache"
+    assert "last-modified" in resp.headers
+
+
+def test_the_preview_needs_a_token(previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+    _write_preview(previews, camera_id)
+
+    assert client.get(f"/cameras/{camera_id}/preview").status_code == 401
+    bad = {"Authorization": "Bearer not-a-token"}
+    assert client.get(f"/cameras/{camera_id}/preview", headers=bad).status_code == 401
+    assert client.get(f"/cameras/{camera_id}/preview", headers=_headers(Role.ANALYST)).status_code == 403
+    assert client.get(f"/cameras/{camera_id}/preview", headers=_headers(Role.ADMIN)).status_code == 200
+
+
+def test_an_unchanged_preview_costs_a_304_and_no_image(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+    _write_preview(previews, camera_id)
+    etag = client.get(f"/cameras/{camera_id}/preview", headers=operator).headers["etag"]
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers={**operator, "If-None-Match": etag})
+
+    assert resp.status_code == 304
+    assert resp.content == b""
+    assert resp.headers["etag"] == etag
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_a_new_frame_has_a_new_etag_and_is_sent_again(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+    _write_preview(previews, camera_id, written_ns=1_790_000_000_000_000_000)
+    old = client.get(f"/cameras/{camera_id}/preview", headers=operator).headers["etag"]
+
+    _write_preview(previews, camera_id, b"\xff\xd8 the next frame \xff\xd9", written_ns=1_790_000_000_500_000_000)
+    resp = client.get(f"/cameras/{camera_id}/preview", headers={**operator, "If-None-Match": old})
+
+    assert resp.status_code == 200
+    assert resp.headers["etag"] != old
+    assert resp.content == b"\xff\xd8 the next frame \xff\xd9"
+
+
+def test_no_preview_yet_is_a_404_with_the_reason(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.NO_PREVIEW_MESSAGE
+
+
+def test_a_stopped_camera_has_no_preview_even_if_a_file_was_left_behind(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id, started_ago_s=None)  # the worker said it stopped
+    _write_preview(previews, camera_id)  # e.g. left by a worker that was killed
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.NOT_CAPTURING_MESSAGE
+
+
+def test_a_camera_whose_worker_has_gone_quiet_has_no_preview(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id, reported_ago_s=120.0)  # nothing heard for two minutes
+    _write_preview(previews, camera_id)
+
+    assert client.get(f"/cameras/{camera_id}/preview", headers=operator).status_code == 404
+
+
+def test_a_camera_never_captured_has_no_preview(operator, previews):
+    camera_id = _camera()
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.NOT_CAPTURING_MESSAGE
+
+
+def test_the_preview_of_a_missing_camera_is_a_404(operator, previews):
+    resp = client.get("/cameras/2000000000/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.CAMERA_NOT_FOUND_MESSAGE

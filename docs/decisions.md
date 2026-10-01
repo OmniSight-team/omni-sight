@@ -19,6 +19,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-11 | Reconnect with exponential backoff and jitter | 2026-09-26 | Done |
 | D-12 | Camera start waits for the stream to open, not for a frame | 2026-09-26 | Done |
 | D-13 | Live frames on a queue and a consumer of their own | 2026-10-01 | Done |
+| D-14 | The wall's preview: one file per camera, ETag from its write time, served by query | 2026-10-01 | Done |
 
 ---
 
@@ -185,3 +186,27 @@ measures the live queue only, so a large upload no longer makes live capture dro
 **Not chosen:** a priority queue on one consumer (live frames would still share that one
 consumer's throughput with the file, and wait behind messages it already holds; not
 measured), batched commits (OMNI-510, only if NFR-4 needs it).
+
+## D-14 · The wall's preview · 2026-10-01
+
+**Why:** FR-9. Sixteen tiles must not be sixteen video streams; a tile needs the current
+frame about once a second.
+
+**What (OMNI-503):** each live worker writes the frame the stream just delivered, admitted
+or not, to `/data/previews/camera-{id}.jpg` (volume `preview_storage`) at most every
+`LIVE_PREVIEW_INTERVAL_S` = 0.5 s, longest side at most 640 px, JPEG quality 70. It is
+written on the capture thread, before the gate and the queue, so it shows the stream even
+when the pipeline drops frames; a failed write is counted and never stops capture. The file
+is written to a temporary name and renamed over the old one. The worker removes it when it
+ends. `GET /cameras/{id}/preview` in query serves it with the token check (operator or
+admin), not through nginx, so K-3 does not grow. `ETag` is the file's write time in
+nanoseconds, read from the open file so the tag and the bytes are the same frame;
+`If-None-Match` with it gives a 304 and no body; `Cache-Control: no-cache`; `Last-Modified`
+lets a client show the frame's age. 404 with the reason when there is no file, or when the
+camera's last stats report says it is not being captured (stopped, or silent for
+`CAMERA_STATS_STALE_S`), so a file left behind by a killed worker is not served as current.
+
+**Consequence:** the ETag changes on every write, so on a live feed a tile polling once a
+second gets a new JPEG every time, still scene or not; a 304 means no new frame was written
+(a frozen or lost feed). That is what makes the ETag usable as liveness (OMNI-504, OMNI-507),
+and it is why OMNI-506's "mostly 304s on still scenes" does not hold as written (K-12).

@@ -273,3 +273,111 @@ not been created.
 K-1 is fixed: with the longest file OMNI-316 used extracting, live frames are stored in
 under 0.4 s, and NFR-1's first half passes with a recording extracting. Preliminary: one
 machine, one camera, two runs.
+
+---
+
+## OMNI-503 · Preview endpoint: the current frame, cheap to poll
+
+Done 2026-10-01, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-503); the
+design is D-14 in `docs/decisions.md`.
+
+### Why this ticket exists
+
+FR-9: a wall of sixteen tiles must not be sixteen video streams. A tile needs the current
+frame about once a second, as one small JPEG, and an unchanged frame should cost almost
+nothing.
+
+### What was done
+
+- **`services/ingestion/app/preview.py`, new:** `PreviewWriter` scales a frame so its longest
+  side is at most 640 px (never up), encodes it as JPEG, writes it to `camera-{id}.jpg.tmp`
+  and renames it over `camera-{id}.jpg` (`os.replace`); `clear()` removes both.
+  `preview_path()` is the one place the file name is decided
+- **The worker** (`live_capture.py`) takes an optional `preview` and `preview_interval_s`. On
+  the capture thread, right after a frame is decoded and before it is queued or gated, it
+  writes the preview if one is due (at most every 0.5 s). Admitted or not, dropped or not:
+  the preview is the stream's picture. A failed write is counted (`preview_errors`), logged
+  once per stretch of failures, and capture carries on. The preview is cleared in the capture
+  thread's `finally`, so a stopped or failed worker leaves no file. The snapshot gained
+  `previews_written`, `preview_errors`, `last_preview_at`
+- **Settings:** `previews_path` (`/data/previews`) in the shared settings, since ingestion
+  writes and query reads it; `LIVE_PREVIEW_INTERVAL_S` (0.5), `LIVE_PREVIEW_MAX_SIDE_PX`
+  (640) and `LIVE_PREVIEW_JPEG_QUALITY` (70) in ingestion. The quality is my choice; the
+  ticket did not give one
+- **Volume `preview_storage`:** read-write in ingestion, read-only in query, not mounted in
+  nginx
+- **`GET /cameras/{id}/preview`** in `cameras.py`, operator or admin like the camera's frames
+  and stats. Opens the file, takes the ETag from the open file's write time (nanoseconds),
+  answers 304 with no body when `If-None-Match` carries it, otherwise the JPEG with `ETag`,
+  `Cache-Control: no-cache` and `Last-Modified`. 404 with the reason when the camera does not
+  exist, is not being captured, or has no preview yet. "Being captured" is the same rule
+  the stats endpoint already used (a session that has not said it stopped, and a report
+  within `CAMERA_STATS_STALE_S`); I moved it into `_is_capturing()` so both share it. The
+  check matters for a worker that was killed: its file is never cleared, and without the
+  check the last frame would be served as current until the next start
+- **Tests:** nine in query (200 with the headers; 401 without a token and with a bad one, 403
+  for an analyst; 304 with no body on the same ETag; a new frame gives a new ETag and a 200;
+  404 for no preview, for a stopped camera with a file left behind, for a worker gone quiet,
+  for a camera never captured, and for a missing camera), thirteen in ingestion
+  (`test_preview.py`: the size cap both ways, no upscaling, one file and no leftovers, a
+  reader never sees half a file, clear; the worker writes at most every 0.5 s and as often as
+  that allows, keeps its pace when half the frames are discarded, clears on stop and on a
+  failed start, survives a failing write, works without a preview)
+- **`scripts/measure_preview_polling.py`, new:** the acceptance measurement
+
+### Things that went wrong on the way
+
+- **I emptied `test_camera_capture.py` for a minute.** The helper script I used to append the
+  new tests opened the file for writing with Windows' default encoding (cp1255), which
+  truncated it and then failed to encode. I restored it from the last commit with `git show`
+  (read-only), checked `git diff` showed only additions afterwards, and redid the edit with
+  UTF-8. A second slip in the same helper turned the `\xff` escapes in the test JPEG bytes
+  into literal characters; ruff caught it as a syntax error and I put the escapes back. I
+  also checked the files earlier helpers had edited: all still valid UTF-8, unchanged
+  apart from the intended edits
+- **The "reader never sees half a file" test fails on Windows**, because Windows refuses to
+  rename over a file another handle has open. The service runs on Linux, so the test is
+  skipped on Windows with that reason, and I ran the same check in the ingestion container:
+  2,000 reads during 552 rewrites, 0 torn
+
+### Something the ticket did not anticipate (K-12)
+
+With the ETag taken from the write time and the preview rewritten every 0.5 s, a tile
+polling once a second on a live feed always gets a new JPEG: 960 of 960 polls were 200. 304s
+come only when no new frame is written (the simulator paused: 432 of 480). The ticket's
+"unchanged frames cost a 304" holds, but OMNI-506's acceptance, "mostly 304s on still
+scenes", cannot: a still scene is still rewritten. OMNI-504 (`last_frame_at` is the preview's
+write time) and OMNI-507 (the live indicator follows the ETag) both need the file rewritten
+with every new frame, so I built it as written and recorded the conflict as K-12, with the
+recommendation to reword OMNI-506's acceptance to 304s on frozen or lost feeds.
+
+### Verification performed
+
+- **`uv run pytest`: 338 passed, 1 skipped** (the Windows-only skip above), against a scratch
+  database (`omni503_scratch`, dropped). `ruff`: nothing beyond the known `B008`
+- **Stack:** `docker compose up -d` recreated ingestion and query with the new volume;
+  `/data/previews` exists in both, read-only in query
+- **Acceptance, two runs, `cam05`, 16 clients through nginx once a second:**
+  - live feed: 960 requests, all 200, **387 KiB/s** of JPEGs (24.5 KiB each), response p95
+    27-28 ms; query **25.6-27.9%** of a core against 10.7-11.1% capturing without polling
+  - frozen feed (simulator paused): **432 of 480 were 304** with 0 bytes of body, 45 KiB/s;
+    query 22.1-23.5%, so most of query's cost is the request itself (token, three small
+    reads), not the image
+  - stop: the next poll was **404 "camera is not being captured"** at once
+- Everything the script created was removed and the simulator unpaused
+
+### Not verified
+
+- Sixteen different cameras, and a browser as the client: OMNI-506 and OMNI-509
+- Frames larger than the simulator's 320x240, whose previews would be larger
+- How old the preview is when served on a healthy feed: at most 0.5 s plus one frame by
+  construction, not measured (OMNI-504 uses it as `last_frame_at`)
+- What the 48 early 200s in the frozen phase were beyond each client's first poll (3 per
+  client in both runs)
+
+### Result
+
+The preview works as the ticket asks: token-checked, ETag, 304 with no body when nothing
+new was written, 404 rather than a stale frame when the camera is not being captured. The
+cost of sixteen tiles on one camera is recorded. One acceptance in a later ticket (OMNI-506)
+needs rewording, K-12.

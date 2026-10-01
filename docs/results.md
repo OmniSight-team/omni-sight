@@ -16,6 +16,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57%. Live: every frame gated (15.0/s), 20-22% kept on `cam05`, counters balance | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26, 09-30 | OMNI-304, OMNI-305, OMNI-318, OMNI-501 |
 | FR-3 | Store each segment with time, source and image | Files: a row for every decoded frame. Live: a row for every admitted frame. Image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-30 | OMNI-304, OMNI-316, OMNI-501 |
 | NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Every frame gated, live on its own queue: live alone max 106-472 ms; with a 1,930-frame file extracting max **147-373 ms** (was 6.14 s on one shared queue) | **Pass**, alone and with a long file extracting (preliminary: one camera, two runs) | 2026-10-01 | OMNI-316, OMNI-502 |
+| FR-9, the wall's preview (no Phase A target) | 16 tiles polling one camera once a second, cheap; unchanged frames cost a 304 | Live feed: 960 of 960 polls 200, 387 KiB/s, query +15-17% of a core. Frozen feed: 432 of 480 polls 304, 45 KiB/s. Stopped: 404 at once | **Measured**; 304s only on a frozen feed (K-12) | 2026-10-01 | OMNI-503 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -616,3 +617,50 @@ commit on the live queue is covered by a test against the real broker,
 `test_segment_consumer.py`).
 
 `uv run pytest`: **316 passed**, against a scratch database.
+
+## OMNI-503 · The wall's preview: sixteen tiles polling one camera (preliminary) · 2026-10-01
+
+**Conditions:** the machine above, the full stack, one camera capturing (`cam05`, 320x240,
+15 fps), preview defaults (written at most every 0.5 s, longest side 640 px, JPEG quality
+70). Sixteen clients in one Python process on the host, each with its own keep-alive
+connection, asking for `GET https://localhost/api/cameras/{id}/preview` (through nginx, as
+the wall will) once a second, starting at a random point in the first second, sending back
+the last ETag they received. CPU from `docker stats` about every 2 s. Script:
+`scripts/measure_preview_polling.py --camera cam05`, two runs. Bytes are response bodies, and
+headers as received (status line and header lines; no TLS or TCP overhead).
+
+| Phase | Requests | 200 / 304 | Body | Headers | Response p50 / p95 / max | Query CPU, average |
+|---|---|---|---|---|---|---|
+| No camera, no polling | - | - | - | - | - | 10.3% / 10.3% |
+| Capturing, no polling | - | - | - | - | - | 11.1% / 10.7% |
+| **Live feed, 60 s** | 960 / 960 | **960 / 0** | **386.6 / 386.8 KiB/s** (mean JPEG 24.5 KiB) | 3.8 KiB/s | 15 / 28 / 68 ms; 14 / 27 / 174 ms | **27.9% / 25.6%** (peaks 44.5% / 34.8%) |
+| **Frozen feed, 30 s** (simulator paused) | 480 / 480 | **48 / 432** | **45.4 / 45.3 KiB/s**; 304s carried 0 bytes | 3.1 KiB/s | 12 / 25 / 50 ms; 13 / 29 / 64 ms | **22.1% / 23.5%** |
+
+Two runs, separated by "/". nginx averaged 1.0-1.6% throughout. Query runs with `--reload`,
+which is most of its 10-11% at rest.
+
+**Stopped:** `POST /cameras/{id}/stop`, then the preview at once: **404, "camera is not being
+captured"**, in both runs.
+
+**What it shows:**
+
+- **Unchanged frames cost a 304 and no image:** with the simulator paused, 432 of 480 polls
+  were 304, with no body. The 48 200s are 3 per client in both runs: each client's first poll
+  (it starts with no ETag) and two more early in the pause; not broken down further
+- **On a live feed every poll is a 200.** The worker rewrites the preview every 0.5 s and the
+  ETag is the write time, so a once-a-second poll always finds a newer frame. Sixteen tiles
+  on `cam05` cost about 387 KiB/s. This contradicts OMNI-506's "mostly 304s on still scenes"
+  (K-12)
+- **The CPU is per request more than per byte:** query was 15-17 points of a core above its
+  rest for 16 requests a second sending JPEGs, and 11-13 points when nearly all were 304s.
+  Each request checks the token and reads the user, the camera and its stats from Postgres
+
+**Not covered:** sixteen *different* cameras (ten simulator feeds exist; the wall's real load
+is measured with ten feeds in OMNI-509); a browser as the client (OMNI-506); larger frames
+(a 640 px preview of a real 1080p camera would be bigger than 24.5 KiB); the time a frame
+takes from the stream to the file (at most the 0.5 s interval plus one frame by
+construction, not measured).
+
+`uv run pytest`: **338 passed, 1 skipped**, against a scratch database. The skipped test (a
+reader never sees half a preview) cannot run on Windows; the same check was run on Linux in
+the ingestion container: 2,000 reads during 552 rewrites of a 1280x720 preview, 0 torn.
