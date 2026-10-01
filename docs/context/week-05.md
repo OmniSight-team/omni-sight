@@ -381,3 +381,114 @@ The preview works as the ticket asks: token-checked, ETag, 304 with no body when
 new was written, 404 rather than a stale frame when the camera is not being captured. The
 cost of sixteen tiles on one camera is recorded. One acceptance in a later ticket (OMNI-506)
 needs rewording, K-12.
+
+---
+
+## OMNI-504 · Camera liveness and honest status
+
+Done 2026-10-02, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-504); the
+design is D-15 in `docs/decisions.md`; K-5 is in `known-issues.md` under *Fixed*.
+
+### Why this ticket exists
+
+FR-9: *see immediately which feeds are healthy.* A camera could read `connected` with no
+worker behind it after an ingestion restart (K-5), and nothing resumed capture until someone
+pressed Start. A stream that stalls without closing was only noticed after the 10 s read
+timeout.
+
+### What was done
+
+- **`GET /cameras/live`** (operator or admin), every camera with `camera_id`, `name`,
+  `location`, `group_name`, `state` and `last_frame_at`, ordered by group then name. The
+  state is worked out per request in `app/live_state.py` from ingestion's worker list (a new
+  `list_workers()` client call, 3 s timeout) and the preview file's write time, which is
+  `last_frame_at`: `live` (worker reading, frame at most 3 s old), `frozen` (worker reading,
+  older frame or none), `offline` (worker reconnecting or still connecting; or capture asked
+  for and no worker; or ingestion unreachable), `stopped` (no worker and nothing asked for,
+  or the camera disabled). A worker that is reading counts whatever the flag says, so a
+  camera started before the flag existed still reads honestly. `LIVE_STALE_AFTER_S` (3.0)
+  is a query setting
+- **`cameras.capture_enabled`**, migration `d4865a17f560` (false for every existing camera).
+  Set by a start that worked (and by a start answered "already running"), cleared by stop,
+  disable and delete, always committed *before* ingestion is asked to stop
+- **Resume, in query, not ingestion.** The ticket says ingestion resumes capture on startup.
+  Ingestion has no database, so it cannot know which cameras were captured. I put the
+  resume in query instead (`app/capture_resume.py`, started in query's lifespan): every 5 s
+  it reads ingestion's worker list, then the `capture_enabled` cameras, and starts each one
+  without a worker through the same start call as the button, each on its own thread. A
+  failed start is retried after 5, 10, 20, 40 s, then every 60 s, and marks the camera
+  `unreachable`; a successful one marks it `connected`. Workers are read before cameras so a
+  stop that has just happened is never undone (the stop clears the flag first). The outcome
+  the ticket asks for is the same; how is different, and I recorded it in D-15 with the two
+  alternatives I did not take. **This changes how the ticket said it, so Ahmad should know**
+- **`cameras.status` is left alone.** It is still the last observed reachability; it is not
+  corrected when ingestion restarts. The wall does not read it
+- **Tests:** `test_live_state.py`, 23: the rule (each state, the 3 s limit itself, no
+  preview, ingestion down, a running worker with the flag off); the endpoint (all four
+  states at once with the fields and `last_frame_at`, nothing live while ingestion is down
+  even with a fresh preview, disabled reads stopped, order, roles); the flag (set by a start
+  that worked, not by one that failed, cleared by stop and by disabling); the resume
+  (cameras that were capturing are started again after a "restart", busy ones left alone, a
+  failed worker restarted, disabled and not-enabled cameras never, nothing while ingestion is
+  down, the retry wait doubles 5, 10, 20, 40 up to 60, a resumed camera reads connected, no
+  double start while one is in flight)
+- **`scripts/verify_camera_states.py`, new:** the acceptance on the real stack
+
+### What the real stack showed that the tests could not (K-13)
+
+Pausing the simulator gave `frozen` on time, 3.1-3.2 s after the last frame. But the camera
+then read `live` again, briefly, at 10.5 s and 20.5 s, and went `offline` only at 30.6 s. A
+probe of the worker's counters every 0.5 s showed why: while mediamtx was paused, frames
+still arrived, 1 then 9, in step with the 10 s read timeout. They can only be frames from
+before the pause, released late; each one rewrote the preview (so `live` for 3 s) and
+restarted the read timeout (so `offline` 20 s late). The second run repeated it to a tenth
+of a second. The rule is the one the ticket wrote ("a frame arrived in the last 3 s"), and
+changing it belongs with OMNI-507 (a frozen picture must not look live), so I recorded it
+as K-13 with two fix candidates instead of changing it here.
+
+### Other things on the way
+
+- **Query logged "capture resume check failed" every 5 s** for a few minutes. That was
+  between `--reload` picking up the new code and me applying the migration: the column did
+  not exist yet. After the migration and a restart of query, no more errors. The log line has
+  no traceback in the JSON format, which made it slower to see; not changed
+- **The stack was down again** at the start (all containers exited); `docker compose up -d`
+- **One full suite run had one failure** in `test_live_capture.py`
+  (`test_no_frame_is_lost_or_counted_twice_across_a_reconnection`), a test from OMNI-501
+  untouched here. 15 runs alone and four full ingestion runs passed, and the next full run
+  passed. Reading the code, the likely cause is a frame grabbed on reconnecting that is not
+  counted if the worker stops at that instant. Outside this ticket, so it is K-14, not a fix
+
+### Verification performed
+
+- **`uv run pytest`: 361 passed, 1 skipped** (338 before), against a scratch database
+  (`omni504_scratch`, dropped). One earlier full run: 1 failed (K-14), 360 passed
+- **Migration `d4865a17f560`:** up, down, up on the scratch database, `alembic check` clean,
+  then applied to dev
+- **`ruff`:** nothing beyond the known `B008` in the files touched
+- **Acceptance, two runs, 12 of 12 checks each** (`verify_camera_states.py`, polls every
+  0.25 s through nginx):
+  - running: `live` on every poll, newest frame 0.21-0.26 s old at the median, 0.47-0.51 s at
+    most
+  - paused: `frozen` 3.1-3.2 s after the last frame; `offline` at 30.6-30.8 s (K-13)
+  - unpaused: `live` again by itself after 15.6 s
+  - `restart ingestion`: only `offline` from the command returning until `live` again
+    13.5-13.6 s later, worker `running`; `kill` then `start`: the same, 12.3-12.5 s
+  - stop: `stopped` at once, and not resumed 8 s later
+- Dev database afterwards: the throwaway users, cameras and frames removed
+
+### Not verified
+
+- Several cameras resuming at once (they start in parallel; not measured)
+- A camera whose stream is down when it is due to resume: the backoff is unit-tested only
+- A restart of query itself (the same check runs at its start; not run live)
+- A real network stall instead of `docker compose pause` (K-13 may or may not apply)
+- The camera wall itself (OMNI-506, OMNI-507)
+
+### Result
+
+The wall can ask what every camera is doing and get an answer from evidence: `live`,
+`frozen`, `offline`, `stopped`. Capture resumes by itself after ingestion restarts or is
+killed, and no camera reads `live` without a worker. K-5 is fixed. Two things for Ahmad:
+the resume lives in query, not ingestion (D-15), and a paused stream comes back as `live`
+for a moment at each read timeout (K-13).

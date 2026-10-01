@@ -8,7 +8,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-2 | 10 concurrent feeds not sustained at 0.2 s sampling | NFR-4 | OMNI-317 | Slice 5 |
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
 | K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
-| K-5 | After an ingestion restart, workers do not resume and the camera still reads `connected` | FR-1a | OMNI-312, OMNI-319 | Slice 5 (camera wall) |
 | K-6 | Re-gate takes 1.4-2.0 s, grows with length | OMNI-310 target | OMNI-310 | When long recordings are used |
 | K-7 | Publishing costs 12-15 ms per frame | Upload throughput, K-1 | OMNI-311 | With K-1 |
 | K-8 | Storage grows about 7.7 GB per camera per day, nothing prunes | Disk | OMNI-312 | Slice 16 (retention) |
@@ -16,6 +15,8 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-10 | Small items | - | various | Any time |
 | K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | OMNI-506 |
+| K-13 | A stalled stream still delivers late bursts of old frames: the camera flickers back to `live` and goes `offline` after about 30 s, not 10 | FR-9 (honest tile state), OMNI-507 | OMNI-504 | OMNI-507 |
+| K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 
 ---
 
@@ -45,12 +46,6 @@ On daylight dash-cam footage (CCD crash) the gate keeps 57%; four clips keep eve
 frame. Raising the threshold cuts fixed-camera activity too, so it is not a fix. A design
 question for Algorithm 1 (e.g. compensating for global motion) before CCD is loaded at
 scale.
-
-## K-5 · Workers are not resumed after a restart
-
-After `docker compose restart ingestion` or a kill, `GET /workers` is empty and the camera
-still reads `connected` with nobody capturing, until capture is started again. No data is
-lost (OMNI-319); the status is wrong.
 
 ## K-6 · Re-gate latency
 
@@ -130,11 +125,42 @@ recommendation.
 
 ---
 
+## K-13 · A stalled stream delivers late bursts of old frames
+
+With the simulator paused (`docker compose pause mediamtx`) the worker kept receiving frames:
+1 about 13 s after the pause command and 9 about 23 s after, then nothing (`GET /workers`,
+every 0.5 s; the pause command itself took 3.5 s). They arrive in step with the 10 s read
+timeout: in both acceptance runs the camera read `live` again at 10.5-10.6 s and 20.5-20.6 s
+after the pause and went `offline` at 30.6-30.8 s, instead of about 10 s. They can only be
+frames from before the pause (the source is frozen), released late; why exactly at the
+timeouts (OpenCV/FFmpeg flushing buffered data when the read is interrupted is the likely
+reading) is not established. The worker stamps a frame when it arrives, so each burst
+rewrites the preview and the camera reads `live` for about 3 s. `frozen` itself came on time
+(3.1-3.2 s after the last frame). The state follows the rule as the ticket wrote it ("a
+frame arrived in the last 3 s"). Seen with `docker compose pause`; a real network stall may
+or may not behave the same, not tested.
+**Fix candidates:** leave `frozen` only after frames arrive steadily again (for example at
+least a second's worth within a second), not on one frame; or stamp a frame with the
+stream's own timestamp instead of its arrival time, so late frames read as old.
+
+## K-14 · A live capture test fails now and then
+
+`test_no_frame_is_lost_or_counted_twice_across_a_reconnection` failed once in a full run
+(2026-10-02) and passed 15 times alone and in four full ingestion runs. Likely cause, read
+from the code, not reproduced: `_open_stream` grabs a frame to prove the stream works and
+leaves it pending; if the worker is stopped before the read loop counts it, `grabbed` ends
+one below what the stream delivered, which is what the test compares. The frame is a
+fraction of a second's worth at a moment the camera is being stopped anyway.
+**Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
+
+---
+
 ## Fixed
 
 | # | Issue | Affected | Found | Fixed |
 |---|---|---|---|---|
 | K-1 | Live latency breaks 5 s while a long file is extracted | NFR-1 | OMNI-316 | OMNI-502, 2026-10-01 |
+| K-5 | After an ingestion restart, workers do not resume and the camera still reads `connected` | FR-1a | OMNI-312, OMNI-319 | OMNI-504, 2026-10-02 |
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 
@@ -147,3 +173,16 @@ a consumer of their own, `consumer-live`.
 **Result:** with the 1,930-frame file extracting, worst live frame **147 ms and 373 ms** in
 two runs; the file queue peaked at 306-330 and the live queue at 0 (`results.md`, OMNI-502).
 One camera; ten feeds are OMNI-509.
+
+### K-5 · Workers are not resumed after a restart · fixed 2026-10-02
+
+**Was:** after `docker compose restart ingestion` or a kill, `GET /workers` was empty and the
+camera still read `connected` with nobody capturing, until capture was started again. No
+data was lost (OMNI-319); the status was wrong.
+**Fix (OMNI-504, D-15):** `cameras.capture_enabled`, and a check in query every 5 s that
+starts every camera with it set and no worker; the wall's state comes from evidence (the
+worker list and the newest frame), so a camera with no worker never reads `live`.
+**Result (two runs):** `restart ingestion`: offline from the first poll after the command
+returned, `live` again 13.5-13.6 s later, worker running; `kill` then `start`: the same,
+12.3-12.5 s; no `live` reading in between (35 polls each time). `cameras.status` itself is still the last observed
+reachability and is not corrected by a restart; the wall does not read it.

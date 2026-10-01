@@ -38,6 +38,19 @@ class Settings(CommonSettings):
     # Both longer than the calls they wait on.
     ingestion_worker_start_timeout_s: float = Field(70.0, gt=0)
     ingestion_worker_stop_timeout_s: float = Field(30.0, gt=0)
+    # OMNI-504: asking ingestion which workers it runs is quick, or it is down.
+    ingestion_workers_timeout_s: float = Field(3.0, gt=0)
+
+    # OMNI-504: a camera is `live` when its newest frame (the preview's write
+    # time, OMNI-503) is at most this old; older, with the worker still reading,
+    # it is `frozen`. The preview is rewritten every 0.5 s on a healthy feed.
+    live_stale_after_s: float = Field(3.0, gt=0)
+    # OMNI-504: how often query checks that every camera with `capture_enabled`
+    # has a worker, and starts the ones that do not (after an ingestion restart,
+    # say). 0 turns it off. A camera whose start fails is tried again after a
+    # wait that doubles up to the maximum, so a dead camera is not hammered.
+    capture_resume_interval_s: float = Field(5.0, ge=0)
+    capture_resume_max_backoff_s: float = Field(60.0, gt=0)
 
     # OMNI-311: how many unacknowledged segments one consumer may hold at once.
     # Without a limit the broker hands a single consumer the whole backlog, so a

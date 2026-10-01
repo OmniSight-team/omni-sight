@@ -17,6 +17,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-3 | Store each segment with time, source and image | Files: a row for every decoded frame. Live: a row for every admitted frame. Image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-30 | OMNI-304, OMNI-316, OMNI-501 |
 | NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Every frame gated, live on its own queue: live alone max 106-472 ms; with a 1,930-frame file extracting max **147-373 ms** (was 6.14 s on one shared queue) | **Pass**, alone and with a long file extracting (preliminary: one camera, two runs) | 2026-10-01 | OMNI-316, OMNI-502 |
 | FR-9, the wall's preview (no Phase A target) | 16 tiles polling one camera once a second, cheap; unchanged frames cost a 304 | Live feed: 960 of 960 polls 200, 387 KiB/s, query +15-17% of a core. Frozen feed: 432 of 480 polls 304, 45 KiB/s. Stopped: 404 at once | **Measured**; 304s only on a frozen feed (K-12) | 2026-10-01 | OMNI-503 |
+| FR-9, feed health (no Phase A target) | See at once which feeds are healthy; capture resumes after a restart with nobody pressing Start | Simulator paused: `frozen` 3.1-3.2 s after the last frame, `offline` at 30.6-30.8 s (not ~10 s: late frames at each read timeout, K-13), `live` again 15.6 s after unpausing. Ingestion restarted or killed: never `live` without a worker, capture back in 12.3-13.6 s | **Pass**, with K-13 open | 2026-10-02 | OMNI-504 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -664,3 +665,46 @@ construction, not measured).
 `uv run pytest`: **338 passed, 1 skipped**, against a scratch database. The skipped test (a
 reader never sees half a preview) cannot run on Windows; the same check was run on Linux in
 the ingestion container: 2,000 reads during 552 rewrites of a 1280x720 preview, 0 torn.
+
+## OMNI-504 · Camera states from evidence, and capture that resumes by itself (preliminary) · 2026-10-02
+
+**Conditions:** the machine above, the full stack, one camera (`cam05`); defaults: a camera is
+`live` while its newest frame is at most 3 s old (`LIVE_STALE_AFTER_S`), the worker's read
+timeout is 10 s, the resume check runs every 5 s. `GET https://localhost/api/cameras/live`
+(through nginx, as the wall will) polled every 0.25 s for the whole run; the frame's age is
+the poll's time minus `last_frame_at`. Script: `scripts/verify_camera_states.py --camera
+cam05`, two runs, **12 of 12 checks passed in both**.
+
+| Step | Run 1 | Run 2 |
+|---|---|---|
+| Before any start | `stopped` | `stopped` |
+| Start (the API call) | 5.7 s | 7.3 s |
+| Running: `live` on every poll for 8 s | 29 of 29 | 28 of 28 |
+| Newest frame's age while running, p50 / max | 0.26 / 0.51 s | 0.21 / 0.47 s |
+| Simulator paused: `frozen` | 3.3 s after the command, frame 3.2 s old | 3.2 s, frame 3.1 s old |
+| ... then back to `live` for about 3 s | at 10.5 s and 20.5 s | at 10.6 s and 20.6 s |
+| ... `offline` | **30.6 s** after the pause | **30.8 s** |
+| Unpaused: `live` again by itself | 15.6 s | 15.6 s |
+| `docker compose restart ingestion`: states from the command returning to `live` | `offline` only (35 polls) | `offline` only (35 polls) |
+| ... `live` again, worker `running` | 13.5 s after the command returned | 13.6 s |
+| `docker compose kill ingestion`, then `start`: states in between | `offline` only (35 polls) | `offline` only (35 polls) |
+| ... `live` again, worker `running` | 12.3 s | 12.5 s |
+| Stop: `stopped` | at once (0.2 s) | at once (0.0 s) |
+| ... and not resumed, 8 s later | stays `stopped` | stays `stopped` |
+
+**The acceptance, point by point:** frozen within 3 s, **yes** (3.1-3.2 s after the last
+frame). Then offline after the read timeout, **yes, but at 30.6-30.8 s, not about 10 s**: at
+each 10 s read timeout the worker received a late burst of frames from before the pause, the
+camera read `live` for about 3 s, and the timeout started again (K-13; a separate probe saw 1
+frame then 9 arrive while paused). Unpaused, live again by itself, **yes**, 15.6 s, which is
+mostly the reconnect backoff. After a restart or a kill of ingestion, capture resumed by
+itself, **yes**, in 12.3-13.6 s (the 5 s check plus a start, about 6-7 s), and no camera
+read `live` without a worker, **yes**.
+
+**Not covered:** more than one camera at once (ten resumed together are started in parallel,
+not measured); a real network stall rather than `docker compose pause`; a camera whose
+stream is down when it is due to resume (the retry backoff is tested, not run live); a query
+restart (the same check runs at query's start; not run live).
+
+`uv run pytest`: **361 passed, 1 skipped**, against a scratch database; one earlier full run
+had one unrelated failure, K-14.

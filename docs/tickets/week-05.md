@@ -173,16 +173,16 @@ GET /cameras/live -> [{camera_id, name, location, group_name, state, last_frame_
                      state: live | frozen | offline | stopped
 ```
 
-- [ ] `state` is derived from evidence, not from a stored flag: **live** = a frame arrived in
+- [x] `state` is derived from evidence, not from a stored flag: **live** = a frame arrived in
       the last `LIVE_STALE_AFTER_S` (default 3 s); **frozen** = capture running but no new
       frame for longer; **offline** = unreachable or reconnecting; **stopped** = not
       capturing
-- [ ] `last_frame_at` is the preview's write time (OMNI-503), so it is at most 0.5 s old on a
+- [x] `last_frame_at` is the preview's write time (OMNI-503), so it is at most 0.5 s old on a
       healthy feed
-- [ ] New column `cameras.capture_enabled` (Alembic migration), set by start and cleared by
+- [x] New column `cameras.capture_enabled` (Alembic migration), set by start and cleared by
       stop. **On startup, ingestion resumes capture for every camera with it set** — no
       one has to press Start after a restart
-- [ ] Tests for each state, and for resume after restart
+- [x] Tests for each state, and for resume after restart
 
 **Acceptance:** `docker compose pause mediamtx` → the camera reads **frozen** within 3 s,
 then **offline** after the read timeout; `unpause` → **live** again. `docker compose restart

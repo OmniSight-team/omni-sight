@@ -20,6 +20,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-12 | Camera start waits for the stream to open, not for a frame | 2026-09-26 | Done |
 | D-13 | Live frames on a queue and a consumer of their own | 2026-10-01 | Done |
 | D-14 | The wall's preview: one file per camera, ETag from its write time, served by query | 2026-10-01 | Done |
+| D-15 | Camera state from evidence; query, not ingestion, resumes capture | 2026-10-02 | Done |
 
 ---
 
@@ -210,3 +211,31 @@ camera's last stats report says it is not being captured (stopped, or silent for
 second gets a new JPEG every time, still scene or not; a 304 means no new frame was written
 (a frozen or lost feed). That is what makes the ETag usable as liveness (OMNI-504, OMNI-507),
 and it is why OMNI-506's "mostly 304s on still scenes" does not hold as written (K-12).
+
+## D-15 · Camera state from evidence; query resumes capture · 2026-10-02
+
+**Why:** FR-9, *see immediately which feeds are healthy*, and K-5: after an ingestion
+restart nothing captured, while the camera still read `connected`.
+
+**State (OMNI-504):** `GET /cameras/live` works out each camera's state on every request
+from ingestion's worker list (`GET /workers`) and the preview's write time (OMNI-503), never
+from a stored status. `live`: a worker is reading and the newest frame is at most
+`LIVE_STALE_AFTER_S` = 3 s old. `frozen`: a worker is reading, the frame is older.
+`offline`: the worker is reconnecting or still connecting, or capture was asked for and
+there is no worker, or ingestion cannot be reached. `stopped`: no worker and nobody asked for
+one. The existing `cameras.status` is left as it was, the last observed reachability; the
+wall does not use it.
+
+**Resume:** `cameras.capture_enabled`, set by a start that worked, cleared by stop, disable
+and delete. The ticket says ingestion resumes capture on startup, but ingestion has no
+database and so cannot know which cameras were being captured. **Query does it instead**:
+every `CAPTURE_RESUME_INTERVAL_S` = 5 s it reads ingestion's worker list and starts every
+`capture_enabled` camera without one, through the same call as the Start button, each start
+on its own thread; a camera whose start fails is retried after 5, 10, 20, 40 s, then every
+60 s. The effect asked for is the same (capture comes back with nobody pressing Start), and
+it also covers query restarting and a worker that failed. Ingestion stays a service nothing
+but query calls, and that calls nothing but the broker.
+
+**Not chosen:** ingestion reading `cameras` from Postgres on startup (a database dependency
+for the service that only touches video); ingestion calling an internal route on query (a
+second direction of calls, and a route that would need its own protection).

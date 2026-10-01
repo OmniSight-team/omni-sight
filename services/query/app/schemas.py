@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from omnisight_common import (
     AdmissionReason,
@@ -96,6 +97,20 @@ class CameraStatsOut(BaseModel):
     fps_effective: float
     # Seconds the current capture session has been running. Zero when not capturing.
     uptime_s: float
+
+
+class CameraLiveOut(BaseModel):
+    """One camera on the wall, and what it is doing right now (OMNI-504)."""
+
+    camera_id: int
+    name: str
+    location: str
+    group_name: str
+    # live | frozen | offline | stopped, from evidence (app/live_state.py).
+    state: Literal["live", "frozen", "offline", "stopped"]
+    # When the newest frame arrived (the preview's write time); None when there
+    # is no preview, which is always the case for a stopped camera.
+    last_frame_at: datetime | None
 
 
 class CameraFrameOut(BaseModel):

@@ -129,6 +129,22 @@ def start_worker(camera_id: int, rtsp_url: str) -> dict:
     return resp.json()
 
 
+def list_workers() -> list[dict]:
+    """The workers ingestion is running right now (OMNI-504): one dict per
+    camera, with at least `camera_id` and `status`. Short timeout: this is asked
+    on every camera wall refresh and every resume check, and a slow answer is
+    treated the same as no answer."""
+    try:
+        resp = httpx.get(
+            f"{settings.ingestion_base_url}/workers",
+            timeout=settings.ingestion_workers_timeout_s,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise IngestionUnavailableError(str(exc)) from exc
+    return resp.json()
+
+
 def stop_worker(camera_id: int) -> dict:
     """Ask ingestion to stop a camera's worker. `{ok, status, was_running}`."""
     try:

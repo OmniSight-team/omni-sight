@@ -66,6 +66,13 @@ class Camera(Base):
     domain: Mapped[Domain] = mapped_column(_enum_column(Domain, "domain"), nullable=False)
     status: Mapped[CameraStatus] = mapped_column(_enum_column(CameraStatus, "camera_status"), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # OMNI-504: whether someone wants this camera captured. Set by a successful
+    # start, cleared by stop, disable and delete. Not what the camera is doing
+    # (that is `GET /cameras/live`, from evidence); what it should be doing, so a
+    # restarted ingestion can be told to resume it (app/capture_resume.py).
+    capture_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

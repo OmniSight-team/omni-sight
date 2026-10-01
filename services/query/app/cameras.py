@@ -11,14 +11,17 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user, require_role
 from app.ingestion_client import IngestionUnavailableError
+from app.ingestion_client import list_workers as ingestion_list_workers
 from app.ingestion_client import probe_stream as ingestion_probe_stream
 from app.ingestion_client import start_worker as ingestion_start_worker
 from app.ingestion_client import stop_worker as ingestion_stop_worker
+from app.live_state import derive_state, newest_frame_at
 from app.models import Camera, CameraStats, Segment, User, Video
 from app.schemas import (
     CameraCreate,
     CameraCreateResponse,
     CameraFrameOut,
+    CameraLiveOut,
     CameraOut,
     CameraStartResponse,
     CameraStatsOut,
@@ -117,8 +120,11 @@ def update_camera(
     for field, value in updates.items():
         setattr(camera, field, value)
 
-    # A disabled camera must not keep capturing (OMNI-312).
+    # A disabled camera must not keep capturing (OMNI-312), nor be resumed
+    # (OMNI-504).
     if updates.get("status") == CameraStatus.DISABLED:
+        camera.capture_enabled = False
+        db.commit()
         _stop_capture_quietly(camera_id)
 
     db.commit()
@@ -137,7 +143,10 @@ def delete_camera(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
 
     # Removing or disabling a camera ends its capture first (OMNI-312): a worker
-    # left running would keep publishing frames for a camera that is gone.
+    # left running would keep publishing frames for a camera that is gone. The
+    # flag first, so it is not resumed in between (OMNI-504).
+    camera.capture_enabled = False
+    db.commit()
     _stop_capture_quietly(camera_id)
 
     # A video or a stored live frame already referencing this camera would be
@@ -155,6 +164,50 @@ def delete_camera(
     db.delete(camera)
     db.commit()
     return {"id": camera_id, "deleted": True}
+
+
+@router.get("/live", response_model=list[CameraLiveOut])
+def list_live_cameras(
+    db: Session = Depends(get_db),
+    _user: User = Depends(_operator_or_admin),
+) -> list[CameraLiveOut]:
+    """Every camera and what it is doing right now, for the camera wall
+    (OMNI-504): live, frozen, offline or stopped, worked out from the worker
+    ingestion is running and the age of the newest frame, never from a stored
+    status (app/live_state.py). `last_frame_at` is the preview's write time.
+
+    Ordered by group, then name, so a wall filtered to one group keeps its
+    order."""
+    try:
+        workers = {w["camera_id"]: w.get("status") for w in ingestion_list_workers()}
+        reachable = True
+    except IngestionUnavailableError:
+        workers, reachable = {}, False
+
+    now = datetime.now(UTC)
+    cameras = db.query(Camera).order_by(Camera.group_name, Camera.name, Camera.id).all()
+    out = []
+    for camera in cameras:
+        last_frame_at = newest_frame_at(settings.previews_path, camera.id)
+        state = derive_state(
+            worker_status=workers.get(camera.id),
+            ingestion_reachable=reachable,
+            capture_enabled=camera.capture_enabled and camera.status != CameraStatus.DISABLED,
+            last_frame_at=last_frame_at,
+            now=now,
+            stale_after_s=settings.live_stale_after_s,
+        )
+        out.append(
+            CameraLiveOut(
+                camera_id=camera.id,
+                name=camera.name,
+                location=camera.location,
+                group_name=camera.group_name,
+                state=state,
+                last_frame_at=last_frame_at,
+            )
+        )
+    return out
 
 
 @router.post("/{camera_id}/test", response_model=CameraTestResponse)
@@ -212,6 +265,10 @@ def start_camera(
         ) from exc
 
     if result.get("already_running"):
+        # It is being captured, which is what the caller wanted, so it should be
+        # resumed after a restart too.
+        camera.capture_enabled = True
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=CAMERA_ALREADY_CAPTURING_MESSAGE
         )
@@ -225,6 +282,10 @@ def start_camera(
 
     camera.status = CameraStatus.CONNECTED
     camera.last_seen_at = datetime.now(UTC)
+    # OMNI-504: from now on this camera is resumed whenever ingestion has no
+    # worker for it. Only after a start that worked: a camera that never started
+    # is not retried in the background.
+    camera.capture_enabled = True
     db.commit()
     return CameraStartResponse(worker_id=result["worker_id"], status=result["status"])
 
@@ -237,9 +298,14 @@ def stop_camera(
 ) -> CameraStopResponse:
     """Stop capturing a camera and release its stream. Stopping a camera that is
     not being captured is not an error: the caller wanted it stopped, and it is."""
-    if db.get(Camera, camera_id) is None:
+    camera = db.get(Camera, camera_id)
+    if camera is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=CAMERA_NOT_FOUND_MESSAGE)
 
+    # Cleared before ingestion is asked, and committed, so the resume check
+    # (OMNI-504) never sees the worker gone while the flag still says "capture".
+    camera.capture_enabled = False
+    db.commit()
     try:
         result = ingestion_stop_worker(camera_id)
     except IngestionUnavailableError as exc:
