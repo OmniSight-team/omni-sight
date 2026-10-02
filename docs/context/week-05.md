@@ -726,3 +726,69 @@ The wall tells live, frozen, offline and stopped apart, each labelled with the l
 dimmed and its age, never a black box, and a stalled stream no longer flickers back to live.
 K-13 is half fixed: offline still comes about 30 s after a stall, and the age shown on a
 stalled tile reads younger than the picture is.
+
+---
+
+## OMNI-508 · Enlarge a tile, and rewind it
+
+Done 2026-10-02, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-508).
+
+### Why this ticket exists
+
+An operator who sees something on the wall needs that camera bigger, and the minutes that
+led up to it. The minutes are already stored (OMNI-505's buffer); this is the screen for them.
+
+### What was done
+
+- **`frontend/src/app/(app)/live/camera-viewer.tsx`, new**, opened by clicking a tile (or Enter
+  on it; tiles are now focusable buttons):
+  - **Enlarged view:** a dialog over the whole window that also asks the browser for full
+    screen (allowed because the click opened it). Esc closes it; in full screen the browser
+    takes the first Esc to leave full screen, and leaving full screen closes the view too. The
+    header says the camera's name, location and state
+  - **Faster preview:** the same preview, every 0.5 s (the rate it is rewritten at), with its
+    ETag. While a camera is enlarged, the wall's tiles stop polling
+  - **Rewind:** loads `GET /cameras/{id}/buffer?minutes=5` and opens at the newest frame. A
+    track with one tick per frame, placed by capture time so gaps show as gaps: motion ticks
+    tall and amber, heartbeat ticks short and grey, with counts in a legend. A slider, the
+    left and right arrow keys (Shift for ten), Previous and Next, and a click on the track
+    picks the nearest frame. Each frame shows its full image, time and reason. **Back to
+    live** returns to the preview
+  - Full frames come from the token-checked `frame_url` (OMNI-505), so they are fetched as
+    blobs; up to 40 are kept and the oldest released, and the frames on either side are
+    fetched ahead so stepping does not wait
+- **`api-client.ts`:** `getCameraBuffer()` and `fetchFrameImage()`
+
+### Things on the way
+
+- **A long browser batch timed out** (a minute of waits in one call); the page itself was
+  fine, and the waits were done in shorter steps
+- **K-16 again** when putting the ten cameras on the wall (five of ten starts timed out)
+- **A design point I caught before running it:** the view's setup asks for full screen, so
+  it must run once, not on every page re-render; it reads the close handler through a ref
+  instead of depending on it
+
+### Verification performed
+
+- `tsc --noEmit` clean; `eslint` on the page, the viewer and the API client: no errors (four
+  warnings, the file's existing `window.location.href` pattern, one of them in the new frame
+  call). No Python changed, so `uv run pytest` was not rerun (383 passed, 1 skipped at OMNI-507)
+- **In Chrome, ten cameras, `wall-cam05`:** enlarged into browser full screen; only `cam05`
+  polled, every 0.5 s; Rewind: 331 frames (254 motion, 77 heartbeat), motion and heartbeat
+  told apart on the track; stepping back from the newest motion went through heartbeat frames
+  one a second, then motion, each with its full frame, time and reason; a click on the track
+  jumped to the nearest frame; Back to live; Esc closed it and left full screen, and the wall
+  resumed polling
+- The cameras were taken down and the tab closed; the database is back to 0 cameras and 300
+  segments
+
+### Not verified
+
+- Rewind over ten minutes of a busy camera (thousands of ticks, a large response)
+- Keyboard-only use beyond Enter on a tile and the arrow keys
+- More than one run, other browsers
+
+### Result
+
+Click a tile and the camera fills the screen; Rewind steps through the last minutes of its
+stored frames, motion and heartbeat told apart, and Back to live returns to the picture.

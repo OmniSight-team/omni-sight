@@ -21,6 +21,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, rewind (no Phase A target) | Rewind a feed a few minutes | After 5 min of capture on `cam05`: 957 frames in the 5-minute buffer, oldest first, none outside the window, full frames token-checked | **Pass** (one run) | 2026-10-02 | OMNI-505 |
 | FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating, mostly 304s on still scenes | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; paging, group filter, no polling while hidden (simulated) | **Pass** apart from "mostly 304s" (K-12) | 2026-10-02 | OMNI-506 |
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
+| FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -822,3 +823,30 @@ it reads younger than the picture is.
 the wall; a browser other than Chrome.
 
 `uv run pytest`: **383 passed, 1 skipped**, against a scratch database.
+
+## OMNI-508 · Enlarge a camera and rewind it, in a browser (preliminary) · 2026-10-02
+
+**Conditions:** the machine above, the full stack, the simulator's ten feeds on the wall
+(`scripts/wall_cameras.py up`), `cam05` capturing for about 2.3 minutes; `https://localhost/live`
+in Chrome, signed in as admin; checks read from the page (resource timing and the DOM). One
+run.
+
+| Check | Result |
+|---|---|
+| Click the `wall-cam05` tile | an enlarged view over the whole window, **browser full screen** |
+| Preview while enlarged | `cam05` only: **12 requests in 6 s** (every 0.5 s), 11 of them 200, one 304; the wall's other tiles asked for nothing |
+| Rewind | **331 frames** of the last 5 minutes (capture had run 2.3 minutes): 254 motion, 77 heartbeat, from 10:06:51 to 10:09:07; opens at the newest |
+| Motion and heartbeat on the scrubber | motion ticks 32 px tall and amber, heartbeat ticks 12 px and grey, each placed by its capture time |
+| Stepping back from the newest motion (left arrow, 0.4 s per step) | frames 330-329 **motion** at 10:09:07; 328 back to 323 **heartbeat**, one a second (10:09:06 back to 10:09:01); 322 **motion** at 10:09:00; each step showed its full frame (640x360), time and reason |
+| Click the middle of the scrubber track | frame 186 of 331, 10:07:59, motion |
+| Back to live | the current picture again, Rewind offered |
+| Esc | the view closed and the browser left full screen; the wall polled all nine tiles again (36 requests in 4 s) |
+
+**Against the acceptance:** wait for motion on `cam05`, open it, rewind, step through the
+frames that led up to it: **yes**: the quiet second-by-second heartbeat frames and then the
+motion frames, each with its time and reason.
+
+**Not covered:** a long rewind on a busy camera (ten minutes at 12 frames a second is about
+7,000 ticks and a large buffer response, OMNI-505); stepping faster than the frames load; more
+than one run; a browser other than Chrome; something actually waved in front of a camera (the
+simulator's motion was used).

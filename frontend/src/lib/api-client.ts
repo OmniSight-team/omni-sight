@@ -276,6 +276,42 @@ export async function fetchCameraPreview(id: number, etag: string | null): Promi
   };
 }
 
+// One frame of a camera's rewind buffer (OMNI-505): an admitted frame already
+// stored. `frame_url` is an API path (token-checked), `thumb_url` an nginx one.
+export interface BufferFrame {
+  segment_id: number;
+  // When the frame was captured, as Unix time in seconds.
+  timestamp_s: number;
+  reason: AdmissionReason;
+  thumb_url: string;
+  frame_url: string;
+}
+
+// The camera's admitted frames from the last `minutes` (1-10), oldest first.
+export async function getCameraBuffer(id: number, minutes = 5): Promise<BufferFrame[]> {
+  return request<BufferFrame[]>(`/cameras/${id}/buffer?minutes=${minutes}`);
+}
+
+// A stored frame at full size, as an image. The route checks the token, so an
+// <img src> cannot load it directly; the caller makes an object URL of the blob.
+export async function fetchFrameImage(frameUrl: string): Promise<Blob> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${API_PREFIX}${frameUrl}`, { headers });
+  const renewedToken = response.headers.get("X-Access-Token");
+  if (renewedToken) setToken(renewedToken);
+  if (response.status === 401) {
+    if (token) {
+      clearToken();
+      window.location.href = "/sign-in";
+    }
+    throw new ApiError(401, "unauthorized");
+  }
+  if (!response.ok) throw new ApiError(response.status, "frame request failed");
+  return response.blob();
+}
+
 export type VideoSource = "upload" | "camera" | "dataset";
 export type VideoStatus = "uploaded" | "extracting" | "ready" | "failed";
 

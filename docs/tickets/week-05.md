@@ -248,12 +248,12 @@ unpause → live again. Stop a camera → stopped.
 
 ## OMNI-508 · Enlarge a tile, and rewind it
 
-- [ ] Click a tile → full-screen view of that camera, preview polled faster (every 0.5 s),
+- [x] Click a tile → full-screen view of that camera, preview polled faster (every 0.5 s),
       Esc to close
-- [ ] In the enlarged view, **Rewind**: a scrubber over `GET /cameras/{id}/buffer`, stepping
+- [x] In the enlarged view, **Rewind**: a scrubber over `GET /cameras/{id}/buffer`, stepping
       through the last few minutes of admitted frames with their time and reason; **Back to
       live** returns to the preview
-- [ ] Motion frames and heartbeat frames are told apart on the scrubber
+- [x] Motion frames and heartbeat frames are told apart on the scrubber
 
 **Acceptance:** wave something in front of a feed (or wait for motion on `cam05`), open it,
 rewind, and step through the frames that led up to it.

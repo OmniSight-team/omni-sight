@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, fetchCameraPreview, type LiveCamera, type LiveState, listLiveCameras } from "@/lib/api-client";
+
+import { CameraViewer } from "./camera-viewer";
 
 // The wall (OMNI-506): a fixed 3x3 grid. More cameras than this go on pages,
 // never into smaller tiles.
@@ -113,7 +115,17 @@ const NOT_LIVE: Record<Exclude<LiveState, "live">, { label: string; detail: stri
 // arrived (the preview's ETag changed), so a picture that stopped changing
 // cannot look live. Every other state is labelled, with the last frame dimmed
 // and its age, or a panel saying why there is no picture: never a black box.
-function CameraTile({ camera, visible, now }: { camera: LiveCamera; visible: boolean; now: number }) {
+function CameraTile({
+  camera,
+  visible,
+  now,
+  onOpen,
+}: {
+  camera: LiveCamera;
+  visible: boolean;
+  now: number;
+  onOpen: () => void;
+}) {
   const [src, setSrc] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   // How many new frames have arrived, and when the newest did (local clock).
@@ -192,7 +204,20 @@ function CameraTile({ camera, visible, now }: { camera: LiveCamera; visible: boo
   const notLive = camera.state === "live" ? null : NOT_LIVE[camera.state];
 
   return (
-    <figure className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    // Click (or Enter) to enlarge the camera and rewind it (OMNI-508).
+    <figure
+      role="button"
+      tabIndex={0}
+      aria-label={`Enlarge ${camera.name}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="flex min-h-0 min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white outline-none transition hover:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-500"
+    >
       {/* The picture takes whatever height the row leaves it and is letterboxed
           into it, so the whole 3x3 wall fits the window at any size. */}
       <div className={`relative min-h-0 flex-1 ${src ? "bg-black" : "bg-zinc-800"}`}>
@@ -256,6 +281,10 @@ export default function LiveMonitoringPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [group, setGroup] = useState<string>(ALL_GROUPS);
   const [page, setPage] = useState(0);
+  // The camera shown enlarged, if any. While it is open the wall behind it
+  // stops asking for previews: nobody can see it.
+  const [enlarged, setEnlarged] = useState<number | null>(null);
+  const closeViewer = useCallback(() => setEnlarged(null), []);
 
   useEffect(() => {
     if (!visible) return;
@@ -363,9 +392,21 @@ export default function LiveMonitoringPage() {
         // its heading; the minimum keeps tiles usable in a short window.
         <div className="grid h-[calc(100vh-11rem)] min-h-[30rem] grid-cols-3 grid-rows-3 gap-3">
           {onPage.map((camera) => (
-            <CameraTile key={camera.camera_id} camera={camera} visible={visible} now={now} />
+            <CameraTile
+              key={camera.camera_id}
+              camera={camera}
+              visible={visible && enlarged === null}
+              now={now}
+              onOpen={() => setEnlarged(camera.camera_id)}
+            />
           ))}
         </div>
+      )}
+      {enlarged !== null && cameras?.some((camera) => camera.camera_id === enlarged) && (
+        <CameraViewer
+          camera={cameras.find((camera) => camera.camera_id === enlarged)!}
+          onClose={closeViewer}
+        />
       )}
     </main>
   );
