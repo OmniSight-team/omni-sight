@@ -8,12 +8,16 @@ on every request from two things that cannot lie for long:
   - the worker ingestion is running for the camera, if any, and what it says it
     is doing (`GET /workers`), and
   - when its newest frame arrived: the preview file's write time (OMNI-503),
-    rewritten every 0.5 s while frames come in.
+    rewritten every 0.5 s while frames come in, and
+  - whether frames are arriving steadily (`receiving`, OMNI-507): a stream that
+    stalls can still hand over a late burst of old frames, which would otherwise
+    read as live for a moment (K-13).
 
-    live     a worker is reading and a frame arrived in the last
-             `live_stale_after_s` (3 s)
-    frozen   a worker is reading but no new frame for longer: the stream has
-             stalled without closing (it becomes offline when the read times out)
+    live     a worker is reading, frames are arriving steadily, and the newest
+             arrived in the last `live_stale_after_s` (3 s)
+    frozen   a worker is reading but frames are not arriving steadily, or the
+             newest is older: the stream has stalled without closing (it becomes
+             offline when the read times out)
     offline  the camera should be captured but cannot be: the worker is
              reconnecting or still connecting, or there is no worker at all, or
              ingestion cannot be reached
@@ -55,15 +59,15 @@ def derive_state(
     *,
     worker_status: str | None,
     ingestion_reachable: bool,
+    receiving: bool,
     capture_enabled: bool,
     last_frame_at: datetime | None,
     now: datetime,
     stale_after_s: float,
 ) -> LiveState:
     if ingestion_reachable and worker_status == _READING:
-        if last_frame_at is not None and (now - last_frame_at).total_seconds() <= stale_after_s:
-            return LiveState.LIVE
-        return LiveState.FROZEN
+        fresh = last_frame_at is not None and (now - last_frame_at).total_seconds() <= stale_after_s
+        return LiveState.LIVE if fresh and receiving else LiveState.FROZEN
     if ingestion_reachable and worker_status in _CONNECTING:
         return LiveState.OFFLINE
     # No worker reading: ingestion is down, the worker failed or was stopped, or

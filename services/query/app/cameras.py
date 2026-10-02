@@ -181,7 +181,7 @@ def list_live_cameras(
     Ordered by group, then name, so a wall filtered to one group keeps its
     order."""
     try:
-        workers = {w["camera_id"]: w.get("status") for w in ingestion_list_workers()}
+        workers = {w["camera_id"]: w for w in ingestion_list_workers()}
         reachable = True
     except IngestionUnavailableError:
         workers, reachable = {}, False
@@ -191,9 +191,11 @@ def list_live_cameras(
     out = []
     for camera in cameras:
         last_frame_at = newest_frame_at(settings.previews_path, camera.id)
+        worker = workers.get(camera.id) or {}
         state = derive_state(
-            worker_status=workers.get(camera.id),
+            worker_status=worker.get("status"),
             ingestion_reachable=reachable,
+            receiving=bool(worker.get("receiving")),
             capture_enabled=camera.capture_enabled and camera.status != CameraStatus.DISABLED,
             last_frame_at=last_frame_at,
             now=now,

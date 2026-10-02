@@ -645,3 +645,84 @@ The wall works: ten cameras, nine at a time on a 3x3 grid that fits the window, 
 rest, a group filter, a JPEG per tile per second and nothing while hidden. The "mostly 304s"
 line of the acceptance does not hold, for the reason recorded in K-12, and needs Ahmad's
 decision.
+
+---
+
+## OMNI-507 · Tile states: live, frozen, offline
+
+Done 2026-10-02, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-507); the
+change to the live rule is D-17 in `docs/decisions.md`.
+
+### Why this ticket exists
+
+FR-9: an operator has to see at a glance which feeds are healthy, and a frozen picture must
+never look live. OMNI-504 gives each camera a state; this ticket puts it on the tiles. K-13
+said it had to be dealt with here: a stalled stream's late bursts made the camera read live
+for a few seconds at a time.
+
+### What was done
+
+- **The rule for `live` (D-17), because of K-13.** The live worker now remembers the arrival
+  times of the last 3 s of frames and reports `receiving` in `GET /workers`: at least two
+  frames that arrived at least 1 s apart. `GET /cameras/live` reads `live` only when the worker
+  is running, receiving and the newest frame is at most 3 s old; running otherwise is
+  `frozen`. Settings `LIVE_STEADY_WINDOW_S` (3.0) and `LIVE_STEADY_MIN_SPAN_S` (1.0) in
+  ingestion. This is outside the ticket's checklist and changes OMNI-504's rule, which is why
+  it has its own decision
+- **The tiles** (`frontend/src/app/(app)/live/page.tsx`):
+  - **live:** a small "Live" badge whose dot flashes once each time a new frame actually
+    arrives (it is re-mounted when the ETag changes), and turns grey if no new frame for 3 s,
+    even before the next state refresh says so
+  - **frozen** (amber, pause icon), **offline** (red, unplugged icon), **stopped** (grey,
+    stop icon): each its own label and icon; the last frame stays on screen, dimmed and grey,
+    with "Last frame 12 s ago" and one line saying what the state means
+  - **no picture at all** (a stopped camera on a fresh page, or before the first frame): a grey
+    panel with the icon and the reason, never a black rectangle
+  - the age comes from `last_frame_at` or the preview's `Last-Modified`, whichever is newer,
+    and ticks once a second
+  - a stopped camera's tile stops asking for a preview (there is none); the states refresh
+    every 2 s instead of 5
+- **Tests:** ingestion `test_receiving.py`, 8 (spread frames receiving, a burst not, one frame
+  not, two bursts 10 s apart not, a 1 fps camera yes, receiving ends when frames stop, a
+  running worker reports it and a stopped one never, the record stays a few seconds long);
+  query `test_live_state.py`, 3 more (a fresh frame without steady arrival is frozen, steady
+  arrival with an old frame is frozen, the burst case through the endpoint)
+
+### Things that went wrong on the way
+
+- **After restarting ingestion, query and the frontend together, the whole site answered
+  502.** Query was up (its own port answered); nginx was still sending to the containers' old
+  addresses, which the restart had swapped. `docker compose restart nginx` fixed it. Added to
+  K-10
+- **K-16 again:** starting the ten wall cameras at once, five timed out; the second `up`
+  started them
+- **`tsc` caught** a type narrowing mistake in my first version (indexing the not-live labels
+  with a state that could still be `live`); fixed
+
+### Verification performed
+
+- **`uv run pytest`: 383 passed, 1 skipped** (372 before), scratch database `omni507`, dropped.
+  `tsc` and `eslint` clean on the page; `ruff` nothing beyond `B008`
+- **`verify_camera_states.py`, 12 of 12:** paused, `frozen` at 2.4 s and **no `live`** until
+  `offline` at 30.6 s (before: `live` at 10.5 and 20.5 s); everything else as in OMNI-504, with
+  about 1 s of `frozen` before `live` after a start or reconnect
+- **On the wall, in Chrome, ten cameras:** all nine tiles Live, then on the pause Frozen
+  (dimmed, "Last frame 3 s ago"), then Offline 27.5 s later, with no Live sample in between;
+  unpaused, all Live again by themselves; `wall-cam01` stopped: Stopped in 2.7 s, dimmed last
+  frame with its age, the other eight still Live; after a reload the stopped tile is a grey
+  panel with "This camera is not being captured."
+- The cameras were taken down afterwards and the browser tab closed; the database is back to
+  0 cameras and 300 segments
+
+### Not verified
+
+- A real network stall instead of `docker compose pause`
+- The wall's frozen-then-offline path more than once
+- The live dot's flash itself was not timed; that it follows the ETag is by construction
+
+### Result
+
+The wall tells live, frozen, offline and stopped apart, each labelled with the last picture
+dimmed and its age, never a black box, and a stalled stream no longer flickers back to live.
+K-13 is half fixed: offline still comes about 30 s after a stall, and the age shown on a
+stalled tile reads younger than the picture is.

@@ -15,7 +15,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-10 | Small items | - | various | Any time |
 | K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | OMNI-506 |
-| K-13 | A stalled stream still delivers late bursts of old frames: the camera flickers back to `live` and goes `offline` after about 30 s, not 10 | FR-9 (honest tile state), OMNI-507 | OMNI-504 | OMNI-507 |
+| K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | OMNI-509 |
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 | K-15 | The simulator's frame size is written as 320x240 in results; the clips are 640x360 | Conditions of OMNI-312/316/317 and OMNI-501 to 505 | 2026-10-02 | OMNI-509 |
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | OMNI-509 |
@@ -100,6 +100,9 @@ Not measured per day.
 - The frontend dev server in Docker does not see file changes on this Windows machine (a new
   page folder answered 404, an edited component stayed old) until `docker compose restart
   frontend` (OMNI-506)
+- nginx resolves `query` and `frontend` once, when it starts. Restarting them together can
+  swap their container addresses, and nginx then answers 502 for everything until it is
+  restarted too (`docker compose restart nginx`; seen 2026-10-02, OMNI-507)
 - `LIVE_QUEUE_SIZE` = 10 was sized for 5 frames/s (about 2 s); at 15 frames/s it is about
   0.7 s. No drops on one camera (OMNI-501); not checked under load
 
@@ -147,6 +150,15 @@ or may not behave the same, not tested.
 **Fix candidates:** leave `frozen` only after frames arrive steadily again (for example at
 least a second's worth within a second), not on one frame; or stamp a frame with the
 stream's own timestamp instead of its arrival time, so late frames read as old.
+
+**2026-10-02 (OMNI-507, D-17), half fixed:** `live` now needs frames arriving steadily, so a
+burst no longer reads as live: paused, the camera read `frozen` at 2.4 s and nothing else
+until `offline`, and on the wall nine tiles went Live, Frozen, Offline with no Live between.
+**Still open:** `offline` still comes about 30 s after the pause, not about 10 s, because
+each burst restarts the read timeout; and the age a tile shows ("last frame 11 s ago") counts
+from when the late frames *arrived*, not from when they were captured, so it understates how
+old the picture is. Both are the second fix candidate above (stamp frames by the stream's own
+time, or treat a worker that is not receiving for a read timeout as lost).
 
 ## K-14 · A live capture test fails now and then
 

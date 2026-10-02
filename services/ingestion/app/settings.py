@@ -98,6 +98,12 @@ class Settings(CommonSettings):
     live_preview_interval_s: float = Field(0.5, gt=0)
     live_preview_max_side_px: int = Field(640, ge=16)
     live_preview_jpeg_quality: int = Field(70, ge=1, le=100)
+    # OMNI-507 (K-13): a worker counts as receiving only when, within the last
+    # `live_steady_window_s`, at least two frames arrived at least
+    # `live_steady_min_span_s` apart. A stalled stream can still hand over a late
+    # burst of old frames all at once; that is not a working camera.
+    live_steady_window_s: float = Field(3.0, gt=0)
+    live_steady_min_span_s: float = Field(1.0, ge=0)
     # How often a worker sends its counters to `camera_stats`.
     live_stats_interval_s: float = Field(5.0, gt=0)
     # Drops are logged when a stretch of them begins and then summarised this

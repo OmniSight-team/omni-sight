@@ -22,6 +22,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-14 | The wall's preview: one file per camera, ETag from its write time, served by query | 2026-10-01 | Done |
 | D-15 | Camera state from evidence; query, not ingestion, resumes capture | 2026-10-02 | Done |
 | D-16 | The rewind buffer is the stored admitted frames, not a separate buffer | 2026-10-02 | Done |
+| D-17 | Live needs frames arriving steadily, not one fresh frame (K-13) | 2026-10-02 | Done |
 
 ---
 
@@ -262,3 +263,26 @@ never served by nginx.
 
 **Not covered here:** how long frames are kept (until retention, slice 16; K-8) and the
 response size of ten minutes of a busy camera (no paging).
+
+## D-17 · Live needs frames arriving steadily, not one fresh frame · 2026-10-02
+
+**Why:** K-13. With the simulator paused, the worker still received late bursts of old
+frames at each 10 s read timeout; each burst rewrote the preview, and by OMNI-504's rule (a
+frame in the last 3 s) the camera read `live` for about 3 s, twice. On the wall that is a
+frozen picture looking live, which OMNI-507 forbids.
+
+**What (OMNI-507):** the live worker keeps the arrival times of the last
+`LIVE_STEADY_WINDOW_S` = 3 s of frames and reports `receiving` in its snapshot: at least two
+frames that arrived at least `LIVE_STEADY_MIN_SPAN_S` = 1 s apart. A healthy 15 fps stream
+has about forty spread over the window; a burst lands within milliseconds; a 1 fps camera
+still counts. `GET /cameras/live` now reads `live` only when the worker is running **and**
+receiving **and** the newest frame is at most 3 s old; running otherwise is `frozen`. This
+changes D-15's rule for `live`; the other states are unchanged.
+
+**Evidence:** `verify_camera_states.py` with the simulator paused: before, `live` at 10.5 s
+and 20.5 s; after, `frozen` at 2.4 s and nothing else until `offline` (`results.md`,
+OMNI-507). On the wall, nine tiles went Live, Frozen, Offline with no Live in between.
+
+**Cost:** a camera that has just started or reconnected reads `frozen` for about a second
+before `live`, until a second of steady frames has arrived. Not chosen: hysteresis in the
+browser (each client would decide on its own, and the API would still say `live`).

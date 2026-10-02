@@ -234,12 +234,12 @@ and the network tab shows mostly 304s on still scenes.
 
 ## OMNI-507 · Tile states: live, frozen, offline
 
-- [ ] A **quiet** live indicator per tile that changes only when a new frame arrived (driven
+- [x] A **quiet** live indicator per tile that changes only when a new frame arrived (driven
       by the preview's ETag changing), so a frozen picture cannot look live
-- [ ] **Frozen**, **offline** and **stopped** each have an explicit state: label and icon,
+- [x] **Frozen**, **offline** and **stopped** each have an explicit state: label and icon,
       the last frame dimmed with its age ("last frame 12 s ago"). **Never a black
       rectangle**
-- [ ] State comes from `GET /cameras/live` (OMNI-504), refreshed every few seconds
+- [x] State comes from `GET /cameras/live` (OMNI-504), refreshed every few seconds
 
 **Acceptance:** pause the simulator → tiles go frozen then offline without a refresh;
 unpause → live again. Stop a camera → stopped.

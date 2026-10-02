@@ -104,11 +104,17 @@ def _preview(previews, camera_id, age_s):
     os.utime(path, (written, written))
 
 
-def _workers(monkeypatch, workers=None, *, down=False):
+def _workers(monkeypatch, workers=None, *, down=False, not_receiving=()):
+    """Ingestion's worker list. A running worker is receiving steadily unless its
+    camera is in `not_receiving`."""
+
     def fake():
         if down:
             raise IngestionUnavailableError("connection refused")
-        return [{"camera_id": cid, "status": status} for cid, status in (workers or {}).items()]
+        return [
+            {"camera_id": cid, "status": status, "receiving": status == "running" and cid not in not_receiving}
+            for cid, status in (workers or {}).items()
+        ]
 
     monkeypatch.setattr(cameras_module, "ingestion_list_workers", fake)
 
@@ -116,10 +122,11 @@ def _workers(monkeypatch, workers=None, *, down=False):
 # --- the rule ---------------------------------------------------------------------
 
 
-def _state(worker_status, *, age_s=0.5, enabled=True, reachable=True):
+def _state(worker_status, *, age_s=0.5, enabled=True, reachable=True, receiving=None):
     return derive_state(
         worker_status=worker_status,
         ingestion_reachable=reachable,
+        receiving=worker_status == "running" if receiving is None else receiving,
         capture_enabled=enabled,
         last_frame_at=None if age_s is None else NOW - timedelta(seconds=age_s),
         now=NOW,
@@ -135,6 +142,16 @@ def test_a_worker_reading_with_a_fresh_frame_is_live():
 def test_a_worker_reading_with_no_new_frame_for_longer_is_frozen():
     assert _state("running", age_s=3.1) is LiveState.FROZEN
     assert _state("running", age_s=None) is LiveState.FROZEN  # no preview at all
+
+
+def test_a_fresh_frame_from_a_stream_that_is_not_arriving_steadily_is_frozen():
+    """K-13: a stalled stream can hand over a late burst of old frames, which
+    rewrites the preview. Without steady arrival that is not live."""
+    assert _state("running", age_s=0.1, receiving=False) is LiveState.FROZEN
+
+
+def test_steady_arrival_without_a_fresh_preview_is_still_frozen():
+    assert _state("running", age_s=5.0, receiving=True) is LiveState.FROZEN
 
 
 def test_a_worker_reconnecting_or_still_connecting_is_offline():
@@ -191,6 +208,16 @@ def test_the_wall_gets_every_camera_with_its_state(operator, previews, monkeypat
     seen = datetime.fromisoformat(item["last_frame_at"])
     assert abs((datetime.now(UTC) - seen).total_seconds() - 0.4) < 1.0  # the preview's write time
     assert got[stopped]["last_frame_at"] is None
+
+
+def test_a_late_burst_on_a_stalled_stream_reads_frozen_on_the_wall(operator, previews, monkeypatch):
+    camera_id = _camera("burst", enabled=True)
+    _preview(previews, camera_id, 0.1)  # just rewritten by a burst of old frames
+    _workers(monkeypatch, {camera_id: "running"}, not_receiving={camera_id})
+
+    got = _by_id(client.get("/cameras/live", headers=operator).json())
+
+    assert got[camera_id]["state"] == "frozen"
 
 
 def test_no_camera_reads_live_while_ingestion_is_down(operator, previews, monkeypatch):

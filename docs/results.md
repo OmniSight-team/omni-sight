@@ -20,6 +20,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, feed health (no Phase A target) | See at once which feeds are healthy; capture resumes after a restart with nobody pressing Start | Simulator paused: `frozen` 3.1-3.2 s after the last frame, `offline` at 30.6-30.8 s (not ~10 s: late frames at each read timeout, K-13), `live` again 15.6 s after unpausing. Ingestion restarted or killed: never `live` without a worker, capture back in 12.3-13.6 s | **Pass**, with K-13 open | 2026-10-02 | OMNI-504 |
 | FR-9, rewind (no Phase A target) | Rewind a feed a few minutes | After 5 min of capture on `cam05`: 957 frames in the 5-minute buffer, oldest first, none outside the window, full frames token-checked | **Pass** (one run) | 2026-10-02 | OMNI-505 |
 | FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating, mostly 304s on still scenes | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; paging, group filter, no polling while hidden (simulated) | **Pass** apart from "mostly 304s" (K-12) | 2026-10-02 | OMNI-506 |
+| FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -780,3 +781,44 @@ once-a-second poll always finds a newer frame. (The simulator's scenes are not s
 **Not covered:** the browser's own network tab (the counts are the page's resource timing,
 which is what that tab shows); a real hidden tab; a 4x4 wall (OMNI-512); the cost to the
 stack of the wall itself under NFR-4 (OMNI-509).
+
+## OMNI-507 · Tile states on the wall, and live only while frames arrive steadily (preliminary) · 2026-10-02
+
+**Conditions:** the machine above, the full stack, the simulator's ten feeds on the wall
+(`scripts/wall_cameras.py up`); `https://localhost/live` in Chrome, signed in as admin; a
+recorder in the page reading every tile's badge, dimming and age text every 0.5 s; the
+simulator paused for 40 s with `docker compose pause mediamtx`, then unpaused; one camera
+stopped through the API. Also `scripts/verify_camera_states.py --camera cam05` (OMNI-504's
+check, polls every 0.25 s), one run with the new rule (D-17).
+
+**On the wall** (times from the recorder's start, the same for all nine tiles on page 1):
+
+| Moment | Every tile |
+|---|---|
+| Before | **Live** (the live dot ticks as new frames arrive) |
+| Simulator paused | **Frozen** at once, picture dimmed, "Last frame 3 s ago" |
+| ... | **Offline** 27.5 s later, picture dimmed, "Last frame 11 s ago", "The camera cannot be reached; reconnecting." |
+| In between | no tile read Live at any 0.5 s sample (before D-17 the camera read live at 10.5 and 20.5 s) |
+| Unpaused | **Live** again by itself, 44.5-54.5 s after going offline (reconnect backoff), no reload |
+| `wall-cam01` stopped | **Stopped** 2.7 s after the stop returned, last frame dimmed with its age; the other eight stayed Live |
+| Page reloaded, `wall-cam01` still stopped | grey panel, stop icon, "This camera is not being captured." (no image to show) |
+
+No tile was a black rectangle in any state.
+
+**`verify_camera_states.py`, with D-17, 12 of 12 checks:** running `live` on every poll;
+paused: `frozen` 2.4 s after the pause command (the newest frame then 2.3 s old), `offline`
+at 30.6 s, **no `live` in between**; unpaused: `frozen` at 17.0 s then `live` at 18.1 s;
+`restart ingestion`: `offline`, `frozen` for 1.1 s, `live` 12.7 s after the command
+returned; `kill` then `start`: the same, 12.4 s; stop: `stopped` at once.
+
+**Against the acceptance:** pause the simulator, tiles go frozen then offline without a
+refresh: **yes**. Unpause, live again: **yes**. Stop a camera, stopped: **yes**.
+
+**Still wrong (K-13, second half):** offline comes about 30 s after the pause, not about
+10 s; and the age on a frozen or offline tile counts from when the late frames arrived, so
+it reads younger than the picture is.
+
+**Not covered:** a real network stall (only `docker compose pause`); more than one run on
+the wall; a browser other than Chrome.
+
+`uv run pytest`: **383 passed, 1 skipped**, against a scratch database.

@@ -158,6 +158,14 @@ class LiveWorker:
         # `preview_interval_s`, admitted or not, and cleared when the worker ends.
         preview: Any | None = None,
         preview_interval_s: float = 0.5,
+        # OMNI-507: whether frames are *arriving*, not merely whether one arrived.
+        # A stream that stalls can still hand over a late burst of old frames
+        # (K-13); a burst lands all at once, a working stream spreads its frames
+        # out. So the worker is `receiving` only when, within the last
+        # `steady_window_s`, at least two frames arrived at least
+        # `steady_min_span_s` apart.
+        steady_window_s: float = 3.0,
+        steady_min_span_s: float = 1.0,
     ):
         self.camera_id = camera_id
         self.worker_id = uuid.uuid4().hex
@@ -176,6 +184,10 @@ class LiveWorker:
         self._preview_interval_s = preview_interval_s
         self._preview_due_at: float | None = None
         self._preview_failing = False
+        self._steady_window_s = steady_window_s
+        self._steady_min_span_s = steady_min_span_s
+        # When frames arrived, over the last `steady_window_s`.
+        self._arrivals: deque[float] = deque()
 
         self._stop = threading.Event()
         # Waits, returning True as soon as the worker is asked to stop. A test
@@ -320,6 +332,20 @@ class LiveWorker:
     def uptime_s(self) -> float:
         return max(0.0, self._clock() - self.started_at) if self.state in LIVE_STATES else 0.0
 
+    def receiving(self) -> bool:
+        """Whether frames are arriving steadily right now (OMNI-507): within the
+        last `steady_window_s`, at least two frames that arrived at least
+        `steady_min_span_s` apart. A healthy 15 fps stream has some forty spread
+        over the window; one late frame, or a burst of old ones landing together
+        from a stalled stream (K-13), does not count. A 1 fps camera still does."""
+        cutoff = self._clock() - self._steady_window_s
+        with self._lock:
+            while self._arrivals and self._arrivals[0] < cutoff:
+                self._arrivals.popleft()
+            if len(self._arrivals) < 2:
+                return False
+            return self._arrivals[-1] - self._arrivals[0] >= self._steady_min_span_s
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "camera_id": self.camera_id,
@@ -345,6 +371,7 @@ class LiveWorker:
             "reconnects": self.reconnects,
             "failed_attempts": self.failed_attempts,
             "last_frame_at": self.last_frame_at,
+            "receiving": self.state is WorkerState.RUNNING and self.receiving(),
             "previews_written": self.previews_written,
             "preview_errors": self.preview_errors,
             "last_preview_at": self.last_preview_at,
@@ -501,6 +528,12 @@ class LiveWorker:
 
             now = self._clock()
             self.last_frame_at = now
+            with self._lock:
+                self._arrivals.append(now)
+                # Pruned here too, so the record stays a few seconds long even
+                # when nobody asks whether the worker is receiving.
+                while self._arrivals[0] < now - self._steady_window_s:
+                    self._arrivals.popleft()
             ok, frame = capture.retrieve()
             if not ok or frame is None:
                 self.decode_errors += 1

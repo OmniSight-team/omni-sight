@@ -344,6 +344,8 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
             quality=settings.live_preview_jpeg_quality,
         ),
         preview_interval_s=settings.live_preview_interval_s,
+        steady_window_s=settings.live_steady_window_s,
+        steady_min_span_s=settings.live_steady_min_span_s,
     )
 
 
