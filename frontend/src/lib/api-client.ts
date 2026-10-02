@@ -216,6 +216,66 @@ export async function listCameraFrames(
   return request<CameraFrame[]>(`/cameras/${id}/frames${query ? `?${query}` : ""}`);
 }
 
+// What a camera is doing right now (OMNI-504), worked out by the API from the
+// worker it runs and the age of the newest frame, never from a stored flag.
+export type LiveState = "live" | "frozen" | "offline" | "stopped";
+
+export interface LiveCamera {
+  camera_id: number;
+  name: string;
+  location: string;
+  group_name: string;
+  state: LiveState;
+  // When the newest frame arrived (ISO time); null when there is no preview.
+  last_frame_at: string | null;
+}
+
+// Every camera for the wall, ordered by group, then name.
+export async function listLiveCameras(): Promise<LiveCamera[]> {
+  return request<LiveCamera[]>("/cameras/live");
+}
+
+export type PreviewResult =
+  | { kind: "frame"; blob: Blob; etag: string | null; lastModified: string | null }
+  | { kind: "unchanged" }
+  | { kind: "none"; reason: string };
+
+// A camera's current frame (OMNI-503), a small JPEG. Sends the ETag of the
+// frame already shown, so an unchanged frame costs a 304 and no image. Not
+// through request(): the body is an image, not JSON. `cache: "no-store"` keeps
+// the browser's own cache out of it, so a 304 reaches this code as a 304.
+export async function fetchCameraPreview(id: number, etag: string | null): Promise<PreviewResult> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (etag) headers.set("If-None-Match", etag);
+
+  const response = await fetch(`${API_URL}${API_PREFIX}/cameras/${id}/preview`, { headers, cache: "no-store" });
+
+  const renewedToken = response.headers.get("X-Access-Token");
+  if (renewedToken) setToken(renewedToken);
+
+  if (response.status === 304) return { kind: "unchanged" };
+  if (response.status === 401) {
+    if (token) {
+      clearToken();
+      window.location.href = "/sign-in";
+    }
+    throw new ApiError(401, "unauthorized");
+  }
+  if (response.status === 404) {
+    const data = await response.json().catch(() => null);
+    return { kind: "none", reason: data?.detail ?? "no picture" };
+  }
+  if (!response.ok) throw new ApiError(response.status, "preview request failed");
+  return {
+    kind: "frame",
+    blob: await response.blob(),
+    etag: response.headers.get("ETag"),
+    lastModified: response.headers.get("Last-Modified"),
+  };
+}
+
 export type VideoSource = "upload" | "camera" | "dataset";
 export type VideoStatus = "uploaded" | "extracting" | "ready" | "failed";
 

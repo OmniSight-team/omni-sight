@@ -218,14 +218,14 @@ first, none outside the window.
 
 **Why:** **FR-9** — the screen an operator actually lives in.
 
-- [ ] New page **Live Monitoring**, in the nav for operator and admin
-- [ ] A 3x3 CSS grid of tiles from `GET /cameras/live`; each tile labelled with **name and
+- [x] New page **Live Monitoring**, in the nav for operator and admin
+- [x] A 3x3 CSS grid of tiles from `GET /cameras/live`; each tile labelled with **name and
       location**
-- [ ] Each tile polls its preview about once a second with the token (fetch → blob → object
+- [x] Each tile polls its preview about once a second with the token (fetch → blob → object
       URL; revoke the old one), sending `If-None-Match`. **No video element per tile**
-- [ ] Filter by group (`group_name`), so a wall can show one site or building
-- [ ] More cameras than tiles: pages, not tiny tiles
-- [ ] Polling stops when the tab is hidden
+- [x] Filter by group (`group_name`), so a wall can show one site or building
+- [x] More cameras than tiles: pages, not tiny tiles
+- [x] Polling stops when the tab is hidden
 
 **Acceptance:** ten simulator cameras running, the wall shows nine at once, each updating,
 and the network tab shows mostly 304s on still scenes.

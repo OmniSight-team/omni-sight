@@ -558,3 +558,90 @@ disk.
 The rewind buffer works from what is already stored: after five minutes of capture it held
 957 frames, oldest first, none outside the window, each with its reason and a token-checked
 full frame. One addition beyond the ticket's words: the image route behind `frame_url`.
+
+---
+
+## OMNI-506 · Live Monitoring screen: a fixed 3x3 wall, grouped
+
+Done 2026-10-02, on `slice-05-camera-wall`, apart from one acceptance line that cannot hold
+as written (K-12, below). Numbers in `docs/results.md` (OMNI-506).
+
+### Why this ticket exists
+
+FR-9: the screen an operator lives in. Every camera at once, each one cheap: a small JPEG
+polled about once a second, not a video stream per tile.
+
+### What was done
+
+- **`frontend/src/app/(app)/live/page.tsx`, new.** The nav entry `/live` (operator and admin)
+  already existed in `omnisight_common/nav.py`; the sidebar listed it as "soon", so `/live`
+  joined the sidebar's built routes
+- **The wall:** a 3x3 CSS grid of tiles from `GET /cameras/live` (refreshed every 5 s), each
+  labelled with name and location. More than nine: pages (Previous / Next, "Page 1 of 2"),
+  never smaller tiles. A group filter built from the cameras' `group_name`; changing it goes
+  back to page 1
+- **Each tile** polls `GET /cameras/{id}/preview` every second with the token and
+  `If-None-Match` (fetch, then blob, then object URL), revokes the previous object URL when a
+  new one replaces it and when the tile goes away, skips a poll while the previous one is
+  still out, and keeps its ETag across a hidden tab. A 404 shows its reason ("camera is not
+  being captured"). No `<video>` element. Tile states (live, frozen, offline) are OMNI-507
+- **Polling stops when the tab is hidden**, both the tiles and the camera list
+  (`visibilitychange`)
+- **`api-client.ts`:** `listLiveCameras()` and `fetchCameraPreview()`. The preview call is not
+  the shared `request()` (the body is an image), but it handles the token, a renewed token and
+  a 401 the same way. `cache: "no-store"` so a 304 reaches the code as a 304
+- **`scripts/wall_cameras.py`, new:** registers and starts the simulator's ten feeds in two
+  groups (`up`) and removes them again (`down`), with a throwaway admin of its own
+
+### Things that went wrong or surprised me
+
+- **The wall did not fit the window.** The first version sized tiles from their width
+  (`aspect-video`); in a 1864x927 window the third row fell below the bottom, so the wall did
+  not show nine at once without scrolling. The grid now takes the window's height in three rows
+  and the pictures are letterboxed into their tiles; all nine fit with no page scroll
+- **The dev server did not see my changes.** A new page folder gave a 404 and the sidebar edit
+  did not show, until `docker compose restart frontend`. File-change events do not reach the
+  container through the Windows bind mount. Added to K-10
+- **Ten parallel starts: five failed with "timeout"** (the 15 s reachability check before a
+  start). Running `up` again started the rest. This matters for OMNI-504's resume, which
+  starts every camera at once after an ingestion restart: K-16
+- **`tsc` failed once on `.next/dev/types/routes.d.ts`**, a file Next generates, right after a
+  restart; run again, it passed
+- **Hiding the tab could not be done for real.** Opening a second tab through the automation
+  left the wall in front, so that test measured nothing. I simulated it in the page instead
+  (`visibilityState` reported as hidden, `visibilitychange` fired): 0 requests in 10 s
+
+### K-12, confirmed in a browser
+
+The acceptance says the network tab shows mostly 304s on still scenes. It showed 498 of 499
+requests as 200: the preview is rewritten every 0.5 s on a running feed (OMNI-503), so a
+once-a-second poll always finds a newer frame. This is the conflict recorded in K-12 when
+OMNI-503 was built; the ETag changing on every frame is what OMNI-504 and OMNI-507 rely on.
+The ticket's acceptance line needs rewording, or the design changing (K-12 has both options).
+Not changed here.
+
+### Verification performed
+
+- `tsc --noEmit` clean, `eslint` on the new and changed files: no errors (three warnings, all
+  the existing `window.location.href` pattern, one of them in my new preview call)
+- **In Chrome, ten cameras running, signed in as admin:** nine tiles, all inside the window,
+  no `<video>`; 30 s windows twice: 254 and 245 preview requests, 253 + 245 of them 200, one
+  304, about 100 KiB/s, 12.2 KiB a frame; every tile's picture changed 27-30 times in 30 s;
+  "Page 1 of 2" with the tenth camera alone on page 2; "Building B" filter: its five cameras;
+  hidden: 0 requests in 10 s, back within 4 ms
+- The sidebar's Live Monitoring is a link and highlighted on the page
+- No Python changed in this ticket, so `uv run pytest` was not rerun (372 passed, 1 skipped
+  at OMNI-505)
+
+### Not verified
+
+- A real tab switch or minimised window (simulated only)
+- Other browsers, a small screen
+- What the wall costs the stack while ten feeds are measured (OMNI-509)
+
+### Result
+
+The wall works: ten cameras, nine at a time on a 3x3 grid that fits the window, pages for the
+rest, a group filter, a JPEG per tile per second and nothing while hidden. The "mostly 304s"
+line of the acceptance does not hold, for the reason recorded in K-12, and needs Ahmad's
+decision.

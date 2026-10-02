@@ -19,6 +19,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, the wall's preview (no Phase A target) | 16 tiles polling one camera once a second, cheap; unchanged frames cost a 304 | Live feed: 960 of 960 polls 200, 387 KiB/s, query +15-17% of a core. Frozen feed: 432 of 480 polls 304, 45 KiB/s. Stopped: 404 at once | **Measured**; 304s only on a frozen feed (K-12) | 2026-10-01 | OMNI-503 |
 | FR-9, feed health (no Phase A target) | See at once which feeds are healthy; capture resumes after a restart with nobody pressing Start | Simulator paused: `frozen` 3.1-3.2 s after the last frame, `offline` at 30.6-30.8 s (not ~10 s: late frames at each read timeout, K-13), `live` again 15.6 s after unpausing. Ingestion restarted or killed: never `live` without a worker, capture back in 12.3-13.6 s | **Pass**, with K-13 open | 2026-10-02 | OMNI-504 |
 | FR-9, rewind (no Phase A target) | Rewind a feed a few minutes | After 5 min of capture on `cam05`: 957 frames in the 5-minute buffer, oldest first, none outside the window, full frames token-checked | **Pass** (one run) | 2026-10-02 | OMNI-505 |
+| FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating, mostly 304s on still scenes | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; paging, group filter, no polling while hidden (simulated) | **Pass** apart from "mostly 304s" (K-12) | 2026-10-02 | OMNI-506 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
 | NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -739,3 +740,43 @@ ends at the request; a frame still in the live queue appears on the next request
 more than one run.
 
 `uv run pytest`: **372 passed, 1 skipped**, against a scratch database.
+
+## OMNI-506 · The camera wall in a browser, ten cameras running (preliminary) · 2026-10-02
+
+**Conditions:** the machine above, the full stack; the simulator's ten feeds registered and
+started by `scripts/wall_cameras.py up` (`cam01`-`cam05` in "Building A", `cam06`-`cam10` in
+"Building B"; 640x360, 15 fps, K-15); `https://localhost/live` in Chrome on the same machine,
+signed in as admin, window 1864x927; counted inside the page with the browser's own
+resource timing (`performance.getEntriesByType('resource')`), two 30 s windows.
+
+| | Window 1 | Window 2 |
+|---|---|---|
+| Tiles on screen / `<video>` elements | 9 / 0 | 9 / 0 |
+| Preview requests | 254 (8.5/s) | 245 (8.2/s) |
+| 200 / 304 | **253 / 1** | **245 / 0** |
+| Transferred | 102.8 KiB/s | 99.5 KiB/s (12.2 KiB a frame) |
+| Times each tile's picture changed | 27-28 | 29-30 |
+| Response time p50 | 123 ms | 193 ms (p95 371, max 473) |
+| Camera list requests (every 5 s) | - | 5 |
+
+Protocol `http/1.1`; time waiting for a connection before a request, p50 8 ms; time in the
+server, p50 163 ms (window 2), against about 15 ms for one camera in OMNI-503: ten cameras
+are being captured on the same machine.
+
+**Checks:** nine tiles at once, each labelled with name and location, all nine fully inside
+the window with no page scroll (after the layout fix below). Ten cameras: "Page 1 of 2", page
+2 holds the tenth alone. Group filter "Building B": 5 cameras, no pager. Polling with the page
+hidden: **0 requests in 10 s**, against 26 in the 5 s before; resumed 4 ms after it showed
+again. The hidden state was simulated in the page (`visibilityState` reported as hidden and a
+`visibilitychange` event fired), not a real tab switch: opening a second tab through the
+automation left the wall in front.
+
+**Against the acceptance:** ten cameras running, nine on the wall at once, each updating:
+**yes**. "The network tab shows mostly 304s on still scenes": **no**, 498 of 499 requests
+were 200, as K-12 predicted: the preview is rewritten every 0.5 s on a running feed, so a
+once-a-second poll always finds a newer frame. (The simulator's scenes are not still either;
+`cam05` has still stretches.)
+
+**Not covered:** the browser's own network tab (the counts are the page's resource timing,
+which is what that tab shows); a real hidden tab; a 4x4 wall (OMNI-512); the cost to the
+stack of the wall itself under NFR-4 (OMNI-509).
