@@ -341,13 +341,13 @@ after.
 **Why:** **TC-1** — *ingest a live feed and an uploaded file at once, keeping only frames
 with motion.* The first half ran in OMNI-316; the second half is the same, on the wall.
 
-- [ ] `cam05` live and the 1,930-frame recording extracting at the same time, 30 s, with the
+- [x] `cam05` live and the 1,930-frame recording extracting at the same time, 30 s, with the
       wall open
-- [ ] Both decode without error; for the file, the OMNI-316 checks (every admitted frame has
+- [x] Both decode without error; for the file, the OMNI-316 checks (every admitted frame has
       a reason and a file, no discarded frame has a file); for live, every stored row is
       admitted with a reason and the counters balance (OMNI-501)
-- [ ] The camera's tile stays **live** the whole time
-- [ ] Record in `docs/results.md`; TC-1 row → complete
+- [x] The camera's tile stays **live** the whole time
+- [x] Record in `docs/results.md`; TC-1 row → complete
 
 **Acceptance:** TC-1 passes in full and is recorded, dated, with the conditions.
 

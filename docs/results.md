@@ -22,7 +22,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating, mostly 304s on still scenes | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; paging, group filter, no polling while hidden (simulated) | **Pass** apart from "mostly 304s" (K-12) | 2026-10-02 | OMNI-506 |
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
-| TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
+| TC-1 | Live camera and uploaded file together: both decode, only motion (or heartbeat) forwarded, the camera live on the wall throughout | 2 runs, 15 of 15 checks each: file 1,930 of 1,930, 356 admitted, 0 violations; live counters exact, every stored row admitted; camera live at every sample | **Pass, complete** | 2026-09-26, 2026-10-03 | OMNI-316, OMNI-511 |
 | NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
@@ -1023,3 +1023,38 @@ with the wall open. 4 hold for 3 minutes but not for 10: hiccups the short windo
 
 **Not covered:** more than one run per row; other machines; more cameras over several machines
 (the design's answer, D-19, not measured); the vectorised grid (K-2).
+
+## OMNI-511 · TC-1 complete: a live camera and a recording at once, with the wall open · 2026-10-03
+
+**TC-1:** ingest a live feed and an uploaded file at once, keeping only frames with motion.
+
+**Conditions:** the machine above, the full stack as at the end of OMNI-510a and the NFR-4
+revision (every frame gated; a process per camera; buffer 60). Live: `cam05`, which since
+OMNI-509 is a real UCF-Crime clip (`Normal_Videos170`, 320x240, 30 fps; OMNI-316 used the
+synthetic pattern). File: the archive's `Arson049` (30 fps, 320x240) looped five times to
+1,930 frames, as in OMNI-316, uploaded, then extracted through `POST /videos/{id}/extract`
+while the camera ran. The camera's state sampled every 0.5 s from `GET /cameras/live`; the wall
+open in Chrome, recorded every second (visibility and the tile's badge). Script:
+`scripts/verify_tc1.py`. Two runs.
+
+| | Run 1 | Run 2 |
+|---|---|---|
+| Checks | **15 of 15** | **15 of 15** |
+| File: extraction | `ready`, no error, 31.6 s | `ready`, no error, 33.4 s |
+| File: stored | 1,930 of 1,930 | 1,930 of 1,930 |
+| File: admitted (motion / heartbeat) / discarded | 356 (311 / 45) / 1,574 | 356 (311 / 45) / 1,574 |
+| File: admitted with a reason and both files; discarded with none; scores on the right side of 3 cells | yes, 356 frame files | yes |
+| Live: decode errors, worker | 0, running | 0, running |
+| Live: counters | 1,154 = 1,154 + 0; 1,154 = 50 + 1,104; 50 = 14 + 36 | 1,149 = 1,149 + 0; 1,149 = 47 + 1,102; 47 = 11 + 36 |
+| Live: stored rows | 50, all admitted with a reason, 50 frame files | 47, the same |
+| Camera `live` (API), 30 s window / whole extraction | 59 of 59 / 63 of 63 samples | every sample |
+| The wall | visible all 31 s; the tile **Live** with a picture every second; 31 of 31 previews new frames | hidden about 6 s of 33 (the window was covered); Live with a picture every second it was visible |
+
+The file's figures are those of OMNI-316's 1,930-frame run (357 then, 356 now: this copy was
+re-encoded without its audio track; not investigated further). Nothing dropped, nothing
+decoded wrongly, on either side.
+
+**TC-1: passes in full.** The first half (OMNI-316) and the second (the wall) together.
+
+**Not covered:** a moving-camera recording at the same time; more than one live camera with the
+file (NFR-4's runs had no file); the wall at a layout other than 3x3 for this test.

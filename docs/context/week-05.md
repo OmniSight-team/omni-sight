@@ -1051,3 +1051,51 @@ core. Storage was never what limited NFR-4; ingestion was (OMNI-509, OMNI-510a, 
 Its checkboxes stay unticked because the work was not done. It becomes relevant only if a
 stronger machine or more machines push enough frames to make the live queue grow; the NFR-4
 script reports the queue's slope, so that would show.
+
+---
+
+## OMNI-511 · TC-1 complete
+
+Done 2026-10-03, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-511).
+
+### Why this ticket exists
+
+TC-1: ingest a live feed and an uploaded file at once, keeping only frames with motion.
+OMNI-316 ran the first half; this is the whole of it, with the wall open, on the stack as it
+now is (every frame gated, two queues, process workers).
+
+### What was done
+
+- **`scripts/verify_tc1.py`, new**, one script for all of TC-1: loops `Arson049` to the
+  1,930-frame file OMNI-316 used and uploads it; starts `cam05`; extracts the file while the
+  camera runs, watching the camera's state every 0.5 s through the 30 s window and for as long
+  as the extraction lasts; then checks the file (OMNI-316's checks), the live side (OMNI-501's:
+  every stored row admitted with a reason and files, the counters exact and equal to the rows)
+  and the camera's state; 15 checks
+- **The wall** open in Chrome with an in-page recorder of visibility and the tile's badge,
+  checked after each run against the run's window
+
+### Things to know
+
+- `cam05` is a real UCF-Crime clip now (the realistic simulator set, OMNI-509), not the
+  synthetic pattern OMNI-316 used
+- The file admitted 356 frames, OMNI-316 357: this copy was re-encoded without its audio track;
+  not investigated
+- **In run 2 the Chrome window was covered for about 6 s**, so the wall missed those seconds;
+  the API's samples cover the whole run. Run 1 had the wall visible throughout
+
+### Verification performed
+
+- Two runs, **15 of 15** each; the wall in run 1 visible at all 31 samples, the TC-1 tile Live
+  with a picture every second, 31 of 31 previews new frames
+- Nothing left behind: 0 cameras, the 3 archive videos and their 300 segments, no throwaway user
+- No code changed in services, so `uv run pytest` was not rerun (387 passed, 1 skipped earlier
+  today)
+
+### Not verified
+
+- A moving-camera file at the same time; several cameras with the file
+
+### Result
+
+TC-1 passes in full and is recorded, dated, with its conditions.
