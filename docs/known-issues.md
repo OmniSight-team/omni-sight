@@ -5,7 +5,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 
 | # | Issue | Affects | Found | Must be dealt with by |
 |---|---|---|---|---|
-| K-2 | 10 concurrent feeds not sustained: gating every frame, 1 feed is; after D-18 still not, on a full machine | NFR-4 | OMNI-317, OMNI-509, OMNI-510a | **Ahmad's decision** (D-9 trade-off) |
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
 | K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
 | K-6 | Re-gate takes 1.4-2.0 s, grows with length | OMNI-310 target | OMNI-310 | When long recordings are used |
@@ -21,40 +20,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | OMNI-512 |
 
 ---
-
-## K-2 · 10 concurrent feeds not sustained
-
-**Since 2026-10-03 (OMNI-509), gating every frame:** 1 feed sustained, HD or SD; 2 HD feeds
-drop about 1% of their frames; 10 realistic feeds drop most of theirs (8,412-12,298 each in
-10 minutes) and the worst frame takes 6.65 s. The live queue stays empty in every run: storage
-keeps up. Frames are lost before the gate, in the worker's queue: ingestion gates 4.2 of 24
-HD frames a second and 7-11 of 30 SD frames with ten feeds, spending 3.6-4.1 cores on about
-1.9 cores of measured work (`results.md`, OMNI-509). Ingestion is one Python process with
-196 threads at ten feeds.
-**Fix candidates, none tried:** cap OpenCV/FFmpeg's decoder threads per stream (one or two
-instead of a pool each); run the camera workers in several processes instead of one (Python's
-interpreter lock); compute the 8x8 grid's cell means in one array operation instead of 64
-(the same arithmetic, less Python per frame); more machines. Not candidates: skipping frames
-before the gate (Algorithm 1, D-9); batching the consumer's commits (OMNI-510; the consumer is
-idle).
-
-**2026-10-03 (OMNI-510a, D-18):** with a process per camera and one thread per decoder
-and per OpenCV call, ten realistic feeds gate 157 frames a second with the wall open (was
-80.5) and the worst frame takes 3.87 s (was 6.65), but every feed still drops frames and
-the containers use 821% of the 800% Docker has: this 4-core laptop is now the limit. Left:
-the vectorised grid (less CPU per frame), and hardware with more cores; neither tried.
-OMNI-510 (consumer batching) stays unneeded: the live queue peaked at 8 and did not grow.
-
-**Before (OMNI-317, 2026-09-26, sampling every 0.2 s, superseded):** At 0.2 s sampling: 8 feeds sustained, 9 unreliable, 10 backs up within a minute (max
-12-12.6 s), drops start at 15. Ceiling is total CPU on one machine: the full stack stores
-50-56 frames/s, ten feeds offer about 42. At 0.5 s sampling ten feeds are sustained (worst
-1.7 s). Tied to D-9 (the sampling interval is an open deviation). K-1 makes the margin at
-eight smaller.
-**2026-09-30 (OMNI-501):** sampling is removed and live cameras store admitted frames only,
-so these numbers describe a load that no longer exists. One camera gates 15 frames/s at
-36-39% of one core in ingestion; several feeds at once are not measured yet (OMNI-509).
-**Fix candidates, most measured first:** a longer sampling interval (measured); batched
-consumer commits (unmeasured); a separate live queue (K-1); services off the one machine.
 
 ## K-3 · Static routes without a token (NFR-7)
 
@@ -121,11 +86,12 @@ Not measured per day.
 - The frontend dev server in Docker does not see file changes on this Windows machine (a new
   page folder answered 404, an edited component stayed old) until `docker compose restart
   frontend` (OMNI-506)
+- A wall in a hidden Chrome window (minimised or covered) stops polling, as designed, so a
+  measurement "with the wall open" needs the window visible; the NFR-4 runs now record the
+  tab's visibility every second (2026-10-03)
 - nginx resolves `query` and `frontend` once, when it starts. Restarting them together can
   swap their container addresses, and nginx then answers 502 for everything until it is
   restarted too (`docker compose restart nginx`; seen 2026-10-02, OMNI-507)
-- `LIVE_QUEUE_SIZE` = 10 was sized for 5 frames/s (about 2 s); at 15 frames/s it is about
-  0.7 s. No drops on one camera (OMNI-501); not checked under load
 
 ## K-11 · The restart loss check no longer fits live rows
 
@@ -226,6 +192,7 @@ cameras each) started without a single retry. The resume (D-15) still starts the
 | K-1 | Live latency breaks 5 s while a long file is extracted | NFR-1 | OMNI-316 | OMNI-502, 2026-10-01 |
 | K-5 | After an ingestion restart, workers do not resume and the camera still reads `connected` | FR-1a | OMNI-312, OMNI-319 | OMNI-504, 2026-10-02 |
 | K-15 | The simulator's frame size was written as 320x240; the clips are 640x360 | Stated conditions | 2026-10-02 | OMNI-509, 2026-10-03 |
+| K-2 | 10 concurrent feeds not sustained | NFR-4 | OMNI-317 | Resolved by revising NFR-4 to 3 per machine (D-19), 2026-10-03 |
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 
@@ -259,3 +226,42 @@ The simulator's synthetic clips are 640x360, not 320x240 as `results.md` said in
 "[corrected 2026-10-03: the simulator's clips are 640x360, K-15]" beside the old figure,
 not a silent rewrite. No measured number changes; the stated conditions do. Since OMNI-509 the
 default simulator clips are real footage (`mediamtx.real.yml`), stated with their sizes.
+
+### K-2 · 10 concurrent feeds not sustained · resolved 2026-10-03 by revising NFR-4
+
+**Since 2026-10-03 (OMNI-509), gating every frame:** 1 feed sustained, HD or SD; 2 HD feeds
+drop about 1% of their frames; 10 realistic feeds drop most of theirs (8,412-12,298 each in
+10 minutes) and the worst frame takes 6.65 s. The live queue stays empty in every run: storage
+keeps up. Frames are lost before the gate, in the worker's queue: ingestion gates 4.2 of 24
+HD frames a second and 7-11 of 30 SD frames with ten feeds, spending 3.6-4.1 cores on about
+1.9 cores of measured work (`results.md`, OMNI-509). Ingestion is one Python process with
+196 threads at ten feeds.
+**Fix candidates, none tried:** cap OpenCV/FFmpeg's decoder threads per stream (one or two
+instead of a pool each); run the camera workers in several processes instead of one (Python's
+interpreter lock); compute the 8x8 grid's cell means in one array operation instead of 64
+(the same arithmetic, less Python per frame); more machines. Not candidates: skipping frames
+before the gate (Algorithm 1, D-9); batching the consumer's commits (OMNI-510; the consumer is
+idle).
+
+**2026-10-03 (OMNI-510a, D-18):** with a process per camera and one thread per decoder
+and per OpenCV call, ten realistic feeds gate 157 frames a second with the wall open (was
+80.5) and the worst frame takes 3.87 s (was 6.65), but every feed still drops frames and
+the containers use 821% of the 800% Docker has: this 4-core laptop is now the limit. Left:
+the vectorised grid (less CPU per frame), and hardware with more cores; neither tried.
+OMNI-510 (consumer batching) stays unneeded: the live queue peaked at 8 and did not grow.
+
+**Before (OMNI-317, 2026-09-26, sampling every 0.2 s, superseded):** At 0.2 s sampling: 8 feeds sustained, 9 unreliable, 10 backs up within a minute (max
+12-12.6 s), drops start at 15. Ceiling is total CPU on one machine: the full stack stores
+50-56 frames/s, ten feeds offer about 42. At 0.5 s sampling ten feeds are sustained (worst
+1.7 s). Tied to D-9 (the sampling interval is an open deviation). K-1 makes the margin at
+eight smaller.
+**2026-09-30 (OMNI-501):** sampling is removed and live cameras store admitted frames only,
+so these numbers describe a load that no longer exists. One camera gates 15 frames/s at
+36-39% of one core in ingestion; several feeds at once are not measured yet (OMNI-509).
+**Fix candidates, most measured first:** a longer sampling interval (measured); batched
+consumer commits (unmeasured); a separate live queue (K-1); services off the one machine.
+
+**Resolution (2026-10-03, D-19, D-20):** not fixed, revised. With the buffer back to about 2 s
+(D-20), this machine sustains 3 realistic feeds over 10 minutes with the wall open; 4 hold for
+3 minutes, not 10. NFR-4 now reads 3 live feeds per machine of this class (D-19). The
+vectorised grid was not tried; it could raise the number, and stays a candidate.

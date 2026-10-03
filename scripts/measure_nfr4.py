@@ -53,12 +53,16 @@ from sqlalchemy import text
 parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
 parser.add_argument("--feeds", type=int, required=True, help="number of simultaneous cameras")
 parser.add_argument("--first", type=int, default=1, help="first simulator path: --first 4 --feeds 7 is cam04 ... cam10")
+parser.add_argument("--paths", default="", help="simulator paths to take the first N of, instead of --first, e.g. "
+                    "4,1,5,6,2,7,8,3,9,10 for a realistic mix (about one HD feed in three at any N)")
 parser.add_argument("--window", type=float, default=600.0, help="seconds watched once every feed is live")
 parser.add_argument("--settle", type=float, default=15.0, help="seconds between every feed reading live and the window")
 parser.add_argument("--start-parallelism", type=int, default=2, help="cameras started at once (K-16: ten at once time out)")
 parser.add_argument("--label", default="", help="a name for this run in the report")
 ARGS = parser.parse_args()
 N = ARGS.feeds
+PATHS = [int(p) for p in ARGS.paths.split(",")][:N] if ARGS.paths else list(range(ARGS.first, ARGS.first + N))
+assert len(PATHS) == N, "fewer --paths than --feeds"
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "https://localhost/api"
 EMAIL = "omni509-measure@omnisight.local"
@@ -191,12 +195,12 @@ with SessionLocal() as s:
 
 camera_ids: list[int] = []
 client = None
-report: dict = {"label": ARGS.label, "feeds": N, "first_path": ARGS.first, "window_s": ARGS.window}
+report: dict = {"label": ARGS.label, "feeds": N, "paths": PATHS, "window_s": ARGS.window}
 try:
     token = httpx.post(f"{BASE}/auth/login", json={"email": EMAIL, "password": PASSWORD}, verify=False).json()["access_token"]
     client = httpx.Client(base_url=BASE, headers={"Authorization": f"Bearer {token}"}, verify=False, timeout=180)
     names = {}
-    for i in range(ARGS.first, ARGS.first + N):
+    for i in PATHS:
         group = f"Site {chr(ord('A') + (i - 1) // 5)}"
         r = client.post("/cameras", json={"name": f"{PREFIX}cam{i:02d}", "rtsp_url": f"rtsp://mediamtx:8554/cam{i:02d}",
                                           "location": f"{group}, cam{i:02d}", "group": group, "domain": "surveillance"})
@@ -264,7 +268,7 @@ try:
             {"ids": camera_ids, "t0": t0, "t1": t1}).all()
     window = t1 - t0
 
-    paths = f"cam{ARGS.first:02d}-cam{ARGS.first + N - 1:02d}"
+    paths = ",".join(f"cam{p:02d}" for p in PATHS)
     print(f"\n=== {N} feeds ({paths}), {window:.0f} s window{' (' + ARGS.label + ')' if ARGS.label else ''}")
     per_feed = []
     for cid in camera_ids:

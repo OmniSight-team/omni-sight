@@ -96,10 +96,12 @@ class Settings(CommonSettings):
 
     # The bounded queue between capture and processing (OMNI-314). A decoded frame
     # waits here for the processing thread; when it is full the frame is dropped
-    # and counted, so a slow gate or broker costs frames, not memory. Ten frames
-    # is about two thirds of a second of a 15 fps stream, and at 1080p about
-    # 60 MB, whatever happens downstream.
-    live_queue_size: int = Field(10, ge=1)
+    # and counted, so a slow gate or broker costs frames, not memory. Sixty
+    # frames is 2 s of a 30 fps stream (2.5 s at 24 fps), the margin this queue
+    # had when it held sampled frames; at 10 it was a third of a second once
+    # every frame was gated, and a moment's hiccup on an idle machine dropped
+    # frames (OMNI-510a). At most about 166 MB for a full 1280x720 queue.
+    live_queue_size: int = Field(60, ge=1)
     # The most segments the durable queue may hold before live frames are dropped
     # instead of added to it, so a consumer that has fallen behind cannot let the
     # broker's queue grow for ever. 0 turns the limit off. It is the live queue

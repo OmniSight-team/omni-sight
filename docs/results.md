@@ -23,7 +23,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
-| NFR-4 | 10 concurrent feeds, sustained (definition in the OMNI-509 entry) | Gating every frame, wall open: 1 feed sustained (OMNI-509). After D-18 (a process per camera, thread caps): 10 realistic feeds gate 157 of 282 frames/s, worst 3.87 s (was 6.65), still dropping; the machine is full (821% of 800%) | **Not met** (preliminary) | 2026-10-03 | OMNI-509, OMNI-510a |
+| NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
@@ -974,3 +974,52 @@ without a worker.
 
 **Not covered:** the vectorised grid (K-2's third candidate), more than one run of each,
 another machine. `uv run pytest`: **387 passed, 1 skipped**.
+
+## NFR-4 revision: how many feeds this machine sustains (D-19, D-20) · 2026-10-03
+
+**Conditions:** as OMNI-510a (one process per camera, one decoder and one OpenCV thread),
+plus D-20 where stated (`LIVE_QUEUE_SIZE` 60 instead of 10). The same definition of sustained
+(OMNI-509). A **realistic mix**: the first N of `cam04, cam01, cam05, cam06, cam02, cam07, cam08,
+cam03, cam09, cam10` (about one 1280x720 VIRAT feed in three, the rest 320x240 UCF-Crime), not
+the first N paths (all HD first). The wall at 4x4 in Chrome. **The wall's visibility was
+recorded each second**: Chrome stops a hidden tab's polling, and the first two series below ran
+with the window hidden (2 requests in 30 minutes), so they are without the wall's load and are
+**exploration only**. One run per row; preliminary.
+
+**Exploration, wall hidden, 180 s:**
+
+| Feeds | Buffer | Dropped (all feeds) | Worst latency | Not live | Containers | Sustained |
+|---|---|---|---|---|---|---|
+| 2 | 10 | 4 | 0.15 s | none | 150% | no |
+| 3 | 10 | 148 | 0.09 s | none | 188% | no |
+| 4 | 10 | 406 | 0.50 s | 2 feeds | 271% | no |
+| 5 | 10 | 823 | 0.65 s | none | 363% | no |
+| 6 | 10 | 1,345 | 0.70 s | 2 feeds | 422% | no |
+| 4 | **60** | **0** | 0.77 s | none | 270% | yes |
+| 6 | 60 | 0 | 0.56 s | 3 feeds, 1-3 samples | 430% | no |
+| 8 | 60 | 147 | 4.29 s | 7 feeds, 1-6 samples | 657% | no |
+
+With the 10-frame buffer, frames dropped while the machine was mostly idle: a third of a
+second of buffer does not absorb a moment's hiccup (D-20).
+
+**For the decision, wall visible and polling (checked: visible at every sample), buffer 60:**
+
+| Feeds | Window | Dropped per feed | Worst latency | Not live (per feed, of ~600 or ~180) | Ingestion / all containers | Sustained |
+|---|---|---|---|---|---|---|
+| 4 | 180 s | 0 | 0.53 s | none | 155% / 344% | yes |
+| 5 | 180 s | 0 | 1.15 s | 1-2 samples, every feed | 242% / 446% | no |
+| 6 | 180 s | 0-256 | 7.62 s | 0-8 samples | 352% / 618% | no |
+| **4** | **600 s** | 0, 0, 8, 0 | 1.85 s | 1-4 samples, every feed | 149% / 331% | **no** |
+| **3** | **600 s** | **0** | **0.17 s** | **none** | 93% / 216% | **yes** |
+
+The 3 feeds over 10 minutes: `cam04` 30.0 frames gated a second (p50 11 ms, p95 28 ms, max 79
+ms), `cam01` 23.5 (36 / 73 / 166 ms), `cam05` 30.0 (10 / 27 / 142 ms); stored 3.1-3.4 frames a
+second in all; live queue 0 throughout; `consumer-live` 3%; on the wall 1,800 preview requests
+(1,783 200, 17 304), no tile ever not `Live`, 4x4 for all 600 samples.
+
+**Result:** under the definition, **this machine sustains 3 live feeds** of the realistic mix,
+with the wall open. 4 hold for 3 minutes but not for 10: hiccups the short window missed
+(OMNI-317's lesson again). NFR-4 is revised to that number (D-19).
+
+**Not covered:** more than one run per row; other machines; more cameras over several machines
+(the design's answer, D-19, not measured); the vectorised grid (K-2).

@@ -982,3 +982,60 @@ Ingestion's overhead is cut: ten realistic feeds gate twice as many frames as in
 every frame that is gated is still Algorithm 1's. NFR-4 is still not met: with the wall open,
 this 4-core machine is full before ten feeds are. OMNI-510 stays unneeded (the live queue
 never grew). What next is Ahmad's call: K-2 lists what is left.
+
+---
+
+## NFR-4 revised (D-19, D-20), with Ahmad
+
+2026-10-03, on `slice-05-camera-wall`, after OMNI-510a. Not a ticket of its own: Ahmad decided
+to revise NFR-4 to what this machine sustains. Numbers in `docs/results.md` (NFR-4 revision).
+
+### The decision and how it was taken
+
+Ahmad's point: the NFRs are the project's own, so a target the hardware cannot meet can be
+rewritten. CLAUDE.md allows it the D-1/D-2 way: measure why it is unreachable (OMNI-509,
+OMNI-510a did) and record the revision. I suggested three things to keep it defensible, and he
+agreed: choose the number from a measurement, not from what passes; keep the definition of
+sustained exactly as fixed before OMNI-509; word it per machine, with more cameras by adding
+machines (the design's answer, not measured).
+
+### What was done
+
+- **`scripts/measure_nfr4.py`** gained `--paths`, to take a realistic mix (about one HD feed in
+  three at any N) instead of the first N paths, which put all three HD clips first
+- **A first ladder, 2-6 mixed feeds, 3 min:** none sustained, all on "no drops", with the
+  machine mostly idle (150-422%). The cause was the worker's 10-frame buffer: a third of a
+  second at 30 fps (K-10's open item). **D-20:** `LIVE_QUEUE_SIZE` 10 → 60, about 2 s, what it
+  held when frames were sampled. With it, 4 feeds dropped nothing
+- **Then I found the wall had been hidden** for that whole series: Chrome had the window
+  minimised or covered, and a hidden wall stops polling by design (2 requests in half an hour).
+  Those runs were without the wall's load, so I labelled them exploration and did not use them.
+  Ahmad brought the window up; the recorder now logs the tab's visibility every second, and
+  every run used for the decision was checked visible at every sample
+- **With the wall visible, buffer 60, 3 min:** 4 sustained; 5 not (1-2 seconds not live on
+  every feed); 6 not (drops, 7.6 s)
+- **10-minute confirmations:** 4 **not** sustained (8 frames dropped on one feed, 1-4 seconds
+  not live per feed, at 331%: hiccups the 3-minute run missed); **3 sustained** (0 dropped,
+  worst 0.17 s, always live, 216%)
+- **D-19:** NFR-4 revised to 3 live feeds per machine of this class, sustained over 10 minutes,
+  with the conditions; **D-20:** the buffer. K-2 resolved by the revision; the stale K-10 item
+  about the buffer removed; a K-10 item about measuring with the wall visible added
+- `uv run pytest`: 387 passed, 1 skipped, after the buffer change
+
+### What I got wrong
+
+I ran nine measurements before noticing the wall was hidden. The script checked the system,
+not the browser; I only saw it because the recorder had 95 samples where it should have had
+about 2,000. From now on every run records the wall's visibility.
+
+### Not verified
+
+- More than one run per configuration; another machine
+- Several machines together (the "more cameras" part of the revision is design, not measured)
+- The vectorised grid, which could raise the number
+
+### Result
+
+NFR-4 now reads: 3 live feeds per machine of this class, sustained over 10 minutes with the
+wall open, every frame gated. Measured and met: 3 feeds, 0 dropped, worst 0.17 s. The original
+10, why it is out of reach here, and this revision go in the Phase B book.

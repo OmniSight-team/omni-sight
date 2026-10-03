@@ -24,6 +24,8 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-16 | The rewind buffer is the stored admitted frames, not a separate buffer | 2026-10-02 | Done |
 | D-17 | Live needs frames arriving steadily, not one fresh frame (K-13) | 2026-10-02 | Done |
 | D-18 | Each camera's worker in a process of its own; one thread per decoder and per OpenCV call | 2026-10-03 | Done |
+| D-19 | **NFR-4 revised:** 3 live feeds per machine of this class, sustained over 10 minutes (was 10) | 2026-10-03 | Done |
+| D-20 | The live worker's buffer holds about 2 s of frames (`LIVE_QUEUE_SIZE` 10 → 60) | 2026-10-03 | Done |
 
 ---
 
@@ -310,3 +312,43 @@ offered). The 10-minute rerun with the wall open: 157 frames a second gated, wor
 **Cost:** about 90 MiB more memory per camera (ingestion peaked at 903 MiB with ten); a start
 takes a second or two longer while the child process comes up. File extraction (uploads) runs
 its blur on one thread now too; not measured.
+
+## D-19 · NFR-4 revised: 3 live feeds per machine of this class · 2026-10-03
+
+**Phase A's NFR-4:** handle 10 or more live video feeds at once without slowing down.
+
+**Why it is revised:** measured unreachable on the development machine with Algorithm 1 as
+written (every frame gated, D-9), and the reason measured, as D-1 and D-2 did for DoTA and
+SM-3. OMNI-509: 1 feed sustained, 10 realistic feeds losing most of their frames, with
+storage idle; the loss was in ingestion. OMNI-510a (D-18) removed most of ingestion's
+overhead and 10 feeds still did not fit: the containers needed more than the 800% of CPU
+Docker has. The limit is this 4-core machine, not a part of the design.
+
+**The revised requirement:** **3 live feeds per machine of this class** (Intel i7-1165G7, 4
+cores / 8 threads; Docker with 8 CPUs and 7.6 GiB; everything on the one machine), every frame
+gated, on realistic surveillance footage with about one 1280x720 feed in three, with the camera
+wall open and polling, **sustained** under the definition fixed before any NFR-4 run (OMNI-509:
+no frame dropped, every frame stored within 5 s, the live queue not growing, every feed `live`
+at every second), **over 10 minutes**. More cameras by adding machines: each camera's worker
+already runs in a process of its own (D-18) and cameras share nothing in ingestion. That is
+the design's answer, **not measured** here.
+
+**How the number was chosen:** from the measurement, not from what passes. The definition was
+not changed. A ladder with the wall visible (`results.md`, NFR-4 revision): 4 mixed feeds
+sustained over 3 minutes but **not** over 10 (8 frames dropped, 1-4 seconds not `live` per
+feed, from hiccups on a machine at 331%); 3 mixed feeds sustained over 10 minutes (0 dropped,
+worst 166 ms, always `live`). The 10-minute run decides. Phase A's 10, the measurements and
+this revision all go in the Phase B book.
+
+## D-20 · The live worker's buffer holds about 2 s of frames · 2026-10-03
+
+**Why:** the bounded queue between a camera's capture and its gate (OMNI-314) held 10 frames,
+sized when only sampled frames went through it (about 2 s at 5 a second). Once every frame was
+gated (OMNI-501) it held a third of a second of a 30 fps stream, and a moment's hiccup dropped
+frames even with the machine mostly idle: 2-6 mixed feeds dropped 4 to 1,345 frames in 3
+minutes at 150-422% CPU.
+
+**What:** `LIVE_QUEUE_SIZE` = 60: 2 s at 30 fps, 2.5 s at 24 fps. Nothing is skipped; a short
+hiccup is absorbed instead of dropped. **Cost:** memory, at most about 166 MB per 1280x720
+camera while its queue is full. **Evidence:** 4 mixed feeds, 3 minutes, wall hidden: 406
+frames dropped with 10, 0 with 60.
