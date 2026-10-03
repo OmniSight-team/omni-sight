@@ -156,14 +156,17 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # Ten looping RTSP feeds for local development (OMNI-201) — see
+  # Looping RTSP feeds for local development (OMNI-201) — see
   # docs/rtsp-simulator.md. No port published: only ingestion, inside the
-  # Docker network, ever needs to reach it.
+  # Docker network, ever needs to reach it. OMNI-509: by default twenty paths
+  # over ten real surveillance clips (mediamtx.real.yml); set
+  # MEDIAMTX_CONFIG=mediamtx.yml for OMNI-201's ten synthetic test patterns,
+  # the worst case.
   mediamtx:
     image: bluenviron/mediamtx:latest-ffmpeg
     restart: unless-stopped
     volumes:
-      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./infra/mediamtx/${MEDIAMTX_CONFIG:-mediamtx.real.yml}:/mediamtx.yml:ro
       - ./infra/mediamtx/clips:/clips:ro
 
   frontend:

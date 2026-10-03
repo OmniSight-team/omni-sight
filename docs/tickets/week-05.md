@@ -273,16 +273,16 @@ results entry: 0 dropped frames; every feed's worst capture-to-stored under 5 s 
 queue depth not trending up over the second half of the window; every tile on the wall
 `live` for the whole window.
 
-- [ ] **Realistic feeds:** point the ten simulator paths at ten real surveillance clips
+- [x] **Realistic feeds:** point the ten simulator paths at ten real surveillance clips
       from `data/` (UCF-Crime and VIRAT, looped), because the synthetic test clips move
       constantly and are not what a camera sees. Keep the synthetic set as the worst case
-- [ ] Ten feeds for **10 minutes**, with the wall open in a real browser at 4x4 (all ten
+- [x] Ten feeds for **10 minutes**, with the wall open in a real browser at 4x4 (all ten
       visible) for the whole window — the wall's own load is part of the measurement
-- [ ] Per feed: capture-to-stored p50 / p95 / max, dropped, admitted rate. Overall: both
+- [x] Per feed: capture-to-stored p50 / p95 / max, dropped, admitted rate. Overall: both
       queues' depth, CPU per container (container sampler only, no PowerShell sampler)
 - [ ] Then a ladder (12, 15, 20) in 3-minute windows to find the ceiling
-- [ ] The synthetic worst case at 10 feeds, 3 minutes
-- [ ] Record the number **sustained**, not attempted, in `docs/results.md`; update the
+- [x] The synthetic worst case at 10 feeds, 3 minutes
+- [x] Record the number **sustained**, not attempted, in `docs/results.md`; update the
       NFR-4 scoreboard row and K-2
 
 **Acceptance:** the NFR-4 row in `results.md` says how many feeds this machine sustains
@@ -328,7 +328,7 @@ with motion.* The first half ran in OMNI-316; the second half is the same, on th
 
 ## OMNI-512 · Layouts and pinning
 
-- [ ] Layout choice: 2x2, 3x3, 4x4; the grid reflows
+- [x] Layout choice: 2x2, 3x3, 4x4; the grid reflows
 - [ ] Pin a camera to a fixed position; pinned cameras stay put when the list changes
 - [ ] Layout and pins remembered per browser (localStorage), wrapped so a blocked storage
       falls back to the default layout

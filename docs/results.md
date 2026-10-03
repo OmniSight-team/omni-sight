@@ -23,7 +23,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
-| NFR-4 (preliminary) | 10 concurrent feeds (graded in slice 5) | 8 sustained, 10 not, at 0.2 s sampling; 10 sustained at 0.5 s sampling | **Not met** as configured | 2026-09-26 | OMNI-317 |
+| NFR-4 | 10 concurrent feeds, sustained (definition in the OMNI-509 entry) | Gating every frame, wall open: **1** feed sustained (HD or SD); 2 HD drop ~1%; 10 realistic feeds drop most frames, worst 6.65 s. Storage keeps up (live queue 0); ingestion does not gate fast enough | **Not met** (preliminary) | 2026-10-03 | OMNI-317, OMNI-509 |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
@@ -248,7 +248,7 @@ extraction waits.
 
 ## OMNI-312 · Live capture: rate, start, stop, storage · 2026-09-26
 
-The simulator's `cam01` (15 fps, 320x240 H.264), started and stopped through the API; rows
+The simulator's `cam01` (15 fps, 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15] H.264), started and stopped through the API; rows
 counted in the database; open streams counted as established TCP connections from
 ingestion to port 8554 (`/proc/net/tcp`). Sampling every 0.2 s (default).
 
@@ -263,7 +263,7 @@ ingestion to port 8554 (`/proc/net/tcp`). Sampling every 0.2 s (default).
 | Restart without restarting the service | resumed (89 to 114 rows), into a new folder per start |
 | Start time | **about 7 s** (3.8-7.1 s over 6 starts), the simulator's wait for its next keyframe |
 
-**Storage:** **24.2 KB per admitted frame** (16 KB frame + 8 KB thumbnail at 320x240; 98
+**Storage:** **24.2 KB per admitted frame** (16 KB frame + 8 KB thumbnail at 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15]; 98
 frames took 2.3 MB). At this clip's ~3.7 admitted frames a second, about **7.7 GB per
 camera per day**; a static scene (heartbeat only) about **2.1 GB**. Real cameras' frames
 are larger.
@@ -336,7 +336,7 @@ heartbeat; several cameras. Queue sizes are untuned.
 
 **Conditions:** one consumer, prefetch 10; live sampling 0.2 s, 10-frame in-process queue;
 gate defaults (grid 8, threshold 25, 3 cells, stride 0.5 s, heartbeat 1 s). Live: `cam01`
-(15 fps, 320x240 H.264, constant motion); `cam05` for TC-1 (motion and still stretches).
+(15 fps, 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15] H.264, constant motion); `cam05` for TC-1 (motion and still stretches).
 File: `Arson049` (30 fps, 320x240) looped to 38.7 s (1,158 frames) or 64.5 s (1,930),
 extracted through `POST /videos/{id}/extract`. 30 s windows after a 6 s warm-up. Host,
 Docker VM and database clocks agree within 1 ms (database minus host +1.3 ms and +0.3 ms).
@@ -390,7 +390,7 @@ above the threshold; JPEG files equal forwarded frames exactly (209, 357, 64, 21
 
 ## OMNI-317 · Several feeds at once (NFR-4, preliminary) · 2026-09-26
 
-**Conditions:** the simulator's ten looping feeds (15 fps, 320x240 H.264; beyond ten the
+**Conditions:** the simulator's ten looping feeds (15 fps, 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15] H.264; beyond ten the
 same feeds are read twice), each sampled every 0.2 s (about 4.2 stored frames/s per
 camera), 10-frame in-process queue, backlog limit 2,000, one consumer. Cameras started
 four at a time, 8 s to settle before the window. Latency as in OMNI-316. Script:
@@ -434,7 +434,7 @@ afterwards.
 **How much to trust it:** measuring changes the result at the edge (a PowerShell CPU
 sampler turned 10 feeds from 12 s max and 0 drops into 68 s and 598 drops); the headline
 numbers for 8-11 feeds and for 0.5 s come from runs without it. Runs at the edge vary.
-**Not covered:** more than 6 minutes; separate machines; frames larger than 320x240 (so
+**Not covered:** more than 6 minutes; separate machines; frames larger than 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15] (so
 this is optimistic); two consumers.
 
 ## OMNI-318 · Motion gate retention on dataset footage (preliminary) · 2026-09-26
@@ -526,7 +526,7 @@ reads `connected` (open in `known-issues.md`).
 
 **Conditions:** the real stack on the machine above, nothing else capturing;
 `scripts/verify_live_gate.py --camera cam05 --seconds 60`; one camera, `cam05` (the
-simulator's synthetic clip with motion and still stretches, 320x240, 15 fps); default gate
+simulator's synthetic clip with motion and still stretches, 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15], 15 fps); default gate
 settings (Δ 0.5 s, grid 8, threshold 25, 3 active cells, blur 21, heartbeat 1.0 s); no
 sampling setting exists any more. Two runs. The window starts 5 s after the camera is
 started; the session totals cover the whole capture, read after the stop. Throwaway admin,
@@ -564,7 +564,7 @@ window; the result was not changed. Run 2: 10 of 10. The exact balances are the 
 totals, read after the stop.
 
 **Not covered:** more than one camera at a time (OMNI-509); a run longer than a minute; a
-feed faster than 15 fps or larger than 320x240; the worker's counters while frames are being
+feed faster than 15 fps or larger than 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15]; the worker's counters while frames are being
 dropped (unit tests only). RabbitMQ's CPU averaged 39-42% with peaks of 305-329% in both
 runs at about 3 messages/s; three samples taken afterwards with nothing capturing read
 140%, 0.7% and 0.3%, so the peaks are RabbitMQ's own and not this load, and are not
@@ -578,7 +578,7 @@ so the 36-39% above is not all the camera's.
 **Conditions:** the machine above; the full stack with two consumers, `consumer` (file
 queue and camera queue) and `consumer-live` (live queue only), prefetch 10 each; every live
 frame gated (OMNI-501), admitted frames stored; gate defaults. Live: `cam01` (15 fps,
-320x240, constant motion, so most frames are admitted and stored: about 12 a second).
+320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15], constant motion, so most frames are admitted and stored: about 12 a second).
 File: `Arson049` looped to 64.5 s, **1,930 frames** at 30 fps, extracted through
 `POST /videos/{id}/extract`, started at the start of the window. 30 s windows after a 6 s
 warm-up. Clocks: database minus host -1.0 and -0.7 ms. Script:
@@ -625,7 +625,7 @@ commit on the live queue is covered by a test against the real broker,
 
 ## OMNI-503 · The wall's preview: sixteen tiles polling one camera (preliminary) · 2026-10-01
 
-**Conditions:** the machine above, the full stack, one camera capturing (`cam05`, 320x240,
+**Conditions:** the machine above, the full stack, one camera capturing (`cam05`, 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15],
 15 fps), preview defaults (written at most every 0.5 s, longest side 640 px, JPEG quality
 70). Sixteen clients in one Python process on the host, each with its own keep-alive
 connection, asking for `GET https://localhost/api/cameras/{id}/preview` (through nginx, as
@@ -715,7 +715,7 @@ had one unrelated failure, K-14.
 
 ## OMNI-505 · The rewind buffer after five minutes of capture (preliminary) · 2026-10-02
 
-**Conditions:** the machine above, the full stack, one camera (`cam05`, 320x240, 15 fps,
+**Conditions:** the machine above, the full stack, one camera (`cam05`, 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15], 15 fps,
 motion and still stretches), gate defaults, captured for 300 s; then
 `GET https://localhost/api/cameras/{id}/buffer` (through nginx) for 1, 5 and 10 minutes.
 Script: `scripts/verify_rewind_buffer.py --camera cam05`, one run, **12 of 12 checks passed**.
@@ -850,3 +850,74 @@ motion frames, each with its time and reason.
 7,000 ticks and a large buffer response, OMNI-505); stepping faster than the frames load; more
 than one run; a browser other than Chrome; something actually waved in front of a camera (the
 simulator's motion was used).
+
+## OMNI-509 · NFR-4: live feeds sustained on one machine, gating every frame · 2026-10-03
+
+**"Sustained", decided before any of these runs** (and coded in `scripts/measure_nfr4.py`):
+N feeds are sustained when, over the whole window, (1) no frame is dropped on any feed (the
+worker's `dropped` counter does not move); (2) every feed's worst capture-to-stored time is
+under 5 s (NFR-1); (3) the live queue is not trending up over the second half of the window:
+least-squares slope at most 0.1 messages/s, and the last quarter's mean at most 10 messages
+above the third quarter's; (4) every feed reads `live` at every 1 s sample of
+`GET /cameras/live`, which is what the wall's tiles show.
+
+**Conditions:** the machine above (Windows 11, i7-1165G7, 4 cores / 8 threads; Docker with
+8 CPUs and 7.6 GiB), the full stack with every slice 5 change (every frame gated, OMNI-501;
+live frames on their own queue and consumer, OMNI-502; the wall's previews, OMNI-503).
+**Realistic feeds** (new default simulator config, `mediamtx.real.yml`): ten real
+surveillance clips looped from `data/`: `cam01`-`cam03` VIRAT, **1280x720 at 23.97 fps**;
+`cam04`-`cam10` UCF-Crime, **320x240 at 30 fps** (four normal, three with an incident).
+**Synthetic worst case**: OMNI-201's ten test patterns, 640x360 at 15 fps, moving all the
+time. N feeds are `cam01`... in order unless stated; cameras started two at a time (K-16);
+the window starts once every feed reads `live` plus 15 s. The wall was open in Chrome on the
+same machine for every run, at 4x4 (all feeds on one page) except as noted. CPU from `docker
+stats` (100% = one core); no host sampler. One run per row; **preliminary**.
+
+| Feeds | Clips | Window | Dropped (per feed) | Worst latency | Not live | Ingestion CPU avg | All containers avg | Sustained |
+|---|---|---|---|---|---|---|---|---|
+| **10** | realistic, cam01-10 | **600 s** | **8,412-12,298** | **6.65 s** | 5 feeds, 2-6 samples each | 362% | 620% | **no** |
+| 8 | realistic, cam01-08 | 180 s | 2,508-3,179 | 3.77 s | 1 feed, 1 s | 396% | 636% | no |
+| 6 | realistic, cam01-06 | 180 s | 1,067-2,308 | 3.08 s | 2 feeds | 413% | 634% | no |
+| 4 | realistic, cam01-04 | 180 s | 389-724 | 3.19 s | 2 feeds | 407% | 586% | no |
+| 3 | realistic, the three HD | 180 s | 249-327 | 1.14 s | none | 370% | 530% | no |
+| 2 | realistic, two HD | 180 s | 27-44 | 0.60 s | 1 feed, 2 s | 227% | 365% | no |
+| 7 | realistic, the seven SD (cam04-10) | 180 s | 1,870-2,737 | 2.51 s | 5 feeds, 1-2 s | 312% | 565% | no |
+| **1** | realistic HD (cam01) | 180 s | **0** | 0.11 s | none | 98% | 198% | **yes** |
+| **1** | realistic SD (cam04) | 180 s | **0** | 0.03 s | none | 56% | 149% | **yes** |
+| 10 | **synthetic**, cam01-10 | 180 s | 1,284-1,813 | 5.87 s | none | 362% | 617% | no |
+
+**In every run** the live queue held **0** messages at every 1 s sample (slope 0, nothing
+trending), the file queue 0, and `consumer-live` used 1-41% of a core. **Storage keeps up;
+the frames are lost before the gate**, in the worker's 10-frame queue, because ingestion does
+not gate them as fast as they arrive: in the 10-feed run the HD feeds gated 4.2-4.4 frames/s
+of 23.97, the SD feeds 7.2-10.7 of 30. The 10-feed run, per feed: latency p50 1.0-2.7 s, p95
+1.7-4.2 s; stored 0.83-3.58 frames/s; gated 4.2-10.7 frames/s. Latency comes from frames
+waiting in the worker before the gate; the queue to storage is empty.
+
+**What one frame costs** (`scripts/frame_cost.py`, single-threaded, nothing else capturing):
+1280x720: decode 3.6 ms, gate and files 11.2 ms (of which grayscale and the 21 px blur 6.4 ms),
+preview 0.4 ms, **15.2 ms in all, 0.36 of a core at 24 fps**; 320x240: 0.8 + 3.3 (blur 1.7) +
+0.1 = **4.2 ms, 0.12 of a core at 30 fps**. Ten realistic feeds therefore need about **1.9
+cores** of this work; ingestion spent 3.6-4.1 cores and still fell behind, and one HD feed
+alone took 98% of a core on the stack against 36% measured on its own. During the 10-feed
+synthetic run the ingestion server process had **196 threads** on 8 CPUs. Ingestion is one
+Python process; the likely costs are its threads contending for Python's interpreter lock and
+OpenCV/FFmpeg starting a decoder thread pool per stream. **Not isolated**: no fix was tried.
+
+**The wall during the 10-feed run** (in-page recorder, one sample a second): 9.4 preview
+requests a second, 5,622 of them 200 and 20 304 (K-12), p50 269 ms, p95 551 ms; query at 62%
+of a core. The tiles that were not `Live` read **Offline** (workers reconnecting): `cam01` 7 s,
+`cam03` 4 s, `cam04` 4 s, `cam06` 2 s. **The wall was at 4x4 for 248 s of the 600 s and at 3x3
+for 352 s:** the layout went back to its default 19 s into the window without the page
+reloading (K-17) and was set back at 3:33:59 PM.
+
+**NFR-4 result: not met.** Under the definition above this machine sustains **1** live feed
+while gating every frame, whether HD or SD; **2** HD feeds dropped about 1% of their frames
+(27 and 44 in 3 minutes) and 10 feeds dropped most of theirs. OMNI-317 measured 8 sustained
+at 0.2 s sampling (about 4.2 frames gated a second per camera); gating every frame
+(OMNI-501, D-9) is roughly 4-7 times as much work per camera, and the realistic set includes
+three HD feeds. The loss is in ingestion, not in storage, so OMNI-510 (batching the
+consumer's commits) is not the lever this measurement points to.
+
+**Not covered:** the ladder upwards (12, 15, 20 feeds), pointless once 10 failed; more than
+one run per row; services on more than one machine; a GPU; any of the fix candidates (K-2).

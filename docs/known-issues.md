@@ -5,7 +5,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 
 | # | Issue | Affects | Found | Must be dealt with by |
 |---|---|---|---|---|
-| K-2 | 10 concurrent feeds not sustained at 0.2 s sampling | NFR-4 | OMNI-317 | Slice 5 |
+| K-2 | 10 concurrent feeds not sustained: gating every frame, 1 feed is | NFR-4 | OMNI-317, OMNI-509 | **Ahmad's decision** (D-9 trade-off) |
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
 | K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
 | K-6 | Re-gate takes 1.4-2.0 s, grows with length | OMNI-310 target | OMNI-310 | When long recordings are used |
@@ -17,14 +17,28 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | OMNI-506 |
 | K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | OMNI-509 |
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
-| K-15 | The simulator's frame size is written as 320x240 in results; the clips are 640x360 | Conditions of OMNI-312/316/317 and OMNI-501 to 505 | 2026-10-02 | OMNI-509 |
-| K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | OMNI-509 |
+| K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | Before the slice 5 definition of done |
+| K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | OMNI-512 |
 
 ---
 
 ## K-2 · 10 concurrent feeds not sustained
 
-At 0.2 s sampling: 8 feeds sustained, 9 unreliable, 10 backs up within a minute (max
+**Since 2026-10-03 (OMNI-509), gating every frame:** 1 feed sustained, HD or SD; 2 HD feeds
+drop about 1% of their frames; 10 realistic feeds drop most of theirs (8,412-12,298 each in
+10 minutes) and the worst frame takes 6.65 s. The live queue stays empty in every run: storage
+keeps up. Frames are lost before the gate, in the worker's queue: ingestion gates 4.2 of 24
+HD frames a second and 7-11 of 30 SD frames with ten feeds, spending 3.6-4.1 cores on about
+1.9 cores of measured work (`results.md`, OMNI-509). Ingestion is one Python process with
+196 threads at ten feeds.
+**Fix candidates, none tried:** cap OpenCV/FFmpeg's decoder threads per stream (one or two
+instead of a pool each); run the camera workers in several processes instead of one (Python's
+interpreter lock); compute the 8x8 grid's cell means in one array operation instead of 64
+(the same arithmetic, less Python per frame); more machines. Not candidates: skipping frames
+before the gate (Algorithm 1, D-9); batching the consumer's commits (OMNI-510; the consumer is
+idle).
+
+**Before (OMNI-317, 2026-09-26, sampling every 0.2 s, superseded):** At 0.2 s sampling: 8 feeds sustained, 9 unreliable, 10 backs up within a minute (max
 12-12.6 s), drops start at 15. Ceiling is total CPU on one machine: the full stack stores
 50-56 frames/s, ten feeds offer about 42. At 0.5 s sampling ten feeds are sustained (worst
 1.7 s). Tied to D-9 (the sampling interval is an open deviation). K-1 makes the margin at
@@ -170,18 +184,14 @@ one below what the stream delivered, which is what the test compares. The frame 
 fraction of a second's worth at a moment the camera is being stopped anyway.
 **Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
 
-## K-15 · The simulator's frame size is wrong in the results
+## K-17 · The wall's layout went back to 3x3 by itself
 
-`docs/results.md` describes the RTSP simulator's feeds as 320x240 (OMNI-312, 316, 317, and
-OMNI-501 to 505, which copied it). `ffprobe` on 2026-10-02, on all five clips in
-`infra/mediamtx/clips/` and on the live `cam05` stream: **640x360**, H.264, 15 fps, 10 s
-each, unchanged since 2026-09-06. The UCF-Crime files' 320x240 (`Arson049`, `Abuse029`) is
-correct. Statements that lean on the wrong size: "frames larger than 320x240" in the "Not
-covered" lines (understates what was measured), and OMNI-503's "never scaled up" (a
-640x360 frame is already at the 640 px cap). The numbers measured are unaffected; the stated
-conditions are wrong.
-**To do (OMNI-509, with the realistic clip set):** correct each entry with a dated
-correction note, not a silent rewrite, and recheck any conclusion that depends on frame size.
+During the 10-feed NFR-4 run (2026-10-03) the wall had been set to 4x4 with ten tiles; 19 s
+into the window it showed 3x3 again, the default, with the page not reloaded (same
+navigation, the in-page recorder still running). Nothing in the app shell remounts the page
+on a timer. The state is only in the page's memory, so anything that re-creates the page
+component resets it; what did here is not known (the Next.js dev server is the first
+suspect). OMNI-512's "remember the layout" would hide it without explaining it.
 
 ## K-16 · Ten camera starts at once: five fail with "timeout"
 
@@ -195,7 +205,9 @@ resume check starts every camera at once, so with ten cameras some would fail an
 only on the retry backoff (5 s, then 10 s ...). Measured once; the cause (ingestion's
 probes, mediamtx, or the machine) not isolated.
 **Fix candidates:** resume a few cameras at a time; or a longer probe timeout when many
-starts are in flight. To be looked at with ten feeds in OMNI-509.
+starts are in flight.
+**2026-10-03 (OMNI-509):** starting two at a time, every one of eleven runs (up to ten
+cameras each) started without a single retry. The resume (D-15) still starts them all at once.
 
 ---
 
@@ -205,6 +217,7 @@ starts are in flight. To be looked at with ten feeds in OMNI-509.
 |---|---|---|---|---|
 | K-1 | Live latency breaks 5 s while a long file is extracted | NFR-1 | OMNI-316 | OMNI-502, 2026-10-01 |
 | K-5 | After an ingestion restart, workers do not resume and the camera still reads `connected` | FR-1a | OMNI-312, OMNI-319 | OMNI-504, 2026-10-02 |
+| K-15 | The simulator's frame size was written as 320x240; the clips are 640x360 | Stated conditions | 2026-10-02 | OMNI-509, 2026-10-03 |
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 
@@ -230,3 +243,11 @@ worker list and the newest frame), so a camera with no worker never reads `live`
 returned, `live` again 13.5-13.6 s later, worker running; `kill` then `start`: the same,
 12.3-12.5 s; no `live` reading in between (35 polls each time). `cameras.status` itself is still the last observed
 reachability and is not corrected by a restart; the wall does not read it.
+
+### K-15 · The simulator's frame size was wrong in the results · fixed 2026-10-03
+
+The simulator's synthetic clips are 640x360, not 320x240 as `results.md` said in ten places
+(OMNI-312, 316, 317, 501 to 505) and the context notes in two. Each place now carries
+"[corrected 2026-10-03: the simulator's clips are 640x360, K-15]" beside the old figure,
+not a silent rewrite. No measured number changes; the stated conditions do. Since OMNI-509 the
+default simulator clips are real footage (`mediamtx.real.yml`), stated with their sizes.

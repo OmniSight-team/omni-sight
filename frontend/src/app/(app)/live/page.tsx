@@ -6,9 +6,19 @@ import { ApiError, fetchCameraPreview, type LiveCamera, type LiveState, listLive
 
 import { CameraViewer } from "./camera-viewer";
 
-// The wall (OMNI-506): a fixed 3x3 grid. More cameras than this go on pages,
-// never into smaller tiles.
-const TILES_PER_PAGE = 9;
+// The wall (OMNI-506): a square grid, 3x3 unless another layout is chosen
+// (2x2, 3x3 or 4x4; OMNI-512, brought forward for OMNI-509, which measures the
+// wall at 4x4 with all ten cameras on screen). More cameras than tiles go on
+// pages, never into smaller tiles.
+const LAYOUTS = [2, 3, 4] as const;
+type Layout = (typeof LAYOUTS)[number];
+const DEFAULT_LAYOUT: Layout = 3;
+// Whole class names, so Tailwind finds them in the source.
+const GRID_CLASSES: Record<Layout, string> = {
+  2: "grid-cols-2 grid-rows-2",
+  3: "grid-cols-3 grid-rows-3",
+  4: "grid-cols-4 grid-rows-4",
+};
 // How often each tile asks for its camera's current frame. The preview is
 // rewritten at most every 0.5 s (OMNI-503), so once a second is about every
 // second frame, at one small JPEG or a 304 per tile.
@@ -280,6 +290,8 @@ export default function LiveMonitoringPage() {
   const [cameras, setCameras] = useState<LiveCamera[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [group, setGroup] = useState<string>(ALL_GROUPS);
+  const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT);
+  const tilesPerPage = layout * layout;
   const [page, setPage] = useState(0);
   // The camera shown enlarged, if any. While it is open the wall behind it
   // stops asking for previews: nobody can see it.
@@ -315,9 +327,9 @@ export default function LiveMonitoringPage() {
     () => (cameras ?? []).filter((camera) => group === ALL_GROUPS || camera.group_name === group),
     [cameras, group],
   );
-  const pages = Math.max(1, Math.ceil(shown.length / TILES_PER_PAGE));
+  const pages = Math.max(1, Math.ceil(shown.length / tilesPerPage));
   const current = Math.min(page, pages - 1);
-  const onPage = shown.slice(current * TILES_PER_PAGE, (current + 1) * TILES_PER_PAGE);
+  const onPage = shown.slice(current * tilesPerPage, (current + 1) * tilesPerPage);
 
   return (
     <main className="p-6">
@@ -332,6 +344,24 @@ export default function LiveMonitoringPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+            Layout
+            <select
+              value={layout}
+              onChange={(event) => {
+                setLayout(Number(event.target.value) as Layout);
+                setPage(0);
+              }}
+              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              {LAYOUTS.map((n) => (
+                <option key={n} value={n}>
+                  {n}x{n}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
             Group
             <select
@@ -386,11 +416,11 @@ export default function LiveMonitoringPage() {
       {cameras !== null && shown.length === 0 ? (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">No cameras{group ? " in this group" : ""} yet.</p>
       ) : (
-        // Three rows sized to the window, not to the tiles' width: on a wide screen
-        // width-sized tiles push the third row off the bottom, and the wall must
-        // show all nine at once. 11rem is the top bar, this page's padding and
-        // its heading; the minimum keeps tiles usable in a short window.
-        <div className="grid h-[calc(100vh-11rem)] min-h-[30rem] grid-cols-3 grid-rows-3 gap-3">
+        // Rows sized to the window, not to the tiles' width: on a wide screen
+        // width-sized tiles push the last row off the bottom, and the wall must
+        // show every tile of a page at once. 11rem is the top bar, this page's
+        // padding and its heading; the minimum keeps tiles usable in a short window.
+        <div className={`grid h-[calc(100vh-11rem)] min-h-[30rem] gap-3 ${GRID_CLASSES[layout]}`}>
           {onPage.map((camera) => (
             <CameraTile
               key={camera.camera_id}

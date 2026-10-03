@@ -173,7 +173,7 @@ runs.
 
 - More than one camera. Whether ten feeds fit is OMNI-509; this ticket only shows one camera
   gating 15 frames/s at 36-39% of a core in ingestion (of which 8-14% is there when idle)
-- Anything longer than a minute, a feed faster than 15 fps, or frames larger than 320x240
+- Anything longer than a minute, a feed faster than 15 fps, or frames larger than 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15]
 - Drops on the real stack: the counters under drops are covered by unit tests only
   (`test_the_counters_still_balance_when_frames_are_dropped` and the OMNI-314 ones)
 - The camera screen in a browser. Three strings changed; it type-checks, it was not opened
@@ -369,7 +369,7 @@ recommendation to reword OMNI-506's acceptance to 304s on frozen or lost feeds.
 ### Not verified
 
 - Sixteen different cameras, and a browser as the client: OMNI-506 and OMNI-509
-- Frames larger than the simulator's 320x240, whose previews would be larger
+- Frames larger than the simulator's 320x240 [corrected 2026-10-03: the simulator's clips are 640x360, K-15], whose previews would be larger
 - How old the preview is when served on a healthy feed: at most 0.5 s plus one frame by
   construction, not measured (OMNI-504 uses it as `last_frame_at`)
 - What the 48 early 200s in the frozen phase were beyond each client's first poll (3 per
@@ -792,3 +792,111 @@ led up to it. The minutes are already stored (OMNI-505's buffer); this is the sc
 
 Click a tile and the camera fills the screen; Rewind steps through the last minutes of its
 stored frames, motion and heartbeat told apart, and Back to live returns to the picture.
+
+---
+
+## OMNI-509 · NFR-4: ten feeds, measured properly
+
+Done 2026-10-03, on `slice-05-camera-wall`, apart from the ladder upwards (below). Numbers
+and the definition of "sustained" are in `docs/results.md` (OMNI-509); what it means for K-2
+is in `known-issues.md`.
+
+### Why this ticket exists
+
+NFR-4: ten or more live feeds at once without slowing down, graded in this slice. OMNI-317
+said 8 sustained, 10 not, but that was before OMNI-501 (every frame gated) and OMNI-502 (a
+live queue of its own), on synthetic test patterns, with no definition of "sustained"
+written down first.
+
+### What was done
+
+- **"Sustained" defined first**, the four conditions of the ticket made into numbers, and
+  written at the top of the results entry and into the script before any run
+- **Realistic feeds:** `scripts/make_simulator_clips.py` (new) re-encodes ten real clips from
+  `data/` for the simulator (H.264, no audio, native size and frame rate, a keyframe every
+  2 s): three VIRAT (1280x720, 23.97 fps) and seven UCF-Crime (320x240, 30 fps; four normal,
+  three with an incident). `infra/mediamtx/mediamtx.real.yml` (new) serves them on `cam01` to
+  `cam10`, and again on `cam11` to `cam20` for a ladder beyond ten. `docker-compose.yml` now
+  picks the simulator config with `MEDIAMTX_CONFIG`, **defaulting to the realistic one**;
+  `MEDIAMTX_CONFIG=mediamtx.yml` brings back OMNI-201's synthetic patterns. The clips are under
+  `infra/mediamtx/clips/real/`, gitignored like every simulator clip
+- **The wall's layout choice, brought forward from OMNI-512.** The ticket wants the wall open
+  at 4x4 with all ten visible; the wall was a fixed 3x3. I added the layout choice (2x2, 3x3,
+  4x4, the grid reflowing, pages of N x N), OMNI-512's first item, and ticked it there.
+  Pinning and remembering the layout stay in OMNI-512
+- **`scripts/measure_nfr4.py`, new** (OMNI-317's `measure_concurrent_feeds.py` measured
+  sampling and one queue, and has no definition of sustained): one N per run, cameras started
+  two at a time with retries (K-16), the window once every feed is live; per feed latency p50 /
+  p95 / max, dropped, stored and gated rate, samples not live; both queues' depth every
+  second; container CPU and memory from `docker stats` only; a per-minute table; the verdict
+  against the four conditions; a JSON report
+- **`scripts/frame_cost.py`, new:** the cost of one frame per step, run in the ingestion
+  container, to tell work from overhead
+- **K-15 corrected:** the simulator's 320x240 in ten places in `results.md` and two in this
+  file now carry a dated correction (640x360); K-15 is under *Fixed*
+
+### The runs, in the order they happened
+
+1. A 60 s trial with 2 feeds to check the script: sustained; the two HD feeds alone cost
+   ingestion about 170% of a core
+2. **10 realistic feeds, 600 s, wall open: not sustained.** Every feed dropped 8,412-12,298
+   frames; worst latency 6.65 s; five feeds briefly not live (2-6 of 599 samples); the live queue empty throughout
+3. Because 10 failed, the ladder went **down**, not up (12, 15 and 20 cannot find a ceiling
+   below 10): 8, 6, 4 feeds, 180 s each: none sustained; ingestion at about 400% each time
+4. To separate size from count: the three HD feeds alone, then two, then the seven SD feeds
+   alone: none sustained; two HD feeds dropped about 1%
+5. `frame_cost.py` on one HD and one SD clip: the work is 0.36 and 0.12 of a core per feed;
+   ten realistic feeds need about 1.9 cores, ingestion spent 3.6-4.1
+6. 1 HD feed and 1 SD feed, 180 s each: **both sustained**
+7. The synthetic worst case, 10 feeds, 180 s: not sustained (worst 5.87 s, drops on every
+   feed); during it, the ingestion process had 196 threads on 8 CPUs
+8. The simulator back on the realistic set; nothing left in the database (0 cameras, 300
+   segments, no throwaway users)
+
+### What it means
+
+NFR-4 is **not met**: gating every frame, this machine sustains **one** live feed under the
+definition. Storage is not the bottleneck: the live queue never held a message and the live
+consumer idled. The frames are lost inside ingestion before the gate. The arithmetic says the
+gate itself is affordable (about 1.9 cores for ten realistic feeds); ingestion spends twice
+that and falls behind, so the overhead is around the work, not the work. The likeliest causes
+are one Python process with two threads per camera contending for the interpreter lock, and
+a decoder thread pool per stream (196 threads at ten feeds). Neither was tried; they are the
+fix candidates in K-2, beside vectorising the grid means. None of them skips a frame.
+
+OMNI-510 is the ticket's fallback "only if OMNI-509 fails: batch the consumer's commits". It
+did fail, but the consumer is idle, so batching its commits would not change the result; I
+did not start it. **This is Ahmad's decision**, and it touches D-9: Algorithm 1 gates every
+frame, which is what costs this; the fix candidates keep that.
+
+### Things that went wrong on the way
+
+- **Docker Desktop was not running**; I started it
+- **Chrome no longer accepted the stack's self-signed certificate** after a restart; Ahmad
+  clicked through and signed in
+- **The wall's layout reset itself to 3x3** 19 s into the 10-minute window, without a reload
+  (K-17). I set it back at 3:33:59 PM; the wall was at 4x4 for 248 s of the 600 and showed
+  nine tiles (page 1 of 2) for the rest. The API's state samples cover all ten feeds
+  throughout, so condition (4) does not depend on it
+- **A helper script's heredoc** turned an escape into a newline and failed before writing;
+  the edits were made with the editor instead
+
+### Ticked and not ticked
+
+Ticked: realistic feeds; ten feeds for 10 minutes with the wall open (4x4 for part of it,
+K-17); per-feed and overall numbers; the synthetic worst case; the sustained number recorded,
+the NFR-4 row and K-2 updated. **Not ticked:** "a ladder (12, 15, 20) in 3-minute windows":
+not run, because 10 was not sustained; the ladder went down to 1 instead.
+
+### Not verified
+
+- Any fix candidate; which of the suspected overheads matters, or by how much
+- More than one run per configuration; other machines
+- Whether the wall's own load changes the answer at one or two feeds (the first 2-feed trial,
+  without the wall, dropped nothing in 60 s; with the wall, 27-44 in 180 s)
+
+### Result
+
+NFR-4 is measured, with the definition stated first, on realistic feeds, with the wall open:
+**1 feed sustained, NFR-4 not met.** Storage keeps up; ingestion does not gate every frame of
+more than one feed fast enough on this machine. The way forward is Ahmad's call (K-2).
