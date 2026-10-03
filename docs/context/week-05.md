@@ -1039,3 +1039,15 @@ about 2,000. From now on every run records the wall's visibility.
 NFR-4 now reads: 3 live feeds per machine of this class, sustained over 10 minutes with the
 wall open, every frame gated. Measured and met: 3 feeds, 0 dropped, worst 0.17 s. The original
 10, why it is out of reach here, and this revision go in the Phase B book.
+
+---
+
+## OMNI-510 · Batch the consumer's commits: skipped
+
+2026-10-03. Not built, by its own condition. OMNI-510 was to be done only if OMNI-510a's rerun
+showed the live queue growing. It never did: in every NFR-4 run the live queue stayed at 0
+(peak 8 in the 10-minute OMNI-510a run, never trending up) and `consumer-live` used 3-54% of a
+core. Storage was never what limited NFR-4; ingestion was (OMNI-509, OMNI-510a, D-18 to D-20).
+Its checkboxes stay unticked because the work was not done. It becomes relevant only if a
+stronger machine or more machines push enough frames to make the live queue grow; the NFR-4
+script reports the queue's slope, so that would show.
