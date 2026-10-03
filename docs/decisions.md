@@ -23,6 +23,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-15 | Camera state from evidence; query, not ingestion, resumes capture | 2026-10-02 | Done |
 | D-16 | The rewind buffer is the stored admitted frames, not a separate buffer | 2026-10-02 | Done |
 | D-17 | Live needs frames arriving steadily, not one fresh frame (K-13) | 2026-10-02 | Done |
+| D-18 | Each camera's worker in a process of its own; one thread per decoder and per OpenCV call | 2026-10-03 | Done |
 
 ---
 
@@ -286,3 +287,26 @@ OMNI-507). On the wall, nine tiles went Live, Frozen, Offline with no Live in be
 **Cost:** a camera that has just started or reconnected reads `frozen` for about a second
 before `live`, until a second of steady frames has arrived. Not chosen: hysteresis in the
 browser (each client would decide on its own, and the API would still say `live`).
+
+## D-18 · Each camera's worker in a process of its own; one thread per decoder and per OpenCV call · 2026-10-03
+
+**Why:** NFR-4 (K-2). OMNI-509 found ten realistic feeds losing most of their frames before
+the gate, with ingestion spending about twice the gate's measured work: one Python process
+running every camera's threads, and each stream's decoder starting a thread per CPU (196
+threads for ten cameras on 8 CPUs).
+
+**What (OMNI-510a):** `LIVE_WORKER_PROCESSES` (on): each camera's `LiveWorker` runs in a child
+process (`app/worker_process.py`, started with "spawn"); the parent's registry and routes talk
+to it through a pipe, and a child that dies reads as failed and is resumed (D-15).
+`LIVE_DECODER_THREADS` = 1: one decoder thread per stream (it keeps up with 1280x720 at 24 fps).
+`OPENCV_THREADS` = 1: one thread per OpenCV call, process-wide; the cameras are the
+parallelism. **Every frame is still gated** (Algorithm 1, D-9); nothing is skipped.
+
+**Evidence (`results.md`, OMNI-510a):** ten realistic feeds, 3 minutes, without the wall:
+gated 80 → 108 frames a second with the decoder cap, 118 with both thread caps, 228 with processes as well (of 282
+offered). The 10-minute rerun with the wall open: 157 frames a second gated, worst latency
+6.65 s → 3.87 s, all containers at 821% of the 800% Docker has. Still not sustained (K-2).
+
+**Cost:** about 90 MiB more memory per camera (ingestion peaked at 903 MiB with ten); a start
+takes a second or two longer while the child process comes up. File extraction (uploads) runs
+its blur on one thread now too; not measured.

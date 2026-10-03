@@ -50,9 +50,15 @@ from app.schemas import (
 )
 from app.settings import settings
 from app.streaming import ProbeError, probe_stream
+from app.worker_process import ProcessWorker
 
 configure_logging()
 logger = logging.getLogger("app.request")
+
+# OMNI-510a: how many threads one OpenCV call may use, process-wide (0: OpenCV's
+# default, one per CPU).
+if settings.opencv_threads > 0:
+    cv2.setNumThreads(settings.opencv_threads)
 
 workers = WorkerRegistry()
 
@@ -263,16 +269,17 @@ def extract_publish_route(payload: PublishExtractRequest) -> PublishExtractRespo
 def _open_stream(rtsp_url: str) -> cv2.VideoCapture:
     # Timeouts so a stream that stalls returns from a read instead of blocking
     # its worker forever — which is also what lets a stop take effect.
-    return cv2.VideoCapture(
-        rtsp_url,
-        cv2.CAP_FFMPEG,
-        [
-            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
-            settings.live_open_timeout_ms,
-            cv2.CAP_PROP_READ_TIMEOUT_MSEC,
-            settings.live_read_timeout_ms,
-        ],
-    )
+    params = [
+        cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
+        settings.live_open_timeout_ms,
+        cv2.CAP_PROP_READ_TIMEOUT_MSEC,
+        settings.live_read_timeout_ms,
+    ]
+    # OMNI-510a: one decoder thread per stream unless told otherwise, not one
+    # per CPU for every camera.
+    if settings.live_decoder_threads > 0:
+        params += [cv2.CAP_PROP_N_THREADS, settings.live_decoder_threads]
+    return cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG, params)
 
 
 def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
@@ -349,6 +356,15 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
     )
 
 
+def _worker_for(camera_id: int, rtsp_url: str):
+    """The camera's worker: in a process of its own (OMNI-510a), so cameras do not
+    wait on each other for the interpreter, or in this process when
+    `LIVE_WORKER_PROCESSES` is off. The same `_live_worker_for` either way."""
+    if settings.live_worker_processes:
+        return ProcessWorker(camera_id, rtsp_url)
+    return _live_worker_for(camera_id, rtsp_url)
+
+
 @app.post("/workers/start", response_model=WorkerStartResponse)
 def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
     """Start capturing a camera: open its stream, gate every frame it delivers
@@ -376,7 +392,7 @@ def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
     try:
         worker = workers.start(
             payload.camera_id,
-            lambda: _live_worker_for(payload.camera_id, payload.rtsp_url),
+            lambda: _worker_for(payload.camera_id, payload.rtsp_url),
             settings.live_start_timeout_s,
         )
     except AlreadyRunning as exc:

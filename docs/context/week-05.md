@@ -900,3 +900,85 @@ not run, because 10 was not sustained; the ladder went down to 1 instead.
 NFR-4 is measured, with the definition stated first, on realistic feeds, with the wall open:
 **1 feed sustained, NFR-4 not met.** Storage keeps up; ingestion does not gate every frame of
 more than one feed fast enough on this machine. The way forward is Ahmad's call (K-2).
+
+---
+
+## OMNI-510a · Ingestion gates every frame of ten feeds
+
+Added and done 2026-10-03, on `slice-05-camera-wall`, with Ahmad, after OMNI-509. Numbers in
+`docs/results.md` (OMNI-510a); the design is D-18.
+
+### Why this ticket exists
+
+OMNI-509: 1 feed sustained, not 10. Storage kept up; ingestion spent about twice the gate's
+measured work and still lost most frames before the gate. Ahmad chose to attack that overhead
+first (thread caps, then processes) and to hold OMNI-510 (consumer batching), since the
+consumer was idle. OMNI-510's condition in the ticket file now says so.
+
+### What was done
+
+- **The ticket**, written into `docs/tickets/week-05.md` before OMNI-510, which now waits on
+  its rerun
+- **Two thread caps** (`settings.py`, `main.py`): `LIVE_DECODER_THREADS` = 1, passed as
+  `CAP_PROP_N_THREADS` when a stream is opened (OpenCV 5.0 in the container has it; by default
+  each stream's decoder took 8 threads, 15 threads per stream in all; with 1, none extra, and
+  it still keeps up with a 1280x720 24 fps stream); `OPENCV_THREADS` = 1, `cv2.setNumThreads`
+  at startup (the default was 8 per call)
+- **A process per camera** (`app/worker_process.py`, new; `LIVE_WORKER_PROCESSES` = on):
+  `ProcessWorker` starts the camera's usual `LiveWorker` in a child process ("spawn", since
+  the parent has threads) and offers the registry and the routes what they already used
+  (`start`, `stop`, `state`, `error`, `worker_id`, `alive`, `snapshot`), from a report the
+  child sends every 0.5 s. A child that dies without saying so reads as failed. Off, workers
+  run in-process as before
+- **Tests** (`test_worker_process.py` and two helpers): a worker in its own process runs,
+  reports, stops, and its counters balance; a stream that cannot be opened fails with its
+  reason; a killed child reads as failed; the registry still allows one worker per camera.
+  They run in a separate Python process, because ingestion's and query's code are both a
+  package called `app`
+
+### The order things were measured in
+
+1. Thread probe in the container: 15 threads per stream by default, 0 with one decoder thread
+2. 10 feeds, 3 min, decoder cap only: gated 108 a second (was 80); not enough
+3. + OpenCV cap: 118 a second at less CPU (309%); ingestion had CPU to spare and still fell
+   behind, the mark of the interpreter lock
+4. + a process per camera: 228 a second, worst 2.24 s; still dropping; the containers at
+   701%
+5. OMNI-501's and OMNI-504's checks on the real stack with process workers: 10 of 10, 12 of 12
+6. **The rerun for the record**, 10 min, wall open at 4x4: 157 a second, worst 3.87 s, still
+   dropping, containers at 821% of 800%: **not sustained**
+
+### Things that went wrong on the way
+
+- **The first process-worker test run failed four times over**, slowly: on "spawn" every child
+  re-imports the parent's main script, and my test driver had no `if __name__ == "__main__":`
+  guard, so each child ran the scenario again. With the guard, 4 passed in 10 s. Ingestion
+  itself is unaffected (its main module is uvicorn's)
+- **`verify_live_gate.py` crashed printing "Δ"** to a file under Windows' default encoding;
+  rerun with `PYTHONIOENCODING=utf-8`, no change to the script
+- **The wall's session had expired**; Ahmad signed in again
+- The recorder in the wall put 4x4 back if the layout reset (K-17); it never had to
+
+### Verification performed
+
+- `uv run pytest`: **387 passed, 1 skipped** (383 before), scratch database `omni510a`, dropped;
+  `ruff` clean apart from the known patterns
+- On the real stack, with process workers: `verify_live_gate.py` 10 of 10 (every frame of a 30
+  fps feed gated, counters exact); `verify_camera_states.py` 12 of 12 (paused: frozen at 2.5 s,
+  offline at 30.7 s; resumed after a restart and after a kill)
+- The four NFR-4 runs above; the database clean afterwards (0 cameras, 300 segments, no
+  throwaway users); the simulator on the realistic set; the browser tab closed
+
+### Not verified
+
+- The vectorised grid, the third candidate in K-2
+- A machine with more cores; more than one run of each configuration
+- The cost of `OPENCV_THREADS` = 1 on a file extraction (one upload's blur no longer spread
+  over 8 threads)
+
+### Result
+
+Ingestion's overhead is cut: ten realistic feeds gate twice as many frames as in OMNI-509, and
+every frame that is gated is still Algorithm 1's. NFR-4 is still not met: with the wall open,
+this 4-core machine is full before ten feeds are. OMNI-510 stays unneeded (the live queue
+never grew). What next is Ahmad's call: K-2 lists what is left.

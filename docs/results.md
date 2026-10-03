@@ -23,7 +23,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
 | TC-1, first half | Live camera and uploaded file together for 30 s: both decode, only motion forwarded | 0 decode errors, 0 gate-rule violations | **Pass** | 2026-09-26 | OMNI-316 |
-| NFR-4 | 10 concurrent feeds, sustained (definition in the OMNI-509 entry) | Gating every frame, wall open: **1** feed sustained (HD or SD); 2 HD drop ~1%; 10 realistic feeds drop most frames, worst 6.65 s. Storage keeps up (live queue 0); ingestion does not gate fast enough | **Not met** (preliminary) | 2026-10-03 | OMNI-317, OMNI-509 |
+| NFR-4 | 10 concurrent feeds, sustained (definition in the OMNI-509 entry) | Gating every frame, wall open: 1 feed sustained (OMNI-509). After D-18 (a process per camera, thread caps): 10 realistic feeds gate 157 of 282 frames/s, worst 3.87 s (was 6.65), still dropping; the machine is full (821% of 800%) | **Not met** (preliminary) | 2026-10-03 | OMNI-509, OMNI-510a |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
@@ -921,3 +921,56 @@ consumer's commits) is not the lever this measurement points to.
 
 **Not covered:** the ladder upwards (12, 15, 20 feeds), pointless once 10 failed; more than
 one run per row; services on more than one machine; a GPU; any of the fix candidates (K-2).
+
+## OMNI-510a · NFR-4 again after cutting ingestion's overhead (preliminary) · 2026-10-03
+
+**Conditions:** as OMNI-509 (the same machine, the realistic simulator set, the same
+definition of sustained, `scripts/measure_nfr4.py`), with D-18: one decoder thread per stream,
+one thread per OpenCV call, each camera's worker in its own process. Every frame still gated.
+The three steps were explored with 3-minute runs **without** the wall; the result for the
+record is the 10-minute run **with** the wall open at 4x4 (all ten tiles on screen for all 600
+samples, no layout reset this time).
+
+**Exploration: ten realistic feeds, 180 s, no wall** (one run each):
+
+| Change | Gated, all feeds (of 282 a second) | HD feeds | SD feeds | Dropped per feed | Worst latency | Ingestion | All containers |
+|---|---|---|---|---|---|---|---|
+| none (OMNI-509's 10-minute run, with the wall) | 80.5/s | 4.2-4.4 | 7.2-10.7 | 8,412-12,298 in 600 s | 6.65 s | 362% | 620% |
+| one decoder thread | 107.8/s | 5.8-6.0 | 10.5-13.9 | 2,442-3,564 | 3.54 s | 384% | 588% |
+| + one OpenCV thread | 117.8/s | 6.7-7.3 | 10.7-14.9 | 2,693-3,541 | 3.53 s | 309% | 516% |
+| **+ a process per camera** | **227.7/s** | 15.8-17.6 | 23.3-26.8 | 618-1,239 | 2.24 s | 456% | 701% |
+
+**For the record: ten realistic feeds, 600 s, wall open at 4x4:**
+
+| Per feed | HD (cam01-03) | SD (cam04-10) |
+|---|---|---|
+| Gated | 9.1-9.6 of 23.97 a second | 16.7-19.7 of 30 |
+| Dropped in 600 s | 6,153-7,826 | 6,139-8,029 |
+| Latency p50 / p95 / max | 1.0-1.3 s / 2.2-2.5 s / 3.1-3.9 s | 0.26-0.59 s / 0.8-1.6 s / 1.3-3.7 s |
+| Samples not `live` (of 586) | 0-1 | 8-33 |
+
+All feeds: **157 frames gated a second** (OMNI-509: 80.5), stored 13-18 a second; live queue
+mean 0.1, peak 8, not trending (slope 0.000/s); file queue 0. CPU average: ingestion 469%
+(peak 711%), RabbitMQ 110%, query 87%, mediamtx 77%, `consumer-live` 38%, PostgreSQL 32%;
+**all containers 821% against the 800% Docker has**; ingestion memory peak 903 MiB. On the
+wall: 9.8 preview requests a second, 5,172 of them 200 and 718 304 (no new frame written
+between two polls), p50 338 ms, p95 822 ms; tiles not `Live` read **Frozen**, 207
+tile-seconds in all, none Offline.
+
+**Against the definition:** no drops, **no**; worst latency under 5 s, **yes** (3.87 s; it was
+6.65 s); live queue not trending up, **yes**; every feed live throughout, **no** (frames
+arrive too unevenly under the load to count as steady, D-17). **Not sustained.**
+
+**The 3-minute run without the wall gated 228 frames a second; the 10-minute run with it,
+157.** The wall's own load (query, RabbitMQ, the browser on the same machine) is enough to
+matter once every logical CPU is in use; the machine is full in both. Whether 10 feeds fit
+on hardware with more cores than this 4-core laptop is not measured.
+
+**The other OMNI-501 and OMNI-504 checks with process workers:** `verify_live_gate.py`
+(`cam05`, now a real 30 fps clip, 60 s): 10 of 10, 29.95 frames gated a second, counters
+exact (2,005 = 2,005 + 0; 2,005 = 91 + 1,914). `verify_camera_states.py`: 12 of 12; capture
+resumed by itself 10.5 s after `restart ingestion` and 11.4 s after `kill`, never `live`
+without a worker.
+
+**Not covered:** the vectorised grid (K-2's third candidate), more than one run of each,
+another machine. `uv run pytest`: **387 passed, 1 skipped**.

@@ -60,6 +60,20 @@ class Settings(CommonSettings):
     # than live_read_timeout_ms.
     live_stop_timeout_s: float = Field(15.0, gt=0)
     live_open_timeout_ms: int = Field(10000, ge=1)
+    # OMNI-510a: threads each live stream's decoder may use. FFmpeg's default is one
+    # per CPU (8 here), so ten cameras started some 150 decoder threads on 8 CPUs,
+    # and ingestion spent about twice the work it did (OMNI-509). One decoder
+    # thread keeps up with a 24 fps 1280x720 stream. 0 leaves FFmpeg's default.
+    live_decoder_threads: int = Field(1, ge=0)
+    # OMNI-510a: run each camera's worker in a process of its own. In one process
+    # the cameras' threads took turns on Python's interpreter lock and ten
+    # realistic feeds gated well under half their frames (OMNI-509). Off runs
+    # every worker in this process, as before.
+    live_worker_processes: bool = True
+    # OMNI-510a: threads one OpenCV call (the blur, the colour conversion) may use,
+    # for the whole process. 0 leaves OpenCV's default, one per CPU. With many
+    # cameras each gating on its own thread, the cameras are the parallelism.
+    opencv_threads: int = Field(1, ge=0)
     # Also the longest a stalled stream can hold up a stop, and it must outlast
     # the wait for a first keyframe: 5 s was too close to that and failed a
     # healthy start.

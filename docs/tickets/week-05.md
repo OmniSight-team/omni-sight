@@ -56,7 +56,8 @@ OMNI-510 as the fallback if it still fails.
 | # | Ticket | Est. | Day |
 |---|---|---|---|
 | OMNI-509 | NFR-4: ten feeds, measured properly | 2.5 h | 6 |
-| OMNI-510 | **Only if OMNI-509 fails:** batch the consumer's commits | 3 h | 6 |
+| OMNI-510a | **Added 2026-10-03, after OMNI-509:** ingestion gates every frame of ten feeds | 4 h | 6 |
+| OMNI-510 | **Only if OMNI-510a's rerun shows the live queue growing:** batch the consumer's commits | 3 h | 6 |
 | OMNI-511 | TC-1 complete | 1 h | 6 |
 | — | **cut line — the slice is defensible from here** | | |
 | OMNI-512 | Layouts (2x2, 3x3, 4x4) and pinning | 2 h | 7 |
@@ -290,7 +291,36 @@ under the stated definition, on realistic feeds, with the wall open.
 
 ---
 
-## OMNI-510 · Only if OMNI-509 fails: batch the consumer's commits
+## OMNI-510a · Ingestion gates every frame of ten feeds
+
+*Added 2026-10-03 with Ahmad, after OMNI-509.*
+
+**Why:** **NFR-4.** OMNI-509 found 1 feed sustained, not 10. Storage kept up (the live queue
+held nothing); the frames were lost inside ingestion, before the gate. The gate's own work for
+ten realistic feeds is about 1.9 cores (`scripts/frame_cost.py`); ingestion spent about 4 and
+still fell behind, with 196 threads in one Python process. The overhead is around the work,
+not the work (K-2).
+
+**The change:** cut that overhead **without skipping a frame**: every decoded frame is still
+gated (Algorithm 1, D-9).
+
+- [x] Limit the threads each stream's decoder and each OpenCV call may start, from settings
+- [x] Measure the effect on ten realistic feeds before going further; if ten are still not
+      sustained, run the camera workers in more than one process
+- [x] Every frame still gated: the OMNI-501 checks still pass (counters balance, stored rows
+      admitted)
+- [x] Rerun OMNI-509's measurement (ten realistic feeds, wall open at 4x4, the same definition of
+      sustained); update the NFR-4 row and K-2
+
+**Acceptance:** the rerun says how many feeds are sustained after the change, with the same
+definition and conditions as OMNI-509, and the cost of each step is recorded.
+
+---
+
+## OMNI-510 · Only if OMNI-510a's rerun shows the live queue growing: batch the consumer's commits
+
+*Condition changed 2026-10-03: OMNI-509 failed, but the consumer was idle (live queue 0,
+`consumer-live` under half a core), so batching waits for OMNI-510a's rerun.*
 
 **Why:** OMNI-317 measured the consumer at 76–83 frames/s alone, one transaction per
 message; it is the obvious bottleneck. Skip this ticket if ten feeds are sustained.

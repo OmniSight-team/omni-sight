@@ -5,7 +5,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 
 | # | Issue | Affects | Found | Must be dealt with by |
 |---|---|---|---|---|
-| K-2 | 10 concurrent feeds not sustained: gating every frame, 1 feed is | NFR-4 | OMNI-317, OMNI-509 | **Ahmad's decision** (D-9 trade-off) |
+| K-2 | 10 concurrent feeds not sustained: gating every frame, 1 feed is; after D-18 still not, on a full machine | NFR-4 | OMNI-317, OMNI-509, OMNI-510a | **Ahmad's decision** (D-9 trade-off) |
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
 | K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
 | K-6 | Re-gate takes 1.4-2.0 s, grows with length | OMNI-310 target | OMNI-310 | When long recordings are used |
@@ -37,6 +37,13 @@ interpreter lock); compute the 8x8 grid's cell means in one array operation inst
 (the same arithmetic, less Python per frame); more machines. Not candidates: skipping frames
 before the gate (Algorithm 1, D-9); batching the consumer's commits (OMNI-510; the consumer is
 idle).
+
+**2026-10-03 (OMNI-510a, D-18):** with a process per camera and one thread per decoder
+and per OpenCV call, ten realistic feeds gate 157 frames a second with the wall open (was
+80.5) and the worst frame takes 3.87 s (was 6.65), but every feed still drops frames and
+the containers use 821% of the 800% Docker has: this 4-core laptop is now the limit. Left:
+the vectorised grid (less CPU per frame), and hardware with more cores; neither tried.
+OMNI-510 (consumer batching) stays unneeded: the live queue peaked at 8 and did not grow.
 
 **Before (OMNI-317, 2026-09-26, sampling every 0.2 s, superseded):** At 0.2 s sampling: 8 feeds sustained, 9 unreliable, 10 backs up within a minute (max
 12-12.6 s), drops start at 15. Ceiling is total CPU on one machine: the full stack stores
@@ -192,6 +199,7 @@ navigation, the in-page recorder still running). Nothing in the app shell remoun
 on a timer. The state is only in the page's memory, so anything that re-creates the page
 component resets it; what did here is not known (the Next.js dev server is the first
 suspect). OMNI-512's "remember the layout" would hide it without explaining it.
+Not seen again in the 10-minute OMNI-510a run (2026-10-03): 4x4 for all 600 samples.
 
 ## K-16 · Ten camera starts at once: five fail with "timeout"
 
