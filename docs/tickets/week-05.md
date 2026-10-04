@@ -376,8 +376,8 @@ with motion.* The first half ran in OMNI-316; the second half is the same, on th
       `known-issues.md` current
 - [x] `docs/rtsp-simulator.md`: the realistic clip set, and no mention of sampling
 - [x] `uv run pytest` green
-- [ ] Everything committed on `slice-05-camera-wall` (by you)
-- [ ] **You merge into `master`** (`git switch master`, `git merge --no-ff slice-05-camera-wall`),
+- [x] Everything committed on `slice-05-camera-wall` (by you)
+- [x] **You merge into `master`** (`git switch master`, `git merge --no-ff slice-05-camera-wall`),
       then `uv run pytest` green on `master`
 - [ ] Slice 5 ticked on the tracker
 
@@ -400,7 +400,7 @@ Plus what the wall promises:
 - [x] All of the above true on a fresh stack
 - [x] `docs/results.md` has NFR-4 (sustained, with its definition), NFR-1 with a recording
       extracting, and TC-1 complete
-- [ ] Merged into `master`
+- [x] Merged into `master`
 
 ---
 
