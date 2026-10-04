@@ -28,6 +28,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
+| Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
 | Ticket target (OMNI-310) | Re-gate "in about a second" | 1.4-2.0 s on a 10 s, 30 fps clip | **Not met** | 2026-09-25 | OMNI-310 |
 
 **The machine** (stated from OMNI-316 on; earlier entries ran on the same one): Windows 11
@@ -1080,3 +1081,37 @@ admin. Checked by clicking the controls and reading the page. One pass.
 **Not covered:** a browser that blocks storage for real (simulated in the page); pins across
 groups when a group filter is on (pins are slots in whichever list is shown); more than one
 browser.
+
+---
+
+## Slice 5 definition of done · 2026-10-04
+
+**Conditions:** `docker compose down`, then `up -d` (the realistic simulator set), on the
+branch's code. The machine as stated at the top. `uv run pytest` on a scratch database; the
+check scripts run one after another against the real API; the wall in Chrome, signed in as
+admin, window visible (the recorder logged the tab's visibility: visible at every sample).
+
+| Step | How | Result |
+|---|---|---|
+| Suite | `uv run pytest` | 387 passed, 1 skipped |
+| Camera states | `verify_camera_states.py --camera cam05` | 12 of 12: paused simulator frozen then offline; never `live` without a worker; back by itself 10.5 s after `restart ingestion`, 6.9 s after kill and start; a stop stays stopped |
+| TC-1 | `verify_tc1.py` | 15 of 15: file and live camera together, live counters exact (1,067 = 1,067 + 0; 1,067 = 46 + 1,021), camera `live` at all 59 samples |
+| Rewind | `verify_rewind_buffer.py --camera cam05` | 12 of 12: 395 frames in the 5-minute buffer after 302 s of capture, full frames token-checked |
+| Ten cameras started | `wall_cameras.py up` (ten starts in parallel) | all ten started on the first try, 3.7-16.4 s each |
+| Ten on the wall | Chrome, 4x4, 30 s | 10 tiles, all Live, each picture changing 25-30 times |
+| Enlarge and rewind | `wall-cam03` in full screen, then Rewind | 251 frames (60 motion, 191 heartbeat) over 4.5 min; scrubbed back to 10:25:14, about 4 min |
+| Pause the simulator, with ten on the wall | `docker compose pause mediamtx` for 49 s, then unpause; tiles read every 1 s | all ten Frozen in the same second, all ten Offline 28 s later (K-13), all ten Live again within about 15 s of unpausing; no tile Live while paused |
+| Restart ingestion with ten capturing | `verify_resume_all.py --action restart` | all ten `live` again 19.5-20.2 s after the command returned; 0 failed resume attempts |
+| Kill and start ingestion with ten capturing | `verify_resume_all.py --action kill` | all ten `live` again 21.1-22.3 s after the command returned; 0 failed resume attempts |
+
+**Ten feeds overload this machine, as NFR-4 (revised, D-19) says.** With nothing paused, 15 of
+430 tile readings (3.5%) were Frozen for 1-2 s before coming back. The wall stays honest (a
+late feed is shown as frozen, not live), but ten is above the 3 feeds this machine sustains.
+The definition of done's "ten simulated cameras… with the system keeping up" is met only in
+that sense: ten run and are shown truthfully; the sustained figure recorded is 3.
+
+**Result: every step of the definition of done holds on a fresh stack** (preliminary: one
+machine, one pass of each browser step).
+
+**Not covered:** sixteen cameras; a real camera; a second browser; NFR-4 itself (measured in
+the NFR-4 revision entry, not rerun here).

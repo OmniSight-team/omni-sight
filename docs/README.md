@@ -9,5 +9,6 @@ one entry per measurement, written the week it is taken, not reconstructed in Ja
 from Phase A's Algorithm 1. `known-issues.md` lists what is found and not yet fixed.
 `context/` is how each week's work went.
 
-`architecture/` holds the two pipeline diagrams: slice 3 (frames from files) and slice 4 (the same pipeline
-fed from a camera through the queue).
+`architecture/` holds one pipeline diagram per slice: slice 3 (frames from files), slice 4
+(the same pipeline fed from a camera through the queue) and slice 5 (the camera wall:
+previews, two queues, liveness, a process per camera).

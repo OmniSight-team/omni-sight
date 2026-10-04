@@ -1155,3 +1155,64 @@ ones in a fixed place, and finds the wall the same way next time.
 
 Choose a layout, pin cameras to places, and the wall is the same next time; with no usable
 storage it simply starts at 3x3.
+
+---
+
+## OMNI-513 · Diagram, docs, merge
+
+Done 2026-10-04, on `slice-05-camera-wall`. Numbers in `docs/results.md` (Slice 5 definition of
+done).
+
+### Why this ticket exists
+
+Close the slice: the pipeline drawn, the docs current, the definition of done shown on a fresh
+stack, and the branch merged.
+
+### What was done
+
+- **`docs/architecture/slice-05-camera-wall.md`, new:** the wall, preview files, the two queues,
+  the process per camera, liveness from evidence and the resume loop, with notes on reading it
+  (Mermaid checked with a renderer)
+- **`docs/rtsp-simulator.md`:** the realistic clip set (VIRAT and UCF-Crime, `cam01`-`cam20`) as
+  the default and the synthetic set behind `MEDIAMTX_CONFIG`; how a stall and a resume look on
+  the wall; no mention of sampling
+- **`docs/README.md`:** points at the new diagram
+- **`docs/known-issues.md`:** targets brought up to date (K-13 "Before the demo", K-12 "Ahmad's
+  decision", K-17 "When it is seen again"); K-16 not reproduced, see below
+- **`scripts/verify_resume_all.py`, new:** restarts (or kills and starts) ingestion with every
+  wall camera capturing and records when each reads `live` again and how many resume attempts
+  failed. The definition of done's "restart ingestion" with ten cameras, and the K-16 question,
+  needed it: `verify_camera_states.py` watches one camera
+
+### Things to know
+
+- **K-16 did not happen.** Ten starts in parallel all succeeded, and both ten-camera resumes
+  had 0 failed attempts. Left open with the new evidence (seen once, cause never isolated);
+  its target is now "When it is seen again"
+- **The definition of done says "ten cameras… keeping up"; NFR-4 now says 3** (D-19). Ten run,
+  and the wall shows them truthfully, but 3.5% of tile readings flicked to Frozen for 1-2 s.
+  Recorded as is, not as a pass of ten
+- Two gaps in `wall-cam03`'s rewind are the two ingestion restarts of the resume check, as
+  expected
+
+### Verification performed
+
+- `docker compose down` and `up -d`; `uv run pytest` on scratch database `omni513`: 387 passed,
+  1 skipped
+- `verify_camera_states.py` 12/12, `verify_tc1.py` 15/15, `verify_rewind_buffer.py` 12/12
+- `verify_resume_all.py`, restart and kill, ten cameras: all back in 19.5-22.3 s, 0 failed
+  resumes
+- In Chrome: ten tiles live and updating at 4x4; `wall-cam03` enlarged and rewound about 4 min;
+  the simulator paused 49 s with the wall open: all Frozen, then Offline, then Live again
+- The ten cameras taken down afterwards (`wall_cameras.py down`)
+
+### Not verified
+
+- `uv run pytest` on `master` after the merge (Ahmad runs the merge)
+- The tracker (a separate project)
+
+### Result
+
+Slice 5's definition of done holds on a fresh stack: the wall with ten cameras, enlarge and
+rewind, frozen and offline and back by themselves, capture resumed after an ingestion restart
+with nobody pressing Start, TC-1 complete. The sustained figure is 3 feeds on this machine.

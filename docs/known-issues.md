@@ -13,11 +13,11 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
 | K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
-| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | OMNI-506 |
-| K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | OMNI-509 |
+| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | **Ahmad's decision**: reword OMNI-506's acceptance or change the design (OMNI-506 done with it open) |
+| K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | Before the demo (moved 2026-10-04: not dealt with in slice 5) |
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
-| K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | Before the slice 5 definition of done |
-| K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | OMNI-512 |
+| K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
+| K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
 
 ---
 
@@ -184,6 +184,10 @@ probes, mediamtx, or the machine) not isolated.
 starts are in flight.
 **2026-10-03 (OMNI-509):** starting two at a time, every one of eleven runs (up to ten
 cameras each) started without a single retry. The resume (D-15) still starts them all at once.
+**2026-10-04 (OMNI-513, fresh stack):** not seen. Ten starts in parallel all started on the
+first try (3.7-16.4 s); ingestion restarted, then killed and started, with ten capturing:
+the resume started all ten at once both times, 0 failed attempts, all `live` again in
+19.5-22.3 s (`scripts/verify_resume_all.py`). Left open: seen once, cause never isolated.
 
 ---
 

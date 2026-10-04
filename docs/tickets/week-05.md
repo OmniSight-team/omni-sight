@@ -369,13 +369,13 @@ with motion.* The first half ran in OMNI-316; the second half is the same, on th
 
 ## OMNI-513 · Diagram, docs, merge
 
-- [ ] `docs/architecture/slice-05-camera-wall.md`: the wall, preview files, the two queues,
+- [x] `docs/architecture/slice-05-camera-wall.md`: the wall, preview files, the two queues,
       liveness
-- [ ] `docs/context/week-05.md`, one section per ticket
-- [ ] `docs/results.md` scoreboard: NFR-4, NFR-1, TC-1 updated; `decisions.md` and
+- [x] `docs/context/week-05.md`, one section per ticket
+- [x] `docs/results.md` scoreboard: NFR-4, NFR-1, TC-1 updated; `decisions.md` and
       `known-issues.md` current
-- [ ] `docs/rtsp-simulator.md`: the realistic clip set, and no mention of sampling
-- [ ] `uv run pytest` green
+- [x] `docs/rtsp-simulator.md`: the realistic clip set, and no mention of sampling
+- [x] `uv run pytest` green
 - [ ] Everything committed on `slice-05-camera-wall` (by you)
 - [ ] **You merge into `master`** (`git switch master`, `git merge --no-ff slice-05-camera-wall`),
       then `uv run pytest` green on `master`
@@ -397,8 +397,8 @@ Plus what the wall promises:
 > then offline, and come back by themselves. Restart ingestion: capture resumes with no
 > one pressing Start.
 
-- [ ] All of the above true on a fresh stack
-- [ ] `docs/results.md` has NFR-4 (sustained, with its definition), NFR-1 with a recording
+- [x] All of the above true on a fresh stack
+- [x] `docs/results.md` has NFR-4 (sustained, with its definition), NFR-1 with a recording
       extracting, and TC-1 complete
 - [ ] Merged into `master`
 
