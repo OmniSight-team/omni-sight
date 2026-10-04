@@ -10,6 +10,7 @@ services/ingestion/tests/test_live_capture.py, and the whole chain ran live
 against the simulator (docs/context/week-03-04.md).
 """
 
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -392,7 +393,8 @@ def test_frames_need_a_sign_in_and_an_operator_or_admin():
 # --- stats (OMNI-314) ------------------------------------------------------------
 
 
-def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.0, reported_ago_s=2.0):
+def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.0, reported_ago_s=2.0,
+               admitted_motion=0, admitted_heartbeat=0, discarded=0):
     now = datetime.now(UTC)
     with SessionLocal() as session:
         session.add(
@@ -400,6 +402,10 @@ def _set_stats(camera_id, *, captured=100, dropped=7, fps=4.5, started_ago_s=30.
                 camera_id=camera_id,
                 captured=captured,
                 dropped=dropped,
+                gated=admitted_motion + admitted_heartbeat + discarded,
+                admitted_motion=admitted_motion,
+                admitted_heartbeat=admitted_heartbeat,
+                discarded=discarded,
                 fps_effective=fps,
                 session_started_at=None if started_ago_s is None else now - timedelta(seconds=started_ago_s),
                 reported_at=now - timedelta(seconds=reported_ago_s),
@@ -414,7 +420,11 @@ def test_a_camera_that_has_never_been_captured_reads_zero(operator):
     resp = client.get(f"/cameras/{camera_id}/stats", headers=operator)
 
     assert resp.status_code == 200
-    assert resp.json() == {"captured": 0, "dropped": 0, "fps_effective": 0.0, "uptime_s": 0.0}
+    assert resp.json() == {
+        "captured": 0, "dropped": 0,
+        "gated": 0, "admitted": 0, "admitted_motion": 0, "admitted_heartbeat": 0, "discarded": 0,
+        "fps_effective": 0.0, "uptime_s": 0.0,
+    }
 
 
 def test_a_running_camera_reports_its_counters_its_rate_and_its_uptime(operator):
@@ -423,10 +433,27 @@ def test_a_running_camera_reports_its_counters_its_rate_and_its_uptime(operator)
 
     body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
 
-    assert set(body) == {"captured", "dropped", "fps_effective", "uptime_s"}
+    assert set(body) == {
+        "captured", "dropped", "gated", "admitted", "admitted_motion", "admitted_heartbeat",
+        "discarded", "fps_effective", "uptime_s",
+    }
     assert body["captured"] == 1234 and body["dropped"] == 56
     assert body["fps_effective"] == 4.5
     assert 89.0 < body["uptime_s"] < 95.0  # about 90 s, now
+
+
+def test_stats_say_what_the_gate_did_with_the_frames(operator):
+    """OMNI-501: a live camera stores admitted frames only, so the counters are
+    what explains the rest."""
+    camera_id = _camera()
+    _set_stats(camera_id, captured=900, dropped=10, admitted_motion=120, admitted_heartbeat=45, discarded=725)
+
+    body = client.get(f"/cameras/{camera_id}/stats", headers=operator).json()
+
+    assert (body["admitted_motion"], body["admitted_heartbeat"], body["discarded"]) == (120, 45, 725)
+    assert body["admitted"] == 165  # the two reasons together
+    assert body["gated"] == body["admitted"] + body["discarded"] == 890
+    assert body["captured"] == body["gated"] + body["dropped"]
 
 
 def test_a_camera_whose_worker_has_stopped_keeps_its_totals_but_reads_zero_for_rate_and_uptime(operator):
@@ -463,3 +490,121 @@ def test_stats_need_a_sign_in_and_an_operator_or_admin():
     assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.OPERATOR)).status_code == 200
     assert client.get(f"/cameras/{camera_id}/stats", headers=_headers(Role.ADMIN)).status_code == 200
 
+
+# --- the preview (OMNI-503) ------------------------------------------------------
+
+JPEG = b"\xff\xd8\xff\xe0 a small jpeg \xff\xd9"
+
+
+@pytest.fixture
+def previews(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "previews_path", str(tmp_path))
+    return tmp_path
+
+
+def _write_preview(previews, camera_id, body=JPEG, *, written_ns=None):
+    path = previews / f"camera-{camera_id}.jpg"
+    path.write_bytes(body)
+    if written_ns is not None:
+        os.utime(path, ns=(written_ns, written_ns))
+    return path
+
+
+def test_the_preview_is_the_current_frame_with_an_etag(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)  # being captured
+    _write_preview(previews, camera_id)
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    assert resp.content == JPEG
+    assert resp.headers["etag"].startswith('"') and resp.headers["etag"].endswith('"')
+    assert resp.headers["cache-control"] == "no-cache"
+    assert "last-modified" in resp.headers
+
+
+def test_the_preview_needs_a_token(previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+    _write_preview(previews, camera_id)
+
+    assert client.get(f"/cameras/{camera_id}/preview").status_code == 401
+    bad = {"Authorization": "Bearer not-a-token"}
+    assert client.get(f"/cameras/{camera_id}/preview", headers=bad).status_code == 401
+    assert client.get(f"/cameras/{camera_id}/preview", headers=_headers(Role.ANALYST)).status_code == 403
+    assert client.get(f"/cameras/{camera_id}/preview", headers=_headers(Role.ADMIN)).status_code == 200
+
+
+def test_an_unchanged_preview_costs_a_304_and_no_image(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+    _write_preview(previews, camera_id)
+    etag = client.get(f"/cameras/{camera_id}/preview", headers=operator).headers["etag"]
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers={**operator, "If-None-Match": etag})
+
+    assert resp.status_code == 304
+    assert resp.content == b""
+    assert resp.headers["etag"] == etag
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_a_new_frame_has_a_new_etag_and_is_sent_again(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+    _write_preview(previews, camera_id, written_ns=1_790_000_000_000_000_000)
+    old = client.get(f"/cameras/{camera_id}/preview", headers=operator).headers["etag"]
+
+    _write_preview(previews, camera_id, b"\xff\xd8 the next frame \xff\xd9", written_ns=1_790_000_000_500_000_000)
+    resp = client.get(f"/cameras/{camera_id}/preview", headers={**operator, "If-None-Match": old})
+
+    assert resp.status_code == 200
+    assert resp.headers["etag"] != old
+    assert resp.content == b"\xff\xd8 the next frame \xff\xd9"
+
+
+def test_no_preview_yet_is_a_404_with_the_reason(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id)
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.NO_PREVIEW_MESSAGE
+
+
+def test_a_stopped_camera_has_no_preview_even_if_a_file_was_left_behind(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id, started_ago_s=None)  # the worker said it stopped
+    _write_preview(previews, camera_id)  # e.g. left by a worker that was killed
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.NOT_CAPTURING_MESSAGE
+
+
+def test_a_camera_whose_worker_has_gone_quiet_has_no_preview(operator, previews):
+    camera_id = _camera()
+    _set_stats(camera_id, reported_ago_s=120.0)  # nothing heard for two minutes
+    _write_preview(previews, camera_id)
+
+    assert client.get(f"/cameras/{camera_id}/preview", headers=operator).status_code == 404
+
+
+def test_a_camera_never_captured_has_no_preview(operator, previews):
+    camera_id = _camera()
+
+    resp = client.get(f"/cameras/{camera_id}/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.NOT_CAPTURING_MESSAGE
+
+
+def test_the_preview_of_a_missing_camera_is_a_404(operator, previews):
+    resp = client.get("/cameras/2000000000/preview", headers=operator)
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == cameras_module.CAMERA_NOT_FOUND_MESSAGE

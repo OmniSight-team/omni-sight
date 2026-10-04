@@ -1,20 +1,29 @@
-"""Live capture (OMNI-312), reconnection (OMNI-313), bounded queue (OMNI-314):
-one worker per camera, feeding the same pipeline as a file.
+"""Live capture (OMNI-312), reconnection (OMNI-313), bounded queue (OMNI-314),
+every frame gated (OMNI-501): one worker per camera, feeding the same pipeline
+as a file.
 
 A worker is two threads joined by a small bounded queue.
 
-    capture thread:    read stream -> sample -> put on the queue, or drop it
-    processing thread: take from the queue -> process_frame -> publish
+    capture thread:    read stream -> decode -> put on the queue, or drop it
+    processing thread: take from the queue -> process_frame -> publish if admitted
 
-The capture thread only reads, samples and enqueues, and never waits on anything
+Every decoded frame is gated, as Algorithm 1 is written and exactly as a file's
+frames are: there is no sampling step before the gate. What differs for a live
+camera is only what is published. Algorithm 1 forwards admitted frames
+(pseudocode line 8) and drops the rest (line 10), so an admitted frame becomes a
+segment and a discarded one is counted and nothing more: no row, no file.
+
+The capture thread only reads, decodes and enqueues, and never waits on anything
 downstream, so a slow gate or a slow broker cannot stall the stream. When the
-processing side falls behind the queue fills, and a sampled frame that does not
-fit is **dropped and counted**, rather than being held until memory runs out.
-The processing thread also owns the broker connection (a pika connection is not
+processing side falls behind the queue fills, and a frame that does not fit is
+**dropped and counted**, rather than being held until memory runs out. The
+processing thread also owns the broker connection (a pika connection is not
 shared between threads) and sends the worker's counters to `camera_stats`.
 
-Sampling itself is not a drop: one frame per `sample_interval_s` is meant to be
-processed, and only one that was meant to be and was not is counted as dropped.
+The counters balance, and are meant to be checked:
+
+    captured = gated + dropped      (plus whatever is still in the queue)
+    gated    = admitted + discarded
 
 When a stream drops, the worker does not give up: it reports the camera
 unreachable, waits, and tries again, waiting longer after each failure, until
@@ -108,13 +117,11 @@ class Backoff:
 class LiveWorker:
     """Reads one camera until told to stop.
 
-    Every frame is read (decoding a stream cannot skip frames without falling
-    behind), but only one per `sample_interval_s` is retrieved and offered to
-    the pipeline — "never process every frame at 25 fps". The next sample is due
-    an interval after the last one was *taken*, so a slow frame does not cause a
-    burst of catch-up samples afterwards.
+    Every frame the stream delivers is decoded and offered to the pipeline,
+    which gates it (Algorithm 1 has no sampling step). Only a frame the gate
+    admits is published; the others are counted as discarded.
 
-    `queue_size` bounds how many sampled frames wait for the processing thread.
+    `queue_size` bounds how many decoded frames wait for the processing thread.
     A frame that arrives when it is full is dropped. `max_backlog`, if set, is
     the most segments the durable queue may hold before frames are dropped
     instead of added to it: without it a consumer that has fallen behind would
@@ -133,7 +140,6 @@ class LiveWorker:
         open_capture: Callable[[], Any],
         make_publisher: Callable[[], Any],
         make_process: Callable[[], Callable[[Any, float, int], Any]],
-        sample_interval_s: float,
         clock: Callable[[], float] = time.time,
         backoff: Backoff | None = None,
         # A connection that lasted less than this before dropping again does not
@@ -147,13 +153,25 @@ class LiveWorker:
         drop_log_interval_s: float = 5.0,
         fps_window_s: float = 10.0,
         backlog_check_interval_s: float = 1.0,
+        # OMNI-503: something with `write(frame)` and `clear()` (a
+        # `PreviewWriter`), given the current decoded frame at most once per
+        # `preview_interval_s`, admitted or not, and cleared when the worker ends.
+        preview: Any | None = None,
+        preview_interval_s: float = 0.5,
+        # OMNI-507: whether frames are *arriving*, not merely whether one arrived.
+        # A stream that stalls can still hand over a late burst of old frames
+        # (K-13); a burst lands all at once, a working stream spreads its frames
+        # out. So the worker is `receiving` only when, within the last
+        # `steady_window_s`, at least two frames arrived at least
+        # `steady_min_span_s` apart.
+        steady_window_s: float = 3.0,
+        steady_min_span_s: float = 1.0,
     ):
         self.camera_id = camera_id
         self.worker_id = uuid.uuid4().hex
         self._open_capture = open_capture
         self._make_publisher = make_publisher
         self._make_process = make_process
-        self._interval = sample_interval_s
         self._clock = clock
         self._backoff = backoff or Backoff(1.0, 30.0)
         self._stable_after_s = stable_after_s
@@ -162,6 +180,14 @@ class LiveWorker:
         self._drop_log_interval_s = drop_log_interval_s
         self._fps_window_s = fps_window_s
         self._backlog_check_interval_s = backlog_check_interval_s
+        self._preview = preview
+        self._preview_interval_s = preview_interval_s
+        self._preview_due_at: float | None = None
+        self._preview_failing = False
+        self._steady_window_s = steady_window_s
+        self._steady_min_span_s = steady_min_span_s
+        # When frames arrived, over the last `steady_window_s`.
+        self._arrivals: deque[float] = deque()
 
         self._stop = threading.Event()
         # Waits, returning True as soon as the worker is asked to stop. A test
@@ -176,8 +202,9 @@ class LiveWorker:
         # The next frame's index within this worker's session. Kept here, not in
         # the read loop, so a reconnection carries on counting: a frame's file is
         # named by it, and starting again from zero would overwrite files that
-        # stored segments still point at. Only a frame that was actually
-        # enqueued takes an index, so a drop leaves no hole in the numbering.
+        # stored segments still point at. Every frame handed to the pipeline
+        # takes one, admitted or not, as a file's frames do, so the stored
+        # segments' indexes have gaps where frames were discarded.
         self._next_index = 0
 
         # The bounded queue, and a small unbounded one for the few status
@@ -194,19 +221,33 @@ class LiveWorker:
         )
 
         self.started_at = clock()
-        # What the stream delivered, and what was sampled from it.
+        # What the stream delivered.
         self.grabbed = 0
-        # Sampled frames offered to the pipeline ("captured" in camera_stats),
-        # those dropped because it could not keep up, and those published.
+        # Decoded frames offered to the pipeline ("captured" in camera_stats),
+        # and those dropped because it could not keep up.
         self.captured = 0
         self.dropped = 0
         self.dropped_backlog = 0
+        # What the gate did with the rest (OMNI-501): every frame it was shown,
+        # the ones it admitted, by reason, and the ones it discarded.
+        # `gated = admitted_motion + admitted_heartbeat + discarded`, always.
+        self.gated = 0
+        self.admitted_motion = 0
+        self.admitted_heartbeat = 0
+        self.discarded = 0
+        # Admitted frames handed to the broker. Equal to the admitted ones unless
+        # a publish failed, which also ends the worker.
         self.published = 0
         self.decode_errors = 0
         # Times the stream came back after a drop, and attempts that did not.
         self.reconnects = 0
         self.failed_attempts = 0
         self.last_frame_at: float | None = None
+        # The preview file (OMNI-503): how often it was replaced, how often that
+        # failed, and when it was last replaced.
+        self.previews_written = 0
+        self.preview_errors = 0
+        self.last_preview_at: float | None = None
 
         self._processed_at: deque[float] = deque()
         self._drops_since_log = 0
@@ -271,9 +312,14 @@ class LiveWorker:
 
     # --- counters ------------------------------------------------------------
 
+    @property
+    def admitted(self) -> int:
+        return self.admitted_motion + self.admitted_heartbeat
+
     def fps_effective(self) -> float:
-        """Frames actually processed and published per second, over the last
-        `fps_window_s` (or since the start, if that is shorter)."""
+        """Frames actually gated per second, over the last `fps_window_s` (or
+        since the start, if that is shorter). On a pipeline that keeps up this
+        is the stream's own frame rate."""
         now = self._clock()
         cutoff = now - self._fps_window_s
         with self._lock:
@@ -286,6 +332,20 @@ class LiveWorker:
     def uptime_s(self) -> float:
         return max(0.0, self._clock() - self.started_at) if self.state in LIVE_STATES else 0.0
 
+    def receiving(self) -> bool:
+        """Whether frames are arriving steadily right now (OMNI-507): within the
+        last `steady_window_s`, at least two frames that arrived at least
+        `steady_min_span_s` apart. A healthy 15 fps stream has some forty spread
+        over the window; one late frame, or a burst of old ones landing together
+        from a stalled stream (K-13), does not count. A 1 fps camera still does."""
+        cutoff = self._clock() - self._steady_window_s
+        with self._lock:
+            while self._arrivals and self._arrivals[0] < cutoff:
+                self._arrivals.popleft()
+            if len(self._arrivals) < 2:
+                return False
+            return self._arrivals[-1] - self._arrivals[0] >= self._steady_min_span_s
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "camera_id": self.camera_id,
@@ -297,6 +357,11 @@ class LiveWorker:
             "captured": self.captured,
             "dropped": self.dropped,
             "dropped_backlog": self.dropped_backlog,
+            "gated": self.gated,
+            "admitted": self.admitted,
+            "admitted_motion": self.admitted_motion,
+            "admitted_heartbeat": self.admitted_heartbeat,
+            "discarded": self.discarded,
             "published": self.published,
             "queue_depth": self._frames.qsize(),
             "queue_size": self._frames.maxsize,
@@ -306,9 +371,22 @@ class LiveWorker:
             "reconnects": self.reconnects,
             "failed_attempts": self.failed_attempts,
             "last_frame_at": self.last_frame_at,
+            "receiving": self.state is WorkerState.RUNNING and self.receiving(),
+            "previews_written": self.previews_written,
+            "preview_errors": self.preview_errors,
+            "last_preview_at": self.last_preview_at,
         }
 
     def _stats_report(self, running: bool) -> dict[str, Any]:
+        # One lock for the gate's counters, so a report never catches them
+        # between two increments and they balance in every report.
+        with self._lock:
+            gate_counters = {
+                "gated": self.gated,
+                "admitted_motion": self.admitted_motion,
+                "admitted_heartbeat": self.admitted_heartbeat,
+                "discarded": self.discarded,
+            }
         return {
             "camera_id": self.camera_id,
             "worker_id": self.worker_id,
@@ -316,18 +394,20 @@ class LiveWorker:
             "at": self._clock(),
             "captured": self.captured,
             "dropped": self.dropped,
+            **gate_counters,
             "fps_effective": self.fps_effective(),
             "last_frame_at": self.last_frame_at,
             "running": running,
         }
 
     def _drop(self, reason: str) -> None:
-        """Throw a sampled frame away and make sure someone can tell.
+        """Throw a captured frame away before the gate sees it, and make sure
+        someone can tell.
 
         Counted every time. Logged as a warning when a stretch of drops begins,
-        and then as a summary every `drop_log_interval_s`, not once per frame: at
-        a few frames a second that would bury everything else, and a line per
-        frame is no more informative than a count.
+        and then as a summary every `drop_log_interval_s`, not once per frame:
+        that would bury everything else, and a line per frame is no more
+        informative than a count.
         """
         now = self._clock()
         with self._lock:
@@ -412,6 +492,7 @@ class LiveWorker:
             self._set_state(WorkerState.FAILED, str(exc)[:300])
         finally:
             self._release(capture)
+            self._clear_preview()
             self._capture_done.set()
             self._settled.set()
 
@@ -432,10 +513,10 @@ class LiveWorker:
         return capture
 
     def _read_until_lost(self, capture: Any, process: Any) -> None:
-        """Sample the stream until it is lost (raising CaptureError) or the worker
-        is stopped (returning). A sampled frame goes on the bounded queue, or is
-        dropped if the queue is full; nothing here ever waits for the pipeline."""
-        next_sample_at: float | None = None
+        """Read the stream until it is lost (raising CaptureError) or the worker
+        is stopped (returning). Every decoded frame goes on the bounded queue, or
+        is dropped if the queue is full; nothing here ever waits for the
+        pipeline."""
         while not self._stop.is_set():
             if self._pending_grab:
                 self._pending_grab = False  # the frame `_open_stream` already read
@@ -447,13 +528,17 @@ class LiveWorker:
 
             now = self._clock()
             self.last_frame_at = now
-            if next_sample_at is not None and now < next_sample_at:
-                continue
+            with self._lock:
+                self._arrivals.append(now)
+                # Pruned here too, so the record stays a few seconds long even
+                # when nobody asks whether the worker is receiving.
+                while self._arrivals[0] < now - self._steady_window_s:
+                    self._arrivals.popleft()
             ok, frame = capture.retrieve()
             if not ok or frame is None:
                 self.decode_errors += 1
                 continue
-            next_sample_at = now + self._interval
+            self._maybe_preview(frame, now)
 
             self.captured += 1
             try:
@@ -462,6 +547,40 @@ class LiveWorker:
                 self._drop("processing")
             else:
                 self._next_index += 1
+
+    def _maybe_preview(self, frame: Any, now: float) -> None:
+        """Replace the preview with this frame if one is due (OMNI-503). Done here,
+        on the capture thread, so it is the frame the stream just delivered,
+        whether or not the pipeline keeps up with it. A preview that cannot be
+        written is counted and logged, and capture goes on: the preview is a
+        view of the camera, not part of what is stored."""
+        if self._preview is None:
+            return
+        if self._preview_due_at is not None and now < self._preview_due_at:
+            return
+        self._preview_due_at = now + self._preview_interval_s
+        try:
+            self._preview.write(frame)
+        except Exception as exc:  # noqa: BLE001 - never stop capture for the preview
+            self.preview_errors += 1
+            if not self._preview_failing:  # once per stretch of failures, not per frame
+                logger.warning(
+                    "could not write the camera preview",
+                    extra={"extra_fields": {"camera_id": self.camera_id, "error": str(exc)[:300]}},
+                )
+            self._preview_failing = True
+            return
+        self._preview_failing = False
+        self.previews_written += 1
+        self.last_preview_at = now
+
+    def _clear_preview(self) -> None:
+        if self._preview is None:
+            return
+        try:
+            self._preview.clear()
+        except Exception:
+            logger.warning("could not remove the camera preview", exc_info=True)
 
     def _lost(self, reason: str) -> None:
         """The stream dropped after working: say so at once, not on the next poll."""
@@ -561,11 +680,24 @@ class LiveWorker:
         if self._backlog_exceeded(publisher):
             self._drop("backlog")
             return
+        # Algorithm 1 on every frame, through the same `process_frame` as a
+        # file: the frame and thumbnail are written here if it is admitted.
         record = process(frame, timestamp_s, index)
+        with self._lock:
+            self.gated += 1
+            if not record.admitted:
+                self.discarded += 1
+            elif record.admission_reason == "heartbeat":
+                self.admitted_heartbeat += 1
+            else:
+                self.admitted_motion += 1
+            self._processed_at.append(self._clock())
+        if not record.admitted:
+            return  # line 10: drop(f_t). Counted above; no row and no file.
+        # Line 8: forward(f_t, W). The record carries the clip [t - 2Δ, t].
         publisher.publish(record)
         with self._lock:
             self.published += 1
-            self._processed_at.append(self._clock())
 
     def _backlog_exceeded(self, publisher: Any) -> bool:
         """Is the durable queue already holding more than it should? Read at most

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.admin import router as admin_router
 from app.auth import router as auth_router
 from app.cameras import router as cameras_router
+from app.capture_resume import start_background as start_capture_resume
 from app.deps import RENEWED_TOKEN_HEADER
 from app.extraction import mark_interrupted_extractions
 from app.logging_conf import configure_logging
@@ -29,7 +30,12 @@ async def lifespan(_app: FastAPI):
         mark_interrupted_extractions()
     except Exception as exc:  # noqa: BLE001 - the app should still start
         logger.error("startup extraction sweep failed", extra={"extra_fields": {"error": str(exc)}})
+    # OMNI-504: cameras that should be captured are started again whenever
+    # ingestion has no worker for them, after a restart of either service.
+    resumer = start_capture_resume(settings.capture_resume_interval_s)
     yield
+    if resumer is not None:
+        resumer.stop()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

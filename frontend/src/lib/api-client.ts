@@ -164,11 +164,18 @@ export async function testCameraConnection(id: number): Promise<CameraTestResult
 }
 
 export interface CameraStats {
-  // Frames sampled from the stream and offered to the pipeline, and of those the
+  // Frames decoded from the stream and offered to the pipeline, and of those the
   // ones dropped because it could not keep up. Lifetime totals.
   captured: number;
   dropped: number;
-  // Frames actually processed per second, and seconds the current capture has
+  // What the gate did with the rest: captured = gated + dropped, and
+  // gated = admitted + discarded. Only admitted frames are stored.
+  gated: number;
+  admitted: number;
+  admitted_motion: number;
+  admitted_heartbeat: number;
+  discarded: number;
+  // Frames actually gated per second, and seconds the current capture has
   // been running. Both are 0 when the camera is not being captured, so
   // `uptime_s > 0` is how the screen tells running from stopped.
   fps_effective: number;
@@ -207,6 +214,102 @@ export async function listCameraFrames(
   if (options.limit != null) params.set("limit", String(options.limit));
   const query = params.toString();
   return request<CameraFrame[]>(`/cameras/${id}/frames${query ? `?${query}` : ""}`);
+}
+
+// What a camera is doing right now (OMNI-504), worked out by the API from the
+// worker it runs and the age of the newest frame, never from a stored flag.
+export type LiveState = "live" | "frozen" | "offline" | "stopped";
+
+export interface LiveCamera {
+  camera_id: number;
+  name: string;
+  location: string;
+  group_name: string;
+  state: LiveState;
+  // When the newest frame arrived (ISO time); null when there is no preview.
+  last_frame_at: string | null;
+}
+
+// Every camera for the wall, ordered by group, then name.
+export async function listLiveCameras(): Promise<LiveCamera[]> {
+  return request<LiveCamera[]>("/cameras/live");
+}
+
+export type PreviewResult =
+  | { kind: "frame"; blob: Blob; etag: string | null; lastModified: string | null }
+  | { kind: "unchanged" }
+  | { kind: "none"; reason: string };
+
+// A camera's current frame (OMNI-503), a small JPEG. Sends the ETag of the
+// frame already shown, so an unchanged frame costs a 304 and no image. Not
+// through request(): the body is an image, not JSON. `cache: "no-store"` keeps
+// the browser's own cache out of it, so a 304 reaches this code as a 304.
+export async function fetchCameraPreview(id: number, etag: string | null): Promise<PreviewResult> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (etag) headers.set("If-None-Match", etag);
+
+  const response = await fetch(`${API_URL}${API_PREFIX}/cameras/${id}/preview`, { headers, cache: "no-store" });
+
+  const renewedToken = response.headers.get("X-Access-Token");
+  if (renewedToken) setToken(renewedToken);
+
+  if (response.status === 304) return { kind: "unchanged" };
+  if (response.status === 401) {
+    if (token) {
+      clearToken();
+      window.location.href = "/sign-in";
+    }
+    throw new ApiError(401, "unauthorized");
+  }
+  if (response.status === 404) {
+    const data = await response.json().catch(() => null);
+    return { kind: "none", reason: data?.detail ?? "no picture" };
+  }
+  if (!response.ok) throw new ApiError(response.status, "preview request failed");
+  return {
+    kind: "frame",
+    blob: await response.blob(),
+    etag: response.headers.get("ETag"),
+    lastModified: response.headers.get("Last-Modified"),
+  };
+}
+
+// One frame of a camera's rewind buffer (OMNI-505): an admitted frame already
+// stored. `frame_url` is an API path (token-checked), `thumb_url` an nginx one.
+export interface BufferFrame {
+  segment_id: number;
+  // When the frame was captured, as Unix time in seconds.
+  timestamp_s: number;
+  reason: AdmissionReason;
+  thumb_url: string;
+  frame_url: string;
+}
+
+// The camera's admitted frames from the last `minutes` (1-10), oldest first.
+export async function getCameraBuffer(id: number, minutes = 5): Promise<BufferFrame[]> {
+  return request<BufferFrame[]>(`/cameras/${id}/buffer?minutes=${minutes}`);
+}
+
+// A stored frame at full size, as an image. The route checks the token, so an
+// <img src> cannot load it directly; the caller makes an object URL of the blob.
+export async function fetchFrameImage(frameUrl: string): Promise<Blob> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${API_PREFIX}${frameUrl}`, { headers });
+  const renewedToken = response.headers.get("X-Access-Token");
+  if (renewedToken) setToken(renewedToken);
+  if (response.status === 401) {
+    if (token) {
+      clearToken();
+      window.location.href = "/sign-in";
+    }
+    throw new ApiError(401, "unauthorized");
+  }
+  if (!response.ok) throw new ApiError(response.status, "frame request failed");
+  return response.blob();
 }
 
 export type VideoSource = "upload" | "camera" | "dataset";

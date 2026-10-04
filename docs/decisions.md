@@ -10,14 +10,22 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-2 | SM-3 measured as mean time-to-accident, target set from CCD in slice 6 | 2026-09-20 | Target pending (slice 6) |
 | D-3 | Files: every decoded frame is gated, no sampling step | 2026-09-23 | Done |
 | D-4 | **Deviation:** blur before differencing | 2026-09-23 | Done |
-| D-5 | **Addition:** a row for every frame, image files only for admitted frames | 2026-09-23 | Done |
+| D-5 | **Addition:** a row for every frame of a file, image files only for admitted frames; live cameras store admitted frames only | 2026-09-23, 09-30 | Done |
 | D-6 | Re-gating decodes the source again | 2026-09-23 | Done |
 | D-7 | H.264 playback copy made at upload | 2026-09-24 | Done |
 | D-8 | Durable queue: persistent messages, confirm per publish, ack after commit | 2026-09-25 | Done |
-| D-9 | **Deviation:** live capture samples every 0.2 s before the gate | 2026-09-26 | **Open: settle with NFR-4 in slice 5** |
+| D-9 | Live capture gates every frame; the sampling deviation is removed | 2026-09-30 | Done |
 | D-10 | Live worker drops frames when downstream is slow, and counts them | 2026-09-26 | Done |
 | D-11 | Reconnect with exponential backoff and jitter | 2026-09-26 | Done |
 | D-12 | Camera start waits for the stream to open, not for a frame | 2026-09-26 | Done |
+| D-13 | Live frames on a queue and a consumer of their own | 2026-10-01 | Done |
+| D-14 | The wall's preview: one file per camera, ETag from its write time, served by query | 2026-10-01 | Done |
+| D-15 | Camera state from evidence; query, not ingestion, resumes capture | 2026-10-02 | Done |
+| D-16 | The rewind buffer is the stored admitted frames, not a separate buffer | 2026-10-02 | Done |
+| D-17 | Live needs frames arriving steadily, not one fresh frame (K-13) | 2026-10-02 | Done |
+| D-18 | Each camera's worker in a process of its own; one thread per decoder and per OpenCV call | 2026-10-03 | Done |
+| D-19 | **NFR-4 revised:** 3 live feeds per machine of this class, sustained over 10 minutes (was 10) | 2026-10-03 | Done |
+| D-20 | The live worker's buffer holds about 2 s of frames (`LIVE_QUEUE_SIZE` 10 → 60) | 2026-10-03 | Done |
 
 ---
 
@@ -91,6 +99,12 @@ row; writing a JPEG for every frame is the disk cost sampling used to avoid. Alg
 only forwards admitted frames; the rows for discarded ones are an addition, not a change to
 what is admitted.
 
+**Live cameras store admitted frames only** (OMNI-501, 2026-09-30) — a row per frame at
+15 fps is about 1.3 million rows per camera per day; the counters keep the gate explainable
+(`camera_stats`: `gated`, `admitted_motion`, `admitted_heartbeat`, `discarded`, beside
+`captured` and `dropped`). The row for every frame stays for files, where the threshold
+slider needs the discarded scores.
+
 **Heartbeat (step 5):** `HEARTBEAT_INTERVAL_S` = 1.0 s, untuned.
 
 ## D-6 · Re-gating decodes the source again · 2026-09-23
@@ -119,19 +133,26 @@ a broker recreate with 1,800 of 1,800 frames (OMNI-311). **Cost:** 12-15 ms per 
 because confirms are one at a time; batching them was not built (open in
 `known-issues.md`).
 
-## D-9 · Deviation: live capture samples every 0.2 s before the gate · 2026-09-26 · OPEN
+## D-9 · Live capture gates every frame · opened 2026-09-26, done 2026-09-30
 
-**What:** the live worker reads the stream frame by frame but gates and publishes only one
-frame per `LIVE_SAMPLE_INTERVAL_S` = 0.2 s (about 4.2 frames/s from a 15 fps feed). This is
-the same kind of sampling D-3 removed from files; Algorithm 1 gates every frame.
+**Was (a deviation, 2026-09-26 to 09-30):** the live worker read the stream frame by frame
+but gated and published only one frame per `LIVE_SAMPLE_INTERVAL_S` = 0.2 s (about 4.2
+frames/s from a 15 fps feed), the same kind of sampling D-3 removed from files. The reason
+given in the code was that a live stream "cannot afford to" gate every frame. At 0.2 s this
+machine sustained 8 feeds, not 10 (OMNI-317).
 
-**Reason in the code** (`settings.py`): a live stream "cannot afford to" gate every frame,
-one camera per core. **Evidence:** at 0.2 s this machine sustains 8 feeds, not 10; at 0.5 s
-it sustains 10 (OMNI-317). Gating every frame (15/s per camera) was not measured.
+**Now (OMNI-501):** Algorithm 1 as written, no sampling. Every decoded frame of a live
+stream goes through the same `MotionGate` and `process_frame()` as a file, with the same
+settings (Δ, grid, threshold, active cells, blur, heartbeat). `LIVE_SAMPLE_INTERVAL_S` is
+removed. The deviation is closed; D-4 (blur) is the only one left in the gate.
 
-**To settle in slice 5**, where NFR-4 (10 feeds) is graded: the final interval and its
-justification against NFR-4. Until then this is a recorded deviation, not a finished
-decision.
+**Why sampling was the wrong lever:** the load in OMNI-317 came from storing a row for
+every sampled frame, not from gating. The live worker now publishes only admitted frames
+(D-5), so the gate sees 15 frames/s and the queue sees what it admits.
+
+**Evidence:** `cam05`, two 60 s runs: 15.0 frames/s gated, 0 dropped, 3.1-3.3 frames/s
+admitted and stored, ingestion at 36-39% of one core (`results.md`, OMNI-501). One camera
+only; ten feeds are measured in OMNI-509.
 
 ## D-10 · Live worker drops and counts · 2026-09-26
 
@@ -152,3 +173,182 @@ The reachability check before a start waits for the stream to open, not for a fr
 worker's own first frame confirms it. Waiting for a frame twice made a start take about 17 s
 and failed healthy starts, because the simulator's first frame takes 3-5 s. Start is now
 about 7 s (OMNI-312).
+
+## D-13 · Live frames on a queue and a consumer of their own · 2026-10-01
+
+**Why:** NFR-1. Live frames and a file's segments shared one queue and one consumer, first in
+first out, and an extraction publishes its frames in one burst; a live frame waited behind
+it, 6.14 s with a 1,930-frame file (K-1, OMNI-316).
+
+**What (OMNI-502):** live workers publish to `omnisight.segments.live`; file extraction keeps
+`omnisight.segments`. A second consumer service, `consumer-live`, runs the same image and
+code with `CONSUMER_ROLE=live` and reads the live queue only, not even the camera queue, so
+nothing waits in front of a live frame inside the process either. `consumer` keeps the file
+queue and the camera status and stats queue. Both queues are declared the same way (durable,
+with a dead-letter queue); messages are persistent and confirmed by the same publisher, and
+acknowledged after the commit by the same callback (D-8, NFR-5). `LIVE_MAX_BACKLOG` now
+measures the live queue only, so a large upload no longer makes live capture drop frames.
+
+**Not chosen:** a priority queue on one consumer (live frames would still share that one
+consumer's throughput with the file, and wait behind messages it already holds; not
+measured), batched commits (OMNI-510, only if NFR-4 needs it).
+
+## D-14 · The wall's preview · 2026-10-01
+
+**Why:** FR-9. Sixteen tiles must not be sixteen video streams; a tile needs the current
+frame about once a second.
+
+**What (OMNI-503):** each live worker writes the frame the stream just delivered, admitted
+or not, to `/data/previews/camera-{id}.jpg` (volume `preview_storage`) at most every
+`LIVE_PREVIEW_INTERVAL_S` = 0.5 s, longest side at most 640 px, JPEG quality 70. It is
+written on the capture thread, before the gate and the queue, so it shows the stream even
+when the pipeline drops frames; a failed write is counted and never stops capture. The file
+is written to a temporary name and renamed over the old one. The worker removes it when it
+ends. `GET /cameras/{id}/preview` in query serves it with the token check (operator or
+admin), not through nginx, so K-3 does not grow. `ETag` is the file's write time in
+nanoseconds, read from the open file so the tag and the bytes are the same frame;
+`If-None-Match` with it gives a 304 and no body; `Cache-Control: no-cache`; `Last-Modified`
+lets a client show the frame's age. 404 with the reason when there is no file, or when the
+camera's last stats report says it is not being captured (stopped, or silent for
+`CAMERA_STATS_STALE_S`), so a file left behind by a killed worker is not served as current.
+
+**Consequence:** the ETag changes on every write, so on a live feed a tile polling once a
+second gets a new JPEG every time, still scene or not; a 304 means no new frame was written
+(a frozen or lost feed). That is what makes the ETag usable as liveness (OMNI-504, OMNI-507),
+and it is why OMNI-506's "mostly 304s on still scenes" does not hold as written (K-12).
+
+## D-15 · Camera state from evidence; query resumes capture · 2026-10-02
+
+**Why:** FR-9, *see immediately which feeds are healthy*, and K-5: after an ingestion
+restart nothing captured, while the camera still read `connected`.
+
+**State (OMNI-504):** `GET /cameras/live` works out each camera's state on every request
+from ingestion's worker list (`GET /workers`) and the preview's write time (OMNI-503), never
+from a stored status. `live`: a worker is reading and the newest frame is at most
+`LIVE_STALE_AFTER_S` = 3 s old. `frozen`: a worker is reading, the frame is older.
+`offline`: the worker is reconnecting or still connecting, or capture was asked for and
+there is no worker, or ingestion cannot be reached. `stopped`: no worker and nobody asked for
+one. The existing `cameras.status` is left as it was, the last observed reachability; the
+wall does not use it.
+
+**Resume:** `cameras.capture_enabled`, set by a start that worked, cleared by stop, disable
+and delete. The ticket says ingestion resumes capture on startup, but ingestion has no
+database and so cannot know which cameras were being captured. **Query does it instead**:
+every `CAPTURE_RESUME_INTERVAL_S` = 5 s it reads ingestion's worker list and starts every
+`capture_enabled` camera without one, through the same call as the Start button, each start
+on its own thread; a camera whose start fails is retried after 5, 10, 20, 40 s, then every
+60 s. The effect asked for is the same (capture comes back with nobody pressing Start), and
+it also covers query restarting and a worker that failed. Ingestion stays a service nothing
+but query calls, and that calls nothing but the broker.
+
+**Not chosen:** ingestion reading `cameras` from Postgres on startup (a database dependency
+for the service that only touches video); ingestion calling an internal route on query (a
+second direction of calls, and a route that would need its own protection).
+
+## D-16 · The rewind buffer is the stored admitted frames · 2026-10-02
+
+**Data model:** there is no separate short-term buffer. A live camera stores every frame the
+gate admits (OMNI-501), each as a `segments` row (`video_id` null) with a full JPEG under
+`/data/frames/camera-{id}/` and a thumbnail; the heartbeat admits at least one a second on a
+still scene, more when something moves. That **is** the last few minutes, on disk, so
+`GET /cameras/{id}/buffer?minutes=N` (1-10, default 5, OMNI-505) reads those rows: admitted
+frames whose capture time is in the last N minutes, oldest first. No second copy is kept,
+and nothing is held in memory.
+
+**What it is:** a flip-book of stills at the gate's pace, not video: about one frame a
+second on a still scene, up to the feed's frame rate in constant motion; frames the gate
+discarded are not in it.
+
+**Images:** each frame carries `thumb_url` (nginx, `/thumbs/`, no token, as every thumbnail
+since OMNI-307, K-3) and `frame_url`, a new route, `GET /cameras/{id}/frames/{segment_id}/image`,
+which serves the full frame through query with the token check, so full frames are still
+never served by nginx.
+
+**Not covered here:** how long frames are kept (until retention, slice 16; K-8) and the
+response size of ten minutes of a busy camera (no paging).
+
+## D-17 · Live needs frames arriving steadily, not one fresh frame · 2026-10-02
+
+**Why:** K-13. With the simulator paused, the worker still received late bursts of old
+frames at each 10 s read timeout; each burst rewrote the preview, and by OMNI-504's rule (a
+frame in the last 3 s) the camera read `live` for about 3 s, twice. On the wall that is a
+frozen picture looking live, which OMNI-507 forbids.
+
+**What (OMNI-507):** the live worker keeps the arrival times of the last
+`LIVE_STEADY_WINDOW_S` = 3 s of frames and reports `receiving` in its snapshot: at least two
+frames that arrived at least `LIVE_STEADY_MIN_SPAN_S` = 1 s apart. A healthy 15 fps stream
+has about forty spread over the window; a burst lands within milliseconds; a 1 fps camera
+still counts. `GET /cameras/live` now reads `live` only when the worker is running **and**
+receiving **and** the newest frame is at most 3 s old; running otherwise is `frozen`. This
+changes D-15's rule for `live`; the other states are unchanged.
+
+**Evidence:** `verify_camera_states.py` with the simulator paused: before, `live` at 10.5 s
+and 20.5 s; after, `frozen` at 2.4 s and nothing else until `offline` (`results.md`,
+OMNI-507). On the wall, nine tiles went Live, Frozen, Offline with no Live in between.
+
+**Cost:** a camera that has just started or reconnected reads `frozen` for about a second
+before `live`, until a second of steady frames has arrived. Not chosen: hysteresis in the
+browser (each client would decide on its own, and the API would still say `live`).
+
+## D-18 · Each camera's worker in a process of its own; one thread per decoder and per OpenCV call · 2026-10-03
+
+**Why:** NFR-4 (K-2). OMNI-509 found ten realistic feeds losing most of their frames before
+the gate, with ingestion spending about twice the gate's measured work: one Python process
+running every camera's threads, and each stream's decoder starting a thread per CPU (196
+threads for ten cameras on 8 CPUs).
+
+**What (OMNI-510a):** `LIVE_WORKER_PROCESSES` (on): each camera's `LiveWorker` runs in a child
+process (`app/worker_process.py`, started with "spawn"); the parent's registry and routes talk
+to it through a pipe, and a child that dies reads as failed and is resumed (D-15).
+`LIVE_DECODER_THREADS` = 1: one decoder thread per stream (it keeps up with 1280x720 at 24 fps).
+`OPENCV_THREADS` = 1: one thread per OpenCV call, process-wide; the cameras are the
+parallelism. **Every frame is still gated** (Algorithm 1, D-9); nothing is skipped.
+
+**Evidence (`results.md`, OMNI-510a):** ten realistic feeds, 3 minutes, without the wall:
+gated 80 → 108 frames a second with the decoder cap, 118 with both thread caps, 228 with processes as well (of 282
+offered). The 10-minute rerun with the wall open: 157 frames a second gated, worst latency
+6.65 s → 3.87 s, all containers at 821% of the 800% Docker has. Still not sustained (K-2).
+
+**Cost:** about 90 MiB more memory per camera (ingestion peaked at 903 MiB with ten); a start
+takes a second or two longer while the child process comes up. File extraction (uploads) runs
+its blur on one thread now too; not measured.
+
+## D-19 · NFR-4 revised: 3 live feeds per machine of this class · 2026-10-03
+
+**Phase A's NFR-4:** handle 10 or more live video feeds at once without slowing down.
+
+**Why it is revised:** measured unreachable on the development machine with Algorithm 1 as
+written (every frame gated, D-9), and the reason measured, as D-1 and D-2 did for DoTA and
+SM-3. OMNI-509: 1 feed sustained, 10 realistic feeds losing most of their frames, with
+storage idle; the loss was in ingestion. OMNI-510a (D-18) removed most of ingestion's
+overhead and 10 feeds still did not fit: the containers needed more than the 800% of CPU
+Docker has. The limit is this 4-core machine, not a part of the design.
+
+**The revised requirement:** **3 live feeds per machine of this class** (Intel i7-1165G7, 4
+cores / 8 threads; Docker with 8 CPUs and 7.6 GiB; everything on the one machine), every frame
+gated, on realistic surveillance footage with about one 1280x720 feed in three, with the camera
+wall open and polling, **sustained** under the definition fixed before any NFR-4 run (OMNI-509:
+no frame dropped, every frame stored within 5 s, the live queue not growing, every feed `live`
+at every second), **over 10 minutes**. More cameras by adding machines: each camera's worker
+already runs in a process of its own (D-18) and cameras share nothing in ingestion. That is
+the design's answer, **not measured** here.
+
+**How the number was chosen:** from the measurement, not from what passes. The definition was
+not changed. A ladder with the wall visible (`results.md`, NFR-4 revision): 4 mixed feeds
+sustained over 3 minutes but **not** over 10 (8 frames dropped, 1-4 seconds not `live` per
+feed, from hiccups on a machine at 331%); 3 mixed feeds sustained over 10 minutes (0 dropped,
+worst 166 ms, always `live`). The 10-minute run decides. Phase A's 10, the measurements and
+this revision all go in the Phase B book.
+
+## D-20 · The live worker's buffer holds about 2 s of frames · 2026-10-03
+
+**Why:** the bounded queue between a camera's capture and its gate (OMNI-314) held 10 frames,
+sized when only sampled frames went through it (about 2 s at 5 a second). Once every frame was
+gated (OMNI-501) it held a third of a second of a 30 fps stream, and a moment's hiccup dropped
+frames even with the machine mostly idle: 2-6 mixed feeds dropped 4 to 1,345 frames in 3
+minutes at 150-422% CPU.
+
+**What:** `LIVE_QUEUE_SIZE` = 60: 2 s at 30 fps, 2.5 s at 24 fps. Nothing is skipped; a short
+hiccup is absorbed instead of dropped. **Cost:** memory, at most about 166 MB per 1280x720
+camera while its queue is full. **Evidence:** 4 mixed feeds, 3 minutes, wall hidden: 406
+frames dropped with 10, 0 with 60.

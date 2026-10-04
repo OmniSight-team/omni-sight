@@ -1,4 +1,5 @@
-"""Capture-to-stored latency and the TC-1 checks (OMNI-316), on the running stack.
+"""Capture-to-stored latency and the TC-1 checks (OMNI-316, rerun in OMNI-502), on
+the running stack.
 
 Runs two 30 s windows against the real services: a live camera alone (A), then a
 live camera and an uploaded file through ingestion together (B). For each it
@@ -12,6 +13,10 @@ motion (or the heartbeat) were forwarded.
 
 The host, the Docker VM and Postgres must agree on the time for the API figure to
 mean anything; the script prints their offset first.
+
+Since OMNI-501 a live camera stores admitted frames only, so every live row is an
+admitted frame. Since OMNI-502 live frames and a file's segments travel on two
+queues with a consumer each; both queues' depth is sampled.
 
 Needs the stack up (`docker compose up -d`), at least one `ready` video in the
 archive to loop into the uploaded file, and an RTSP simulator feed. Run from the
@@ -145,20 +150,23 @@ class CpuSampler(threading.Thread):
 
 
 class DepthSampler(threading.Thread):
-    """The segment queue's ready depth, read straight from the broker every 200 ms."""
+    """Both segment queues' ready depth, read straight from the broker every 200 ms:
+    `points` is the file queue, `live_points` the live queue."""
 
     def __init__(self):
         super().__init__(daemon=True)
         self.stop_flag = threading.Event()
         self.points: list[tuple[float, int]] = []
+        self.live_points: list[tuple[float, int]] = []
 
     def run(self):
         settings = CommonSettings()
         with pika.BlockingConnection(connection_parameters(settings)) as conn:
             ch = conn.channel()
             while not self.stop_flag.is_set():
-                depth = ch.queue_declare(settings.segment_queue, passive=True).method.message_count
-                self.points.append((time.time(), depth))
+                now = time.time()
+                self.points.append((now, ch.queue_declare(settings.segment_queue, passive=True).method.message_count))
+                self.live_points.append((now, ch.queue_declare(settings.live_segment_queue, passive=True).method.message_count))
                 time.sleep(0.2)
 
 
@@ -288,15 +296,17 @@ try:
         print(f"  window: 30 s, worker {snap['status']}, decode errors {snap['decode_errors']}, "
               f"captured +{after['captured'] - before['captured']}, dropped +{after['dropped'] - before['dropped']}, "
               f"queue depth at end {snap['queue_depth']}")
-        print("  capture -> stored (DB), every frame :", fmt(summary(all_l)))
-        print("      admitted frames (files written) :", fmt(summary(adm_l)))
-        print("      discarded frames (row only)     :", fmt(summary(disc_l)))
+        print("  capture -> stored (DB), every stored live frame:", fmt(summary(all_l)))
+        if disc_l:
+            print("      live rows that are not admitted (none expected since OMNI-501):", len(disc_l))
         print("  capture -> readable via the API, admitted:", fmt(summary(seen)))
         peak = max((d for _, d in depth.points), default=0)
         over_100 = sum(1 for _, d in depth.points if d > 100) * 0.2
-        print(f"  segment queue depth (read from the broker every 0.2 s): peak {peak}, above 100 for {over_100:.1f} s, "
+        live_peak = max((d for _, d in depth.live_points), default=0)
+        print(f"  file queue depth (read from the broker every 0.2 s): peak {peak}, above 100 for {over_100:.1f} s, "
               f"above 1000 for {sum(1 for _, d in depth.points if d > 1000) * 0.2:.1f} s")
-        cpu_txt = {k: f"avg {sum(v) / len(v):.0f}% max {max(v):.0f}%" for k, v in cpu.samples.items() if k in ("ingestion", "consumer", "postgres", "rabbitmq", "query")}
+        print(f"  live queue depth: peak {live_peak}, above 10 for {sum(1 for _, d in depth.live_points if d > 10) * 0.2:.1f} s")
+        cpu_txt = {k: f"avg {sum(v) / len(v):.0f}% max {max(v):.0f}%" for k, v in cpu.samples.items() if k in ("ingestion", "consumer", "consumer-live", "postgres", "rabbitmq", "query")}
         print("  container CPU during the window (100% = one core):", cpu_txt)
         if with_file:
             for i, e in enumerate(extractions, 1):
@@ -304,7 +314,7 @@ try:
         report[label] = {"window": [t0, t1], "worker": snap, "captured": after["captured"] - before["captured"],
                          "dropped": after["dropped"] - before["dropped"], "all": summary(all_l), "admitted": summary(adm_l),
                          "discarded": summary(disc_l), "api": summary(seen), "extractions": extractions,
-                         "queue_peak": peak, "cpu": {k: [sum(v) / len(v), max(v)] for k, v in cpu.samples.items()}}
+                         "queue_peak": peak, "live_queue_peak": live_peak, "cpu": {k: [sum(v) / len(v), max(v)] for k, v in cpu.samples.items()}}
         return t0, t1, snap, extractions
 
     a = one_run(f"A: live camera ({CAM}) alone, 30 s", with_file=False) if "A" in RUNS else None

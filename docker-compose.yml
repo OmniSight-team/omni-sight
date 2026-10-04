@@ -38,6 +38,9 @@ services:
       - video_storage:/data/videos
       - frame_storage:/data/frames
       - thumb_storage:/data/thumbs
+      # OMNI-503: each live camera's current frame, written by ingestion and
+      # served from here with the token check (not by nginx, so K-3 does not grow).
+      - preview_storage:/data/previews:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +64,7 @@ services:
       - video_storage:/data/videos
       - frame_storage:/data/frames
       - thumb_storage:/data/thumbs
+      - preview_storage:/data/previews
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -95,6 +99,8 @@ services:
   # OMNI-311: reads segments off the queue and writes the rows. The query
   # image with a different command, so it can be killed and restarted without
   # touching the API — which is exactly what the acceptance test does to it.
+  # Since OMNI-502 this one stores files' segments and applies camera status
+  # and stats; `consumer-live` below stores live frames.
   consumer:
     build:
       context: .
@@ -110,6 +116,7 @@ services:
     environment:
       POSTGRES_HOST: postgres
       RABBITMQ_HOST: rabbitmq
+      CONSUMER_ROLE: files
     volumes:
       - ./services/common:/workspace/services/common
       - ./services/query:/workspace/services/query
@@ -119,14 +126,47 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # Ten looping RTSP feeds for local development (OMNI-201) — see
+  # OMNI-502: the same consumer for live cameras' frames only, from a queue of
+  # their own (`omnisight.segments.live`), so a live frame never waits behind a
+  # recording's burst of segments on the queue above. Same image, same code,
+  # same guarantees (persistent messages, acknowledged after the commit); only
+  # the role differs.
+  consumer-live:
+    build:
+      context: .
+      dockerfile: services/query/Dockerfile
+    restart: unless-stopped
+    command:
+      [
+        "uv", "run", "--package", "omnisight-query", "python", "-m", "app.consumer"
+      ]
+    working_dir: /workspace/services/query
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+      CONSUMER_ROLE: live
+    volumes:
+      - ./services/common:/workspace/services/common
+      - ./services/query:/workspace/services/query
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # Looping RTSP feeds for local development (OMNI-201) — see
   # docs/rtsp-simulator.md. No port published: only ingestion, inside the
-  # Docker network, ever needs to reach it.
+  # Docker network, ever needs to reach it. OMNI-509: by default twenty paths
+  # over ten real surveillance clips (mediamtx.real.yml); set
+  # MEDIAMTX_CONFIG=mediamtx.yml for OMNI-201's ten synthetic test patterns,
+  # the worst case.
   mediamtx:
     image: bluenviron/mediamtx:latest-ffmpeg
     restart: unless-stopped
     volumes:
-      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./infra/mediamtx/${MEDIAMTX_CONFIG:-mediamtx.real.yml}:/mediamtx.yml:ro
       - ./infra/mediamtx/clips:/clips:ro
 
   frontend:
@@ -169,5 +209,7 @@ volumes:
   video_storage:
   frame_storage:
   thumb_storage:
+  # OMNI-503: one small JPEG per live camera, replaced in place, never accumulated.
+  preview_storage:
   # OMNI-311: queued messages must outlive the container, not just a restart.
   rabbitmq_data:

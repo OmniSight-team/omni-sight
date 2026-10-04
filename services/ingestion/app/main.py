@@ -28,6 +28,7 @@ from app.pipeline import (
     process_frame,
 )
 from app.playback import PlaybackError, ensure_playback_copy
+from app.preview import PreviewWriter, preview_path
 from app.publisher import PublishError, SegmentPublisher, publish_segments
 from app.schemas import (
     ExtractedSegment,
@@ -49,9 +50,15 @@ from app.schemas import (
 )
 from app.settings import settings
 from app.streaming import ProbeError, probe_stream
+from app.worker_process import ProcessWorker
 
 configure_logging()
 logger = logging.getLogger("app.request")
+
+# OMNI-510a: how many threads one OpenCV call may use, process-wide (0: OpenCV's
+# default, one per CPU).
+if settings.opencv_threads > 0:
+    cv2.setNumThreads(settings.opencv_threads)
 
 workers = WorkerRegistry()
 
@@ -262,22 +269,25 @@ def extract_publish_route(payload: PublishExtractRequest) -> PublishExtractRespo
 def _open_stream(rtsp_url: str) -> cv2.VideoCapture:
     # Timeouts so a stream that stalls returns from a read instead of blocking
     # its worker forever — which is also what lets a stop take effect.
-    return cv2.VideoCapture(
-        rtsp_url,
-        cv2.CAP_FFMPEG,
-        [
-            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
-            settings.live_open_timeout_ms,
-            cv2.CAP_PROP_READ_TIMEOUT_MSEC,
-            settings.live_read_timeout_ms,
-        ],
-    )
+    params = [
+        cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
+        settings.live_open_timeout_ms,
+        cv2.CAP_PROP_READ_TIMEOUT_MSEC,
+        settings.live_read_timeout_ms,
+    ]
+    # OMNI-510a: one decoder thread per stream unless told otherwise, not one
+    # per CPU for every camera.
+    if settings.live_decoder_threads > 0:
+        params += [cv2.CAP_PROP_N_THREADS, settings.live_decoder_threads]
+    return cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG, params)
 
 
 def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
-    """A worker whose frames go through the same `process_frame` and the same
-    queue as a file's (OMNI-312). Nothing about its records says "camera"
-    beyond `source_type`, and `video_id` is null."""
+    """A worker whose frames go through the same `process_frame`, the same gate
+    settings and the same kind of durable queue as a file's (OMNI-312, OMNI-501);
+    its own queue, so it never waits behind a recording (OMNI-502). Nothing about
+    its records says "camera" beyond `source_type`, and `video_id` is null. The
+    one live-specific part is in the worker: it publishes admitted frames only."""
     started_at = time.time()
     # One folder per capture session: a frame's file is named by its index in
     # the session, and a restarted worker starts counting again, so sharing a
@@ -319,10 +329,9 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
         camera_id,
         open_capture=lambda: _open_stream(rtsp_url),
         make_publisher=lambda: SegmentPublisher(
-            connection_parameters(settings), settings.segment_queue, settings.camera_event_queue
+            connection_parameters(settings), settings.live_segment_queue, settings.camera_event_queue
         ),
         make_process=make_process,
-        sample_interval_s=settings.live_sample_interval_s,
         clock=lambda: time.time(),
         backoff=Backoff(
             settings.live_reconnect_initial_s,
@@ -336,13 +345,30 @@ def _live_worker_for(camera_id: int, rtsp_url: str) -> LiveWorker:
         stats_interval_s=settings.live_stats_interval_s,
         drop_log_interval_s=settings.live_drop_log_interval_s,
         fps_window_s=settings.live_fps_window_s,
+        preview=PreviewWriter(
+            preview_path(settings.previews_path, camera_id),
+            max_side_px=settings.live_preview_max_side_px,
+            quality=settings.live_preview_jpeg_quality,
+        ),
+        preview_interval_s=settings.live_preview_interval_s,
+        steady_window_s=settings.live_steady_window_s,
+        steady_min_span_s=settings.live_steady_min_span_s,
     )
+
+
+def _worker_for(camera_id: int, rtsp_url: str):
+    """The camera's worker: in a process of its own (OMNI-510a), so cameras do not
+    wait on each other for the interpreter, or in this process when
+    `LIVE_WORKER_PROCESSES` is off. The same `_live_worker_for` either way."""
+    if settings.live_worker_processes:
+        return ProcessWorker(camera_id, rtsp_url)
+    return _live_worker_for(camera_id, rtsp_url)
 
 
 @app.post("/workers/start", response_model=WorkerStartResponse)
 def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
-    """Start capturing a camera: open its stream, and gate, publish and store
-    what it delivers until told to stop. Returns once the first frame has
+    """Start capturing a camera: open its stream, gate every frame it delivers
+    and publish the admitted ones until told to stop. Returns once the first frame has
     arrived, or with the reason it did not."""
     existing = workers.get(payload.camera_id)
     if existing is not None and existing.state in LIVE_STATES:
@@ -366,7 +392,7 @@ def start_worker_route(payload: WorkerStartRequest) -> WorkerStartResponse:
     try:
         worker = workers.start(
             payload.camera_id,
-            lambda: _live_worker_for(payload.camera_id, payload.rtsp_url),
+            lambda: _worker_for(payload.camera_id, payload.rtsp_url),
             settings.live_start_timeout_s,
         )
     except AlreadyRunning as exc:

@@ -1,8 +1,11 @@
 """The segment consumer (OMNI-311): reads gated frames off the durable queue and
 writes their rows.
 
-Run as its own process (`python -m app.consumer`, the `consumer` service in
-docker-compose.yml) so it can be killed and restarted without touching the API.
+Run as its own process (`python -m app.consumer`) so it can be killed and
+restarted without touching the API. Two of them run (OMNI-502), the same code
+with a different `CONSUMER_ROLE`: `consumer` stores files' segments and applies
+camera status and stats; `consumer-live` stores live cameras' frames, from a
+queue of their own, so a recording being stored never delays a live frame.
 
 The rule that makes NFR-5 ("lost = 0") true rather than hoped for: a message is
 acknowledged only **after** its row is committed. Kill this process at any
@@ -43,6 +46,18 @@ from app.settings import settings
 logger = logging.getLogger("app.consumer")
 
 MAX_BACKOFF_S = 30.0
+
+# The running totals a stats report carries. Each is a column of `camera_stats`
+# with a `session_` twin holding how much of it has been counted for the current
+# worker.
+STATS_COUNTERS = (
+    "captured",
+    "dropped",
+    "gated",
+    "admitted_motion",
+    "admitted_heartbeat",
+    "discarded",
+)
 
 
 class Outcome(Enum):
@@ -170,8 +185,9 @@ def apply_camera_stats(body: bytes) -> Outcome:
     (OMNI-314). Returns only after the commit.
 
     The report carries the worker's totals for its own session. What is added to
-    the camera's lifetime `captured` and `dropped` is the difference from the last
-    total counted for that worker, never the total itself, so a report delivered
+    each of the camera's lifetime counters (`STATS_COUNTERS`) is the difference
+    from the last total counted for that worker, never the total itself, so a
+    report delivered
     twice adds nothing the second time, and one arriving late (below what is
     already counted) adds nothing at all. The rate and the session start are only
     taken from a report at least as recent as the last one, so a late report
@@ -194,14 +210,14 @@ def apply_camera_stats(body: bytes) -> Outcome:
             select(CameraStats).where(CameraStats.camera_id == report.camera_id).with_for_update()
         ).scalar_one()
 
-        if stats.session_id != report.worker_id:
+        new_session = stats.session_id != report.worker_id
+        if new_session:
             stats.session_id = report.worker_id
-            stats.session_captured = 0
-            stats.session_dropped = 0
-        stats.captured += max(0, report.captured - stats.session_captured)
-        stats.dropped += max(0, report.dropped - stats.session_dropped)
-        stats.session_captured = max(stats.session_captured, report.captured)
-        stats.session_dropped = max(stats.session_dropped, report.dropped)
+        for counter in STATS_COUNTERS:
+            counted = 0 if new_session else getattr(stats, f"session_{counter}")
+            reported = getattr(report, counter)
+            setattr(stats, counter, getattr(stats, counter) + max(0, reported - counted))
+            setattr(stats, f"session_{counter}", max(counted, reported))
 
         made_at = datetime.fromtimestamp(report.at, UTC)
         if stats.reported_at is None or made_at >= stats.reported_at:
@@ -273,16 +289,18 @@ def _on_message(channel, method, _properties, body: bytes) -> None:
         )
 
 
-def start(channel, on_message=_on_message, on_event=None) -> None:
+def start(channel, on_message=_on_message, on_event=None, *, queue: str | None = None) -> None:
     """Declare the queues, limit what this consumer may hold unacknowledged, and
     subscribe. Deliveries then arrive as the connection's I/O loop runs.
+    `queue` is the segment queue to read, the file queue unless told otherwise.
     `on_event` also subscribes to the camera status queue (OMNI-313)."""
-    declare_segment_queue(channel, settings.segment_queue)
+    queue = queue or settings.segment_queue
+    declare_segment_queue(channel, queue)
     # The most unacknowledged messages this consumer may hold. Without it the
     # broker pushes the whole backlog at the first consumer to connect, and a
     # second consumer sits idle while the first works through it.
     channel.basic_qos(prefetch_count=settings.segment_prefetch)
-    channel.basic_consume(queue=settings.segment_queue, on_message_callback=on_message, auto_ack=False)
+    channel.basic_consume(queue=queue, on_message_callback=on_message, auto_ack=False)
     if on_event is not None:
         declare_camera_event_queue(channel, settings.camera_event_queue)
         channel.basic_consume(
@@ -290,17 +308,29 @@ def start(channel, on_message=_on_message, on_event=None) -> None:
         )
 
 
+def queues_for(role: str) -> tuple[str, bool]:
+    """The segment queue a consumer of this role reads, and whether it also reads
+    the camera queue (OMNI-502). The live consumer reads live frames and nothing
+    else, so nothing can queue in front of them inside the process either."""
+    if role == "live":
+        return settings.live_segment_queue, False
+    return settings.segment_queue, True
+
+
 def consume() -> None:
     """One connection's lifetime: returns only if the broker closes it cleanly,
     raises on anything else."""
+    queue, with_events = queues_for(settings.consumer_role)
     with closing(pika.BlockingConnection(connection_parameters(settings))) as connection:
         channel = connection.channel()
-        start(channel, on_event=_on_event)
+        start(channel, on_event=_on_event if with_events else None, queue=queue)
         logger.info(
             "consuming segments",
             extra={
                 "extra_fields": {
-                    "queue": settings.segment_queue,
+                    "role": settings.consumer_role,
+                    "queue": queue,
+                    "camera_events": with_events,
                     "prefetch": settings.segment_prefetch,
                 }
             },

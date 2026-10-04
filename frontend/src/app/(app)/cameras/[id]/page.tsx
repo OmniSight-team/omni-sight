@@ -147,7 +147,7 @@ function DropIndicator({
   capturing: boolean;
 }) {
   const percent = stats.captured > 0 ? (stats.dropped / stats.captured) * 100 : 0;
-  const share = `${stats.dropped.toLocaleString()} of ${stats.captured.toLocaleString()} sampled frames (${percent.toFixed(1)}%)`;
+  const share = `${stats.dropped.toLocaleString()} of ${stats.captured.toLocaleString()} captured frames (${percent.toFixed(1)}%)`;
 
   let tone = "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
   let headline = "Keeping up";
@@ -387,12 +387,12 @@ export default function CameraDetailPage() {
               {stats && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <Tile label="Captured" value={stats.captured.toLocaleString()} hint="frames sampled" />
+                    <Tile label="Captured" value={stats.captured.toLocaleString()} hint="frames decoded" />
                     <Tile label="Dropped" value={stats.dropped.toLocaleString()} hint="pipeline behind" />
                     <Tile
                       label="Effective rate"
                       value={`${stats.fps_effective.toFixed(1)} fps`}
-                      hint="frames processed"
+                      hint="frames gated"
                     />
                     <Tile label="Uptime" value={capturing ? formatUptime(stats.uptime_s) : "—"} hint="this capture" />
                   </div>

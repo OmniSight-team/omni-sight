@@ -103,12 +103,20 @@ class CameraStatsReport(BaseModel):
     # When this worker session began, and when this report was made (Unix time).
     started_at: float
     at: float
-    # Frames sampled from the stream and offered to the pipeline: what the system
-    # meant to process. Sampling itself is not a drop.
+    # Frames decoded from the stream and offered to the pipeline.
     captured: int
     # Of those, the ones thrown away because the pipeline could not keep up.
     dropped: int
-    # Frames actually processed and published per second, over a recent window.
+    # What the gate did with the rest (OMNI-501): every frame it was shown, the
+    # ones it admitted, by reason, and the ones it discarded. `captured = gated +
+    # dropped` once nothing is waiting in the worker, and `gated = admitted_motion
+    # + admitted_heartbeat + discarded` always. Zero by default so a report
+    # published before these existed still parses.
+    gated: int = 0
+    admitted_motion: int = 0
+    admitted_heartbeat: int = 0
+    discarded: int = 0
+    # Frames actually gated per second, over a recent window.
     fps_effective: float
     last_frame_at: float | None = None
     # False on the final report a worker sends as it stops.

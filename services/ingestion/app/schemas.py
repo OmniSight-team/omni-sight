@@ -143,6 +143,11 @@ class WorkerInfo(BaseModel):
     captured: int = 0
     dropped: int = 0
     dropped_backlog: int = 0
+    gated: int = 0
+    admitted: int = 0
+    admitted_motion: int = 0
+    admitted_heartbeat: int = 0
+    discarded: int = 0
     queue_depth: int = 0
     queue_size: int = 0
     fps_effective: float = 0.0
@@ -150,4 +155,8 @@ class WorkerInfo(BaseModel):
     reconnects: int = 0
     failed_attempts: int = 0
     last_frame_at: float | None = None
+    receiving: bool = False
+    previews_written: int = 0
+    preview_errors: int = 0
+    last_preview_at: float | None = None
 

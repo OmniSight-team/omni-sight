@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from omnisight_common import (
     AdmissionReason,
@@ -77,17 +78,54 @@ class CameraStopResponse(BaseModel):
 
 
 class CameraStatsOut(BaseModel):
-    """How a live camera is keeping up (OMNI-314)."""
+    """How a live camera is keeping up (OMNI-314), and what the gate did with
+    its frames (OMNI-501). The counters are totals across every capture session."""
 
-    # Frames sampled from the stream and offered to the pipeline, across every
-    # capture session. Sampling itself is not a drop.
+    # Frames decoded from the stream and offered to the pipeline.
     captured: int
     # Of those, the ones thrown away because the pipeline could not keep up.
     dropped: int
-    # Frames actually processed per second, recently. Zero when not capturing.
+    # The rest, which the gate was shown: `captured = gated + dropped`.
+    gated: int = 0
+    # What the gate decided: `gated = admitted + discarded`. Only admitted frames
+    # are stored; `admitted` is the two reasons added together.
+    admitted: int = 0
+    admitted_motion: int = 0
+    admitted_heartbeat: int = 0
+    discarded: int = 0
+    # Frames actually gated per second, recently. Zero when not capturing.
     fps_effective: float
     # Seconds the current capture session has been running. Zero when not capturing.
     uptime_s: float
+
+
+class CameraLiveOut(BaseModel):
+    """One camera on the wall, and what it is doing right now (OMNI-504)."""
+
+    camera_id: int
+    name: str
+    location: str
+    group_name: str
+    # live | frozen | offline | stopped, from evidence (app/live_state.py).
+    state: Literal["live", "frozen", "offline", "stopped"]
+    # When the newest frame arrived (the preview's write time); None when there
+    # is no preview, which is always the case for a stopped camera.
+    last_frame_at: datetime | None
+
+
+class CameraBufferFrameOut(BaseModel):
+    """One frame of a camera's rewind buffer (OMNI-505): an admitted frame
+    already stored, not a copy."""
+
+    segment_id: int
+    # When the frame was captured, as Unix time in seconds.
+    timestamp_s: float
+    # Why the gate kept it: "motion" or "heartbeat".
+    reason: AdmissionReason
+    # The thumbnail, served by nginx (OMNI-307), and the full frame, served by
+    # this API with the token check.
+    thumb_url: str
+    frame_url: str
 
 
 class CameraFrameOut(BaseModel):

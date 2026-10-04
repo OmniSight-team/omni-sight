@@ -1,0 +1,78 @@
+# Camera simulator, realistic set (OMNI-509): the default.
+#
+# Twenty paths. cam01 to cam10 loop ten real surveillance clips, one each: three
+# from VIRAT (1280x720, 23.97 fps, outdoor) and seven from UCF-Crime (320x240,
+# 30 fps, fixed CCTV; four normal, three with an incident). cam11 to cam20 loop
+# the same ten again, for the NFR-4 ladder beyond ten feeds. The synthetic test
+# patterns of OMNI-201 are still in mediamtx.yml, as the worst case (they move all
+# the time); choose them with MEDIAMTX_CONFIG=mediamtx.yml (docs/rtsp-simulator.md).
+#
+# The clips are re-encoded copies of files in data/, made by
+# scripts/make_simulator_clips.py into infra/mediamtx/clips/real/ (gitignored,
+# like everything under clips/): H.264, no audio, native size and frame rate, a
+# keyframe every 2 s. Each loops with -stream_loop -1, so a camera sees its clip
+# again every 7 to 37 s.
+#
+# addresses: rtsp://mediamtx:8554/cam01 ... cam20, inside the Docker network only.
+
+paths:
+  cam01:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real01_VIRAT_S_010003_07_000608_000636.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam02:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real02_VIRAT_S_010107_02_000282_000312.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam03:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real03_VIRAT_S_010208_07_000768_000791.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam04:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real04_Normal_Videos155_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam05:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real05_Normal_Videos170_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam06:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real06_Normal_Videos297_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam07:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real07_Normal_Videos344_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam08:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real08_Arrest013_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam09:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real09_Burglary081_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam10:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real10_Robbery089_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam11:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real01_VIRAT_S_010003_07_000608_000636.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam12:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real02_VIRAT_S_010107_02_000282_000312.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam13:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real03_VIRAT_S_010208_07_000768_000791.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam14:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real04_Normal_Videos155_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam15:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real05_Normal_Videos170_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam16:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real06_Normal_Videos297_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam17:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real07_Normal_Videos344_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam18:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real08_Arrest013_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam19:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real09_Burglary081_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+  cam20:
+    runOnInit: ffmpeg -re -stream_loop -1 -i /clips/real/real10_Robbery089_x264.mp4 -c copy -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes

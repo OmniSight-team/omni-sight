@@ -43,13 +43,9 @@ class Settings(CommonSettings):
     # kernel).
     motion_blur_kernel: int = Field(21, ge=1)
 
-    # Live capture (OMNI-312). A stream is read frame by frame, but only one
-    # frame per this many seconds is processed and published — never every
-    # frame of a 25 fps camera. Not the file extractor's setting: that path has
-    # no sampling step since OMNI-303's rework, it gates every frame; a live
-    # stream cannot afford to, one camera per core, so it has its own. A
-    # departure from Algorithm 1, still open: docs/decisions.md, D-9.
-    live_sample_interval_s: float = Field(0.2, gt=0)
+    # Live capture (OMNI-312). There is no sampling setting: every decoded frame
+    # of a stream is gated with the motion settings above, the same as a file's
+    # (OMNI-501; docs/decisions.md, D-9), and only admitted frames are published.
     # How long a start waits for the stream to open and deliver a first frame.
     # A stream sends nothing useful until its next keyframe, which on the
     # simulator is several seconds after connecting (3-4.5 s measured), so this
@@ -64,6 +60,20 @@ class Settings(CommonSettings):
     # than live_read_timeout_ms.
     live_stop_timeout_s: float = Field(15.0, gt=0)
     live_open_timeout_ms: int = Field(10000, ge=1)
+    # OMNI-510a: threads each live stream's decoder may use. FFmpeg's default is one
+    # per CPU (8 here), so ten cameras started some 150 decoder threads on 8 CPUs,
+    # and ingestion spent about twice the work it did (OMNI-509). One decoder
+    # thread keeps up with a 24 fps 1280x720 stream. 0 leaves FFmpeg's default.
+    live_decoder_threads: int = Field(1, ge=0)
+    # OMNI-510a: run each camera's worker in a process of its own. In one process
+    # the cameras' threads took turns on Python's interpreter lock and ten
+    # realistic feeds gated well under half their frames (OMNI-509). Off runs
+    # every worker in this process, as before.
+    live_worker_processes: bool = True
+    # OMNI-510a: threads one OpenCV call (the blur, the colour conversion) may use,
+    # for the whole process. 0 leaves OpenCV's default, one per CPU. With many
+    # cameras each gating on its own thread, the cameras are the parallelism.
+    opencv_threads: int = Field(1, ge=0)
     # Also the longest a stalled stream can hold up a stop, and it must outlast
     # the wait for a first keyframe: 5 s was too close to that and failed a
     # healthy start.
@@ -84,17 +94,32 @@ class Settings(CommonSettings):
     # retried at the shortest delay for ever.
     live_backoff_reset_s: float = Field(10.0, ge=0)
 
-    # The bounded queue between capture and processing (OMNI-314). A sampled frame
+    # The bounded queue between capture and processing (OMNI-314). A decoded frame
     # waits here for the processing thread; when it is full the frame is dropped
-    # and counted, so a slow gate or broker costs frames, not memory. Ten frames
-    # is about two seconds at the default sampling interval, and at 1080p about
-    # 60 MB, whatever happens downstream.
-    live_queue_size: int = Field(10, ge=1)
+    # and counted, so a slow gate or broker costs frames, not memory. Sixty
+    # frames is 2 s of a 30 fps stream (2.5 s at 24 fps), the margin this queue
+    # had when it held sampled frames; at 10 it was a third of a second once
+    # every frame was gated, and a moment's hiccup on an idle machine dropped
+    # frames (OMNI-510a). At most about 166 MB for a full 1280x720 queue.
+    live_queue_size: int = Field(60, ge=1)
     # The most segments the durable queue may hold before live frames are dropped
     # instead of added to it, so a consumer that has fallen behind cannot let the
-    # broker's queue grow for ever. 0 turns the limit off. The queue is shared
-    # with file extraction, so a large upload waiting to be stored counts too.
+    # broker's queue grow for ever. 0 turns the limit off. It is the live queue
+    # that is measured (OMNI-502): a large upload waiting to be stored is on the
+    # file queue and does not count.
     live_max_backlog: int = Field(2000, ge=0)
+    # The preview a camera wall polls (OMNI-503): the current decoded frame,
+    # admitted or not, written at most this often, scaled so its longest side is
+    # at most this many pixels. One file per camera, replaced, never accumulated.
+    live_preview_interval_s: float = Field(0.5, gt=0)
+    live_preview_max_side_px: int = Field(640, ge=16)
+    live_preview_jpeg_quality: int = Field(70, ge=1, le=100)
+    # OMNI-507 (K-13): a worker counts as receiving only when, within the last
+    # `live_steady_window_s`, at least two frames arrived at least
+    # `live_steady_min_span_s` apart. A stalled stream can still hand over a late
+    # burst of old frames all at once; that is not a working camera.
+    live_steady_window_s: float = Field(3.0, gt=0)
+    live_steady_min_span_s: float = Field(1.0, ge=0)
     # How often a worker sends its counters to `camera_stats`.
     live_stats_interval_s: float = Field(5.0, gt=0)
     # Drops are logged when a stretch of them begins and then summarised this
