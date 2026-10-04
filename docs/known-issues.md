@@ -166,6 +166,8 @@ on a timer. The state is only in the page's memory, so anything that re-creates 
 component resets it; what did here is not known (the Next.js dev server is the first
 suspect). OMNI-512's "remember the layout" would hide it without explaining it.
 Not seen again in the 10-minute OMNI-510a run (2026-10-03): 4x4 for all 600 samples.
+Since OMNI-512 (2026-10-04) the layout is remembered in the browser, so a reset of the page's
+state now comes back at the chosen layout: the symptom is hidden, the cause still unknown.
 
 ## K-16 · Ten camera starts at once: five fail with "timeout"
 

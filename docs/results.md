@@ -22,6 +22,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating, mostly 304s on still scenes | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; paging, group filter, no polling while hidden (simulated) | **Pass** apart from "mostly 304s" (K-12) | 2026-10-02 | OMNI-506 |
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
+| FR-9, layouts and pins (no Phase A target) | Choose 4x4, pin a camera top-left, reload: both kept | Kept after a reload; the pin held when a camera was added and removed; blocked or broken storage falls back to 3x3 with no pins | **Pass** (one pass) | 2026-10-04 | OMNI-512 |
 | TC-1 | Live camera and uploaded file together: both decode, only motion (or heartbeat) forwarded, the camera live on the wall throughout | 2 runs, 15 of 15 checks each: file 1,930 of 1,930, 356 admitted, 0 violations; live counters exact, every stored row admitted; camera live at every sample | **Pass, complete** | 2026-09-26, 2026-10-03 | OMNI-316, OMNI-511 |
 | NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
@@ -1058,3 +1059,24 @@ decoded wrongly, on either side.
 
 **Not covered:** a moving-camera recording at the same time; more than one live camera with the
 file (NFR-4's runs had no file); the wall at a layout other than 3x3 for this test.
+
+## OMNI-512 · Layouts and pinning, remembered per browser · 2026-10-04
+
+**Conditions:** the full stack, the simulator's ten feeds on the wall (`wall_cameras.py up`; all
+ten started on the first try this time), `https://localhost/live` in Chrome, signed in as
+admin. Checked by clicking the controls and reading the page. One pass.
+
+| Check | Result |
+|---|---|
+| Choose 4x4, then pin `wall-cam07` to position 1 (its pin button, "Pin to position", 1) | `wall-cam07` top left, the other nine after it in their usual order; saved as `{"layout":4,"pins":{"<id>":0}}`; the pin's click did not open the enlarged view |
+| **Reload** (a full navigation) | **4x4 and `wall-cam07` top left, both kept**; its pin shown as pinned to position 1 |
+| A camera added that sorts before all of them (`wall-aaa`, "Building A") | 11 cameras without a reload: `wall-cam07` still first, `wall-aaa` in the first free slot, the rest after |
+| That camera removed | back to the ten, `wall-cam07` still first |
+| The wall's stored key refused (its `getItem` and `setItem` made to throw, other keys untouched), then the wall opened again from the sidebar | the wall worked at the defaults (3x3, nothing pinned, page 1 of 2); two reads and two writes refused, no error shown; after storage came back and a reload, 4x4 and the pin returned (nothing was overwritten) |
+| A broken value in storage (`{this is not json`), then a reload | the defaults (3x3, nothing pinned), the wall working, and a clean value saved over the broken one |
+
+**Acceptance (choose 4x4, pin a camera to the top-left, reload: both kept): passes.**
+
+**Not covered:** a browser that blocks storage for real (simulated in the page); pins across
+groups when a group filter is on (pins are slots in whichever list is shown); more than one
+browser.

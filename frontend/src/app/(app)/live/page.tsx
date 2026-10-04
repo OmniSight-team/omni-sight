@@ -5,11 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, fetchCameraPreview, type LiveCamera, type LiveState, listLiveCameras } from "@/lib/api-client";
 
 import { CameraViewer } from "./camera-viewer";
+import { arrange, loadWallSettings, pinTo, saveWallSettings, unpin } from "./wall-settings";
 
 // The wall (OMNI-506): a square grid, 3x3 unless another layout is chosen
-// (2x2, 3x3 or 4x4; OMNI-512, brought forward for OMNI-509, which measures the
-// wall at 4x4 with all ten cameras on screen). More cameras than tiles go on
-// pages, never into smaller tiles.
+// (2x2, 3x3 or 4x4, OMNI-512). More cameras than tiles go on pages, never into
+// smaller tiles. The layout and any pinned cameras are remembered per browser
+// (wall-settings.ts).
 const LAYOUTS = [2, 3, 4] as const;
 type Layout = (typeof LAYOUTS)[number];
 const DEFAULT_LAYOUT: Layout = 3;
@@ -28,6 +29,97 @@ const PREVIEW_POLL_MS = 1000;
 // within about five seconds.
 const CAMERAS_POLL_MS = 2000;
 const ALL_GROUPS = "";
+
+function isLayout(value: number | null): value is Layout {
+  return LAYOUTS.includes(value as Layout);
+}
+
+const PinIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 16 16" aria-hidden="true" className={className}>
+    <path d="M10.5 1.5 14.5 5.5 12 6.5 9.5 9 10 12.5 8.5 14 6 11.5 2.5 15 1 13.5 4.5 10 2 7.5 3.5 6 7 6.5 9.5 4z" fill="currentColor" />
+  </svg>
+);
+
+// A tile's pin control (OMNI-512): pin the camera to a position on the page it is
+// on, or unpin it. A pinned camera keeps its place when cameras are added,
+// removed or change state; the others flow around it.
+function PinControl({
+  name,
+  pinnedSlot,
+  pageStart,
+  tilesPerPage,
+  onPin,
+  onUnpin,
+}: {
+  name: string;
+  pinnedSlot: number | undefined;
+  pageStart: number;
+  tilesPerPage: number;
+  onPin: (slot: number) => void;
+  onUnpin: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const pinned = pinnedSlot !== undefined;
+  return (
+    // Clicks here never reach the tile, which would enlarge the camera.
+    <div
+      className="absolute right-2 top-2 z-10"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+      role="presentation"
+    >
+      <button
+        type="button"
+        aria-label={pinned ? `${name} is pinned to position ${pinnedSlot - pageStart + 1}; change` : `Pin ${name}`}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex h-6 w-6 items-center justify-center rounded-md transition ${
+          pinned
+            ? "bg-indigo-600 text-white"
+            : "bg-black/55 text-zinc-200 opacity-0 hover:bg-black/75 focus-visible:opacity-100 group-hover:opacity-100"
+        }`}
+      >
+        <PinIcon className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-7 w-44 rounded-lg border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          <p className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">Pin to position</p>
+          <div className="grid grid-cols-4 gap-1 p-1">
+            {Array.from({ length: tilesPerPage }, (_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  onPin(pageStart + i);
+                  setOpen(false);
+                }}
+                className={`rounded-md px-2 py-1 tabular-nums ${
+                  pinnedSlot === pageStart + i
+                    ? "bg-indigo-600 text-white"
+                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+          {pinned && (
+            <button
+              type="button"
+              onClick={() => {
+                onUnpin();
+                setOpen(false);
+              }}
+              className="mt-1 w-full rounded-md px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Unpin
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Whether anyone is looking. Every poll on this screen checks it: a wall left
 // open in a background tab must not keep sixteen requests a second going.
@@ -130,11 +222,13 @@ function CameraTile({
   visible,
   now,
   onOpen,
+  pin,
 }: {
   camera: LiveCamera;
   visible: boolean;
   now: number;
   onOpen: () => void;
+  pin: Omit<React.ComponentProps<typeof PinControl>, "name">;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -226,7 +320,7 @@ function CameraTile({
           onOpen();
         }
       }}
-      className="flex min-h-0 min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white outline-none transition hover:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-500"
+      className="group flex min-h-0 min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white outline-none transition hover:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-500"
     >
       {/* The picture takes whatever height the row leaves it and is letterboxed
           into it, so the whole 3x3 wall fits the window at any size. */}
@@ -270,6 +364,8 @@ function CameraTile({
           </span>
         )}
 
+        <PinControl name={camera.name} {...pin} />
+
         {notLive && src && (
           <span className="absolute bottom-2 left-2 right-2 truncate rounded-md bg-black/70 px-2 py-1 text-[11px] text-zinc-100">
             {age !== null ? `Last frame ${formatAge(age)}` : "Last frame"} · {notLive.detail}
@@ -290,8 +386,17 @@ export default function LiveMonitoringPage() {
   const [cameras, setCameras] = useState<LiveCamera[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [group, setGroup] = useState<string>(ALL_GROUPS);
-  const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT);
+  // Remembered per browser (OMNI-512). Read once, when the page first renders: the
+  // wall only ever renders in the browser (the app shell waits for the sign-in
+  // check there), so storage is available here, or the defaults are used.
+  const [remembered] = useState(loadWallSettings);
+  const [layout, setLayout] = useState<Layout>(isLayout(remembered.layout) ? remembered.layout : DEFAULT_LAYOUT);
+  const [pins, setPins] = useState(remembered.pins);
   const tilesPerPage = layout * layout;
+
+  useEffect(() => {
+    saveWallSettings({ layout, pins });
+  }, [layout, pins]);
   const [page, setPage] = useState(0);
   // The camera shown enlarged, if any. While it is open the wall behind it
   // stops asking for previews: nobody can see it.
@@ -324,8 +429,8 @@ export default function LiveMonitoringPage() {
     [cameras],
   );
   const shown = useMemo(
-    () => (cameras ?? []).filter((camera) => group === ALL_GROUPS || camera.group_name === group),
-    [cameras, group],
+    () => arrange((cameras ?? []).filter((camera) => group === ALL_GROUPS || camera.group_name === group), pins),
+    [cameras, group, pins],
   );
   const pages = Math.max(1, Math.ceil(shown.length / tilesPerPage));
   const current = Math.min(page, pages - 1);
@@ -428,6 +533,13 @@ export default function LiveMonitoringPage() {
               visible={visible && enlarged === null}
               now={now}
               onOpen={() => setEnlarged(camera.camera_id)}
+              pin={{
+                pinnedSlot: pins[String(camera.camera_id)],
+                pageStart: current * tilesPerPage,
+                tilesPerPage,
+                onPin: (slot) => setPins((value) => pinTo(value, camera.camera_id, slot)),
+                onUnpin: () => setPins((value) => unpin(value, camera.camera_id)),
+              }}
             />
           ))}
         </div>

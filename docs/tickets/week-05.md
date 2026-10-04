@@ -359,8 +359,8 @@ with motion.* The first half ran in OMNI-316; the second half is the same, on th
 ## OMNI-512 · Layouts and pinning
 
 - [x] Layout choice: 2x2, 3x3, 4x4; the grid reflows
-- [ ] Pin a camera to a fixed position; pinned cameras stay put when the list changes
-- [ ] Layout and pins remembered per browser (localStorage), wrapped so a blocked storage
+- [x] Pin a camera to a fixed position; pinned cameras stay put when the list changes
+- [x] Layout and pins remembered per browser (localStorage), wrapped so a blocked storage
       falls back to the default layout
 
 **Acceptance:** choose 4x4, pin a camera to the top-left, reload: both kept.

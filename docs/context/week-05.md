@@ -1099,3 +1099,59 @@ now is (every frame gated, two queues, process workers).
 ### Result
 
 TC-1 passes in full and is recorded, dated, with its conditions.
+
+---
+
+## OMNI-512 · Layouts and pinning
+
+Done 2026-10-04, on `slice-05-camera-wall`. Numbers in `docs/results.md` (OMNI-512).
+
+### Why this ticket exists
+
+FR-9 refinements: an operator chooses how many cameras fill the screen, keeps the important
+ones in a fixed place, and finds the wall the same way next time.
+
+### What was done
+
+- **Layout choice** (2x2, 3x3, 4x4, the grid reflowing): already done in OMNI-509, which needed
+  4x4 for its measurement; ticked there and then
+- **`frontend/src/app/(app)/live/wall-settings.ts`, new:** loads and saves `{layout, pins}` under
+  `omnisight.wall.v1` in `localStorage`, every read and write wrapped so blocked, missing or
+  broken storage gives the defaults (3x3, no pins); `pinTo` (a slot taken by another camera is
+  given up, so two never share one), `unpin`, and `arrange`: pinned cameras in their slots, the
+  others filling the free slots in their usual order; a pin beyond the end of the list puts that
+  camera last instead of leaving holes
+- **The pin control on each tile:** a button at the top right, shown on hover (always shown, and
+  filled, when pinned), opening "Pin to position" with the positions of the page it is on, and
+  "Unpin". Its clicks do not reach the tile, which would open the enlarged view. A pin is a slot
+  counted across pages, so a camera pinned on page 2 stays on page 2
+- **The page** reads the remembered layout and pins when it first renders (it only ever renders
+  in the browser: the app shell waits for the sign-in check there) and saves them whenever they
+  change
+
+### Things to know
+
+- **K-17 is hidden, not fixed.** With the layout remembered, if the page's state ever resets
+  again it comes back at the chosen layout. The cause is still unknown; noted in K-17
+- **Blocked storage was simulated** by making the wall's own key throw. Blocking all of
+  `localStorage` would also have hidden the sign-in token (the API client keeps it there) and
+  tested the wrong thing
+- The broken-value check left the browser at 3x3 with no pins, as it should
+
+### Verification performed
+
+- `tsc --noEmit` and `eslint` clean on the wall
+- In Chrome, ten cameras: 4x4 and a pin top left kept across a reload; the pin held when a camera
+  was added before all others and removed again; blocked storage and a broken stored value both
+  gave a working wall at the defaults
+- The cameras taken down and the tab closed; the database back to 0 cameras and 300 segments
+- No Python changed: `uv run pytest` not rerun (387 passed, 1 skipped on 2026-10-03)
+
+### Not verified
+
+- A browser that really blocks storage; pins while a group filter is on; other browsers
+
+### Result
+
+Choose a layout, pin cameras to places, and the wall is the same next time; with no usable
+storage it simply starts at 3x3.
