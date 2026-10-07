@@ -71,7 +71,11 @@ ucf_crime/
     ├── Action_Regnition_splits/
     ├── Anomaly_Train.txt
     ├── Temporal_Anomaly_Annotation_for_Testing_Videos.txt
-    └── ReadMe-Anomaly-Detection.txt
+    ├── ReadMe-Anomaly-Detection.txt
+    └── uca/                      UCA, added 2026-10-07 (OMNI-603); not part of the UCF-Crime download
+        ├── SOURCE_COMMIT
+        ├── txt/   UCFCrime_{Train,Val,Test}.txt
+        └── json/  UCFCrime_{Train,Val,Test}.json, revised_en_UCFCrime_Train.json (0 bytes)
 ```
 
 **950 anomaly videos across 13 classes, 950 normal, plus 50 event-recognition
@@ -87,6 +91,37 @@ extras — 1,950 total.** Counts verified after extraction on 2026-09-21.
 
 1,610 train + 290 test = **1,900**, the complete anomaly-detection set. Every entry
 in all three files was checked against disk on 2026-09-21: none missing.
+
+**UCA (UCF-Crime Annotation)** — event times for the training videos (OMNI-603, D-21).
+Yuan et al., CVPR 2024, `github.com/Xuange923/Surveillance-Video-Understanding`, folder
+`UCF Annotation`, commit `e478cb5b` (2024-04-30, written to `uca/SOURCE_COMMIT`), Apache-2.0,
+academic and research use. Downloaded 2026-10-07; every size equals the repository's.
+
+| File | Bytes | Videos | Segments |
+|---|---|---|---|
+| `uca/json/UCFCrime_Train.json` | 3,091,246 | 1,165 | |
+| `uca/json/UCFCrime_Val.json` | 678,678 | 379 | |
+| `uca/json/UCFCrime_Test.json` | 842,652 | 310 | |
+| `uca/txt/UCFCrime_Train.txt` | 2,164,341 | same videos as the json | one line per segment |
+| `uca/txt/UCFCrime_Val.txt` | 454,914 | | |
+| `uca/txt/UCFCrime_Test.txt` | 586,652 | | |
+| `uca/json/revised_en_UCFCrime_Train.json` | **0** | empty in the repository | |
+
+1,854 videos in all (950 anomaly-class names minus 6, plus 910 normal), none in two UCA
+splits, **every one of them in the official lists**. UCA's own Train / Val / Test is **not**
+the official split (86 official test anomalies sit in UCA's Train) and is not used; the
+official split is. json: `{name: {duration, timestamps: [[start_s, end_s], ...], sentences:
+[...]}}`, times in seconds at 0.1 s. txt: `name mm:ss.s mm:ss.s ##sentence`. The
+gender-neutral `txt_mask/` variant was not downloaded.
+
+**Coverage:** 804 of the 810 official training anomaly videos are in UCA (missing:
+`Assault045`, `Assault046`, `RoadAccidents063`, `RoadAccidents144`, `Robbery139`,
+`Vandalism037`); all 140 official test anomalies are.
+
+**UCA describes every event in a video, not only the crime** (people walking in, cars
+passing). The crime's segment is picked by a rule (D-21, `scripts/uca_event_times.py`):
+the earliest-starting segment whose sentence matches one of the class's word patterns; no
+match, no time. **594 of the 810 training anomalies get a time** this way.
 
 **Temporal annotation format** — one line per test video, space-separated:
 
@@ -113,7 +148,7 @@ belong to a different task in the original paper.
   `Class/filename.mp4`, which does not include the `Part-N` level the files
   actually sit under
 - **Timing:** for test videos, look the filename up in the temporal annotation
-  file. Training videos have none
+  file. Training videos have none in the download; UCA gives 594 of 810 a time (D-21)
 
 ### Traps
 
@@ -129,7 +164,8 @@ belong to a different task in the original paper.
   The opposite of CCD: plenty of footage before each event. Sampling interval
   choices matter far more here
 - **Training labels are video-level only** — "a robbery happens somewhere in this
-  video". Only the test set is timed. The lead-up windows the forecasting model
+  video". Only the test set is timed (UCA adds times for most training videos, D-21).
+  **UCA's own Train / Val / Test is not the official split** — use the official lists. The lead-up windows the forecasting model
   trains on are *derived* in slice 6, by working backward from annotated events
   and hand-checking a sample. They are not in the download
 - **The normal footage is split three ways** — `Testing_Normal_Videos_Anomaly/`

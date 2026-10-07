@@ -26,6 +26,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-1 | Live camera and uploaded file together: both decode, only motion (or heartbeat) forwarded, the camera live on the wall throughout | 2 runs, 15 of 15 checks each: file 1,930 of 1,930, 356 admitted, 0 violations; live counters exact, every stored row admitted; camera live at every sample | **Pass, complete** | 2026-09-26, 2026-10-03 | OMNI-316, OMNI-511 |
 | NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
+| UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1161,3 +1162,52 @@ machine, two runs, one camera per case.
 backlog limit, `live_max_backlog` 2,000, was not reached); the broker recreated or killed
 with live capture running (OMNI-311 covered it for files only); few frames per case: the gate
 kept about 3-4% of frames on these feeds during the runs, so 22-55 admitted frames per case.
+
+## OMNI-603 · UCF-Crime event times from UCA, and their agreement with the official ones · 2026-10-07
+
+**Conditions:** `uv run python scripts/uca_event_times.py`, on the local annotation mirror:
+UCA at commit `e478cb5b` (json files), the official `Anomaly_Train.txt` (1,610),
+`Anomaly_Test.txt` (290) and `Temporal_Anomaly_Annotation_for_Testing_Videos.txt`. Matching is
+by video name against the official lists, which were checked against the full set on Drive on
+2026-09-21; the videos themselves were not read. The picking rule (D-21) was written before
+the agreement was computed and not changed after. One run (deterministic).
+
+**Match:** 1,854 UCA videos, all in the official lists. Training anomalies:
+
+| Class | Videos | In UCA | Timed by the rule |
+|---|---|---|---|
+| Abuse | 48 | 48 | 38 |
+| Arrest | 45 | 45 | 30 |
+| Arson | 41 | 41 | 39 |
+| Assault | 47 | 45 | 42 |
+| Burglary | 87 | 87 | 43 |
+| Explosion | 29 | 29 | 19 |
+| Fighting | 45 | 45 | 38 |
+| RoadAccidents | 127 | 125 | 113 |
+| Robbery | 145 | 144 | 109 |
+| Shooting | 27 | 27 | 20 |
+| Shoplifting | 29 | 29 | 17 |
+| Stealing | 95 | 95 | 55 |
+| Vandalism | 45 | 44 | 31 |
+| **Total** | **810** | **804** | **594 (73%)** |
+
+**Agreement:** the 140 official test anomalies are all in UCA; the rule times 110 (30 no
+match). Start picked from UCA against the official first interval's start (frame / 30):
+
+| Measure | Value |
+|---|---|
+| \|difference\| mean / median | **11.3 s / 3.0 s** |
+| p75 / p90 / max | 6.6 s / 25.8 s / 322.4 s |
+| Signed (UCA - official) mean / median | -3.4 s / -0.8 s |
+| Within 1 s / 2 s / 5 s / 10 s | 37 (34%) / 48 (44%) / 73 (66%) / 94 (85%) of 110 |
+| UCA start inside an official interval | 39 of 110 (35%) |
+
+Per class, median |difference|: Abuse 2.8 s (2), Arrest 16.5 s (3), Arson 3.6 s (8), Assault
+0.7 s (3), Burglary 6.3 s (7), Explosion 0.7 s (13), Fighting 1.6 s (5), RoadAccidents 1.8 s
+(23), Robbery 2.1 s (5), Shooting 3.0 s (16), Shoplifting 6.0 s (19), Stealing 35.6 s (2),
+Vandalism 2.2 s (4). Small groups; read as indications.
+
+**Not covered:** the test-set agreement measures the rule on 110 videos whose class mix
+differs from training (Robbery 5 here, 109 timed in training); whether 30 fps holds for every
+video (OMNI-607 probes each); whether either annotation is right (OMNI-609, by eye); the 30
+test anomalies the rule could not time (they keep their official times).

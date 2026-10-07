@@ -352,3 +352,48 @@ minutes at 150-422% CPU.
 hiccup is absorbed instead of dropped. **Cost:** memory, at most about 166 MB per 1280x720
 camera while its queue is full. **Evidence:** 4 mixed feeds, 3 minutes, wall hidden: 406
 frames dropped with 10, 0 with 60.
+
+## D-21 · UCF-Crime training event times come from UCA, picked by a written rule · 2026-10-07
+
+**Why:** lead-up windows are derived by working backward from each event (Phase A §3.4,
+§3.6), and UCF-Crime times its anomalies for the 290 test videos only. The 810 training
+anomalies have a class and no time.
+
+**Obtained:** UCA (Yuan et al., CVPR 2024) from the project's GitHub repository, commit
+`e478cb5b`, Apache-2.0, academic use. Unlike DoTA (D-1) it downloads: every file, every size
+equal to the repository's (`dataset-layout.md`). Its 1,854 video names all match the official
+lists; 804 of the 810 training anomalies are covered.
+
+**Where every UCF-Crime event time comes from:**
+
+| Videos | Source | Timed |
+|---|---|---|
+| 140 official test anomalies | `Temporal_Anomaly_Annotation_for_Testing_Videos.txt` (frame numbers at 30 fps) | 140 |
+| 810 official training anomalies | UCA, by the rule below | **594** |
+| of which not in UCA | - | 6, no time |
+| of which in UCA, no segment matches | - | 210, no time |
+| 950 normal videos | no event | - |
+
+**The rule** (the semi-automatic step Phase A names), written into
+`scripts/uca_event_times.py` from training-video descriptions only, **before** the agreement
+below was computed, and not changed after: each class has a list of word patterns naming
+its act ("collided", "crash" for RoadAccidents; "shot", "gun" for Shooting; ...). The event is
+the UCA segment with the earliest start whose sentence matches; start and end are that
+segment's. **No match, no time:** the video gets no window. The 216 untimed training videos
+are listed by the script. Inspected samples miss for wording the rule does not list
+("a burst of flames" for an explosion, a fight in a robbery) or because no sentence describes
+the act; no bug was found. Widening the patterns could time more, but the agreement would
+then have to be measured again on data already seen, so it was left as written.
+
+**Agreement** (`results.md`, OMNI-603): on the 140 official test anomalies, the rule times
+110; its start against the official start: **median 3.0 s, mean 11.3 s** apart, 34% within
+1 s, 66% within 5 s, 85% within 10 s; UCA tends to start earlier (median -0.8 s).
+
+**What this means for the windows:** a UCA-derived window ends about 3 s from where the
+official annotation would put the event (median), with a tail of large misses. Training
+windows (UCA) and held-out windows (official) are therefore not equally exact. OMNI-609's
+hand check samples both sources and compares them; if UCA windows are wrong noticeably more
+often, it goes in `known-issues.md` before slice 9.
+
+**Not used:** UCA's own Train / Val / Test split (it is not the official one; OMNI-605 fixes
+the split from the official lists); its descriptions of non-crime events.

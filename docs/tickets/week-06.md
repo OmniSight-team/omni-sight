@@ -135,17 +135,17 @@ head has almost nothing to train on.
 for academic use from the project's GitHub repository (folder `UCF Annotation`, txt and json).
 **Not yet verified downloadable from here** — check it the way DoTA was checked (D-1).
 
-- [ ] Download the UCA annotation files (Colab or your machine) into
+- [x] Download the UCA annotation files (Colab or your machine) into
       `data/ucf_crime/annotations/uca/`; record the files, sizes and counts in
       `docs/dataset-layout.md`
-- [ ] Match UCA's video names to the 1,900 UCF-Crime videos on disk: how many match, how many
+- [x] Match UCA's video names to the 1,900 UCF-Crime videos on disk: how many match, how many
       anomaly training videos gain a time
-- [ ] UCA describes **every** event in a video, not only the crime. Record how the anomaly's
+- [x] UCA describes **every** event in a video, not only the crime. Record how the anomaly's
       segment is picked (the first segment whose description matches the class) — this is
       the "semi-automatic" part Phase A names
-- [ ] **Agreement check:** on the test videos that have both, compare the start UCA gives with
+- [x] **Agreement check:** on the test videos that have both, compare the start UCA gives with
       the official temporal annotation. Record mean and median difference in seconds
-- [ ] `docs/decisions.md`: a decision either way. **If UCA cannot be obtained, stop and decide
+- [x] `docs/decisions.md`: a decision either way. **If UCA cannot be obtained, stop and decide
       with Ahmad before OMNI-605** (like D-1); do not invent times
 
 **Acceptance:** `decisions.md` says where every UCF-Crime event time comes from, with the

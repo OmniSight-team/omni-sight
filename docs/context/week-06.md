@@ -151,3 +151,63 @@ slice 4 diagram shows the 0.2 s sampling with no note that it is gone.
 
 No doc describes the live sampling as current; K-12 closed by rewording, the wall row reads
 Pass.
+
+---
+
+## OMNI-603 · UCF-Crime training videos: event timestamps
+
+### Why this ticket exists
+
+Lead-up windows are derived by working backward from a known event (Phase A §3.4, §3.6).
+UCF-Crime times its anomalies for the 290 test videos only; the 1,610 training videos (810 of
+them anomalies) have a class and no time. Without times the surveillance head has almost
+nothing to train on. UCA was the candidate, not yet checked for availability.
+
+### What was done
+
+2026-10-07.
+
+- **Obtained.** The GitHub API lists the repository's tree (commit `e478cb5b`, 2024-04-30):
+  `UCF Annotation/{txt,json,txt_mask}`. The six txt and json files plus the 0-byte
+  `revised_en_UCFCrime_Train.json` were downloaded from raw URLs pinned to that commit into
+  `data/ucf_crime/annotations/uca/{txt,json}/`, the commit written to `SOURCE_COMMIT`. Every
+  size equals the tree's. README: Apache-2.0, academic and research use. Recorded in
+  `dataset-layout.md`
+- **Matched.** All 1,854 UCA names are in the official lists (none in two UCA splits); 804 of
+  810 training anomalies and all 140 test anomalies are covered. UCA's own Train / Val / Test
+  is not the official split (86 official test anomalies are in UCA's Train): recorded as a
+  trap, not used. Matching was against the official lists, not the disk: the lists were
+  checked against the full set on Drive on 2026-09-21, and only 38 clips are local
+- **The picking rule.** UCA's sentences describe everything that happens. A frequency
+  comparison of each class's words against normal videos' words (training videos only) gave
+  each class's vocabulary; from it, word patterns per class were written into
+  `scripts/uca_event_times.py`: the earliest-starting segment whose sentence matches; no
+  match, no time. Written down before running the agreement
+- **Ran it once.** 594 of 810 training anomalies timed; agreement on 110 test anomalies:
+  median 3.0 s, mean 11.3 s. Then looked at six untimed training videos to rule out a bug:
+  none, they use other words ("a burst of flames") or never describe the act. The rule was
+  not widened, because the agreement would then be measured on data already seen
+- **D-21** in `decisions.md`: where every UCF-Crime event time comes from, the rule, the match
+  count and the agreement; `results.md` entry and a scoreboard row
+
+### Verification performed
+
+- File sizes against the GitHub tree: all equal
+- Counts cross-checked: UCA anomaly names 944 = 950 - 6 missing; normals 764 + 146 = 910;
+  944 + 910 = 1,854
+- The official temporal file parsed for all 290 test videos; the comparison uses the first
+  interval's start, frame / 30
+
+### Not verified
+
+- Video frame rates: the official frames are converted at 30 fps as its readme says; OMNI-607
+  probes every video
+- Whether any time is right by eye: OMNI-609's hand check
+- The rule's agreement on the training class mix: the test set has few videos of some classes
+  (Robbery 5, Stealing 2)
+
+### Result
+
+UCA is obtainable and covers 804 of 810 training anomalies; the written rule times 594. Its
+starts sit a median 3.0 s from the official ones (34% within 1 s), so UCA-derived windows are
+less exact than official ones; OMNI-609 compares the two by eye. Decision D-21.
