@@ -1,5 +1,7 @@
 # Slice 4 · The same pipeline, fed from a camera through the queue
 
+> The 0.2 s sampling shown here was removed in slice 5 (D-9); see slice-05-camera-wall.md.
+
 A registered camera is captured continuously: one worker per camera reads its RTSP
 stream, samples it, and hands every sampled frame to the **same** `process_frame()` slice 3
 uses, then the same durable queue and the same consumer. Built in OMNI-312 to OMNI-317.

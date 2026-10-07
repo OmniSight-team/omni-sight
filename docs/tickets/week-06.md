@@ -108,12 +108,12 @@ still rests on OMNI-319, which tested the old pipeline.
 
 ## OMNI-602 · Three doc fixes from the slice 5 review
 
-- [ ] **K-12:** reword OMNI-506's acceptance in `docs/tickets/week-05.md` to *"304s when a
+- [x] **K-12:** reword OMNI-506's acceptance in `docs/tickets/week-05.md` to *"304s when a
       feed is frozen or lost; a live feed gets a new frame on every poll by design (D-14)"*;
       the wall scoreboard row in `results.md` → **Pass**; K-12 → *Fixed (reworded)*
-- [ ] **`results.md` FR-1a row:** replace "Live: ~4.1 frames/s stored" (the sampling era)
+- [x] **`results.md` FR-1a row:** replace "Live: ~4.1 frames/s stored" (the sampling era)
       with the current figure from OMNI-501
-- [ ] **`docs/architecture/slice-04-frames-from-camera.md`:** one line at the top: *the 0.2 s
+- [x] **`docs/architecture/slice-04-frames-from-camera.md`:** one line at the top: *the 0.2 s
       sampling shown here was removed in slice 5 (D-9); see slice-05-camera-wall.md*. The
       diagram itself stays as built
 

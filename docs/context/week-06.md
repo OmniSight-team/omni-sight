@@ -107,3 +107,47 @@ changed, check F and what it uses; checks A-E are untouched.
 
 NFR-5 rechecked for live on the slice 5 pipeline: 0 frames lost in all four cases, two runs.
 Scoreboard row updated; K-11 moved to *Fixed*.
+
+---
+
+## OMNI-602 · Three doc fixes from the slice 5 review
+
+### Why this ticket exists
+
+Three places still described slice 4 as current or held a slice 5 item open: OMNI-506's
+acceptance asked for "mostly 304s on still scenes", which the preview design (D-14) cannot
+give on a live feed (K-12); the FR-1a row quoted the sampling era's ~4.1 frames/s; and the
+slice 4 diagram shows the 0.2 s sampling with no note that it is gone.
+
+### What was done
+
+2026-10-07, docs only.
+
+- **K-12.** `docs/tickets/week-05.md`, OMNI-506's acceptance reworded to the ticket's text,
+  with a note of what it read before. `results.md`, the wall row: target reworded the same
+  way, the frozen-feed 304s from OMNI-503 (432 of 480) added to the measured column, status
+  **Pass**. K-12 moved to *Fixed (reworded)* in `known-issues.md` with what it was and why no
+  code changed
+- **FR-1a row.** "Live: ~4.1 frames/s stored" replaced with OMNI-501's figure: every frame
+  gated (15.0/s), admitted frames stored, 3.05-3.30/s on `cam05`. OMNI-501 and its date added
+  to the row
+- **Slice 4 diagram.** One line at the top: the 0.2 s sampling was removed in slice 5 (D-9),
+  pointing to `slice-05-camera-wall.md`. The diagram is unchanged
+
+### Verification performed
+
+- Searched `README.md`, `docs/README.md`, `docs/architecture/`, `docs/results.md` and the
+  dataset docs for "sampl", "0.2 s" and "4.1 frames". What is left is the conditions of dated
+  slice 3-4 measurements (correct as history) and `slice-05-camera-wall.md`, which already
+  says the sampling was removed. No doc describes it as current
+- CRLF kept on every edited file
+
+### Not verified
+
+- `docs/context/` files from earlier sprints were not searched: they are the build story and
+  describe the sampling as it was at the time
+
+### Result
+
+No doc describes the live sampling as current; K-12 closed by rewording, the wall row reads
+Pass.

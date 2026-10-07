@@ -12,7 +12,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-8 | Storage grows about 7.7 GB per camera per day, nothing prunes | Disk | OMNI-312 | Slice 16 (retention) |
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
-| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | **Ahmad's decision**: reword OMNI-506's acceptance or change the design (OMNI-506 done with it open) |
 | K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | Before the demo (moved 2026-10-04: not dealt with in slice 5) |
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
@@ -91,19 +90,6 @@ Not measured per day.
 - nginx resolves `query` and `frontend` once, when it starts. Restarting them together can
   swap their container addresses, and nginx then answers 502 for everything until it is
   restarted too (`docker compose restart nginx`; seen 2026-10-02, OMNI-507)
-
-## K-12 · Preview polls on a live feed are never 304
-
-The preview's ETag is its write time (OMNI-503 as specified), and a live worker rewrites it
-every 0.5 s whether the scene moved or not. A tile polling once a second therefore always
-finds a new file: 960 of 960 polls were 200 on `cam05`, about 387 KiB/s for 16 tiles; 304s
-only came while the simulator was paused (432 of 480). OMNI-506's acceptance ("the network
-tab shows mostly 304s on still scenes") cannot be met this way; OMNI-504 and OMNI-507 need
-the ETag to change with every new frame, so they agree with what was built.
-**Options:** reword OMNI-506's acceptance to 304s on frozen or lost feeds (no code change;
-the bandwidth is 24.5 KiB per tile per second on `cam05`); or rewrite the preview only when
-the picture changed, with liveness taken from somewhere else. The first is the
-recommendation.
 
 ---
 
@@ -187,6 +173,7 @@ the resume started all ten at once both times, 0 failed attempts, all `live` aga
 | K-15 | The simulator's frame size was written as 320x240; the clips are 640x360 | Stated conditions | 2026-10-02 | OMNI-509, 2026-10-03 |
 | K-2 | 10 concurrent feeds not sustained | NFR-4 | OMNI-317 | Resolved by revising NFR-4 to 3 per machine (D-19), 2026-10-03 |
 | K-11 | The restart loss check read index gaps as lost frames, and waited for the wrong queue | NFR-5 (the mid-capture check) | OMNI-501 | OMNI-601, 2026-10-07 |
+| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" could not hold | OMNI-506 acceptance | OMNI-503 | Fixed (reworded): OMNI-602, 2026-10-07 |
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 
@@ -274,3 +261,15 @@ the file, live and camera queues to drain. The consumer cases now stop and kill
 count (each flagged) and a capture with gaps (not flagged).
 **Result:** two runs (`cam02`, `cam05`), 32 of 32 checks each, 0 frames lost in all four
 cases (`results.md`, OMNI-601).
+
+### K-12 · Preview polls on a live feed are never 304 · fixed (reworded) 2026-10-07
+
+**Was:** the preview's ETag is its write time (OMNI-503 as specified) and a live worker
+rewrites it every 0.5 s, so every poll of a live feed was a 200 (960 of 960 on `cam05`,
+about 387 KiB/s for 16 tiles); 304s came only while the simulator was paused (432 of 480).
+OMNI-506's acceptance asked for "mostly 304s on still scenes".
+**Fix (OMNI-602, Ahmad's decision):** no code change. OMNI-506's acceptance reworded to
+"304s when a feed is frozen or lost; a live feed gets a new frame on every poll by design
+(D-14)". OMNI-504 and OMNI-507 need the ETag to change with every new frame.
+**Result:** the wall's scoreboard row reads **Pass**; the bandwidth stays as measured
+(24.5 KiB per tile per second on `cam05`).
