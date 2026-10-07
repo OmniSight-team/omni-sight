@@ -11,7 +11,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-10 | Every protected route: 200 with the right role, 403 with the wrong role, 401 with no, expired or tampered token | 15 of 15 cases on 4 routes | **Pass** | 2026-09-05 | TC-10 |
 | NFR-9 | Token expires after 15 min idle; account locks after 5 failed logins | 2 of 2 | **Pass** | 2026-09-05 | NFR-9 |
 | NFR-7 | 100% of endpoints reject a request without a valid token | API routes: 100% (TC-10). `/thumbs/` and `/media/`: 0% | **Fail** on the two static routes | 2026-09-24 | OMNI-307/308 |
-| NFR-5 | Data lost on failure or crash = 0 | 0 lost in 9 failure cases: restart, down/up, query killed mid-upload, consumer killed, broker recreated, ingestion restarted and killed, consumer stopped and killed mid-capture | **Pass** in the cases tested | 2026-09-12 to 09-26 | NFR-5, OMNI-311, OMNI-319 |
+| NFR-5 | Data lost on failure or crash = 0 | 0 lost in 9 failure cases: restart, down/up, query killed mid-upload, consumer killed, broker recreated, ingestion restarted and killed, consumer stopped and killed mid-capture. Rechecked for live on the slice 5 pipeline (admitted frames only, own queue): ingestion restarted and killed, `consumer-live` stopped and killed, 0 lost, 2 runs, 32 of 32 checks each | **Pass** in the cases tested | 2026-09-12 to 10-07 | NFR-5, OMNI-311, OMNI-319, OMNI-601 |
 | FR-1a | Accept live camera feeds and uploaded files | Files: one clip per dataset `ready`, metadata equal to `ffprobe`. Live: ~4.1 frames/s stored, recovers by itself after the source is killed | **Pass** | 2026-09-21, 09-26 | OMNI-300, OMNI-312, OMNI-313 |
 | FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57%. Live: every frame gated (15.0/s), 20-22% kept on `cam05`, counters balance | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26, 09-30 | OMNI-304, OMNI-305, OMNI-318, OMNI-501 |
 | FR-3 | Store each segment with time, source and image | Files: a row for every decoded frame. Live: a row for every admitted frame. Image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-30 | OMNI-304, OMNI-316, OMNI-501 |
@@ -1115,3 +1115,49 @@ machine, one pass of each browser step).
 
 **Not covered:** sixteen cameras; a real camera; a second browser; NFR-4 itself (measured in
 the NFR-4 revision entry, not rerun here).
+
+---
+
+## OMNI-601 · NFR-5 rechecked for live cameras on the slice 5 pipeline · 2026-10-07
+
+**Conditions:** the stack as it stands at the start of slice 6 (`master` at `24882ba`),
+already running; the machine as stated at the top. `scripts/verify_definition_of_done.py
+--only F`, two runs: `--camera cam02` and `--camera cam05` (simulator feeds). Each case uses a
+new camera, captures 14 s, applies the failure, waits for the queues to drain, lets capture
+go on 6 s, stops it, waits again, then compares.
+
+**The rule (K-11):** a live camera stores admitted frames only (OMNI-501), so gaps in a
+session's frame indexes are normal and are not read. Loss is a row whose file is missing, or
+fewer stored rows than the worker reported admitted: per session against the highest
+`camera_stats` report seen while it ran, and per camera against the lifetime counters. The
+check waits for the file queue, `omnisight.segments.live` and the camera queue (stats). The
+self-test flags a missing row, a missing file and a short count, and does not flag gaps.
+
+| Case | Run | Sessions (rows / reported admitted) | Camera total (rows / admitted) | Rows without file | Files without row | Lost |
+|---|---|---|---|---|---|---|
+| `restart ingestion` | cam02 | 14/14, 8/8 | 22 / 22 | 0 | 0 | 0 |
+| | cam05 | 14/14, 9/9 | 23 / 23 | 0 | 0 | 0 |
+| `kill ingestion` (SIGKILL), then `up -d` | cam02 | 14/14, 8/8 | 22 / 22 | 0 | 0 | 0 |
+| | cam05 | 14/13, 22/22 | 36 / 35 | 0 | 0 | 0 |
+| `consumer-live` stopped 15 s | cam02 | 44/44 | 44 / 44 | 0 | 0 | 0 |
+| | cam05 | 55/55 | 55 / 55 | 0 | 0 | 0 |
+| `consumer-live` killed (SIGKILL) 15 s | cam02 | 44/44 | 44 / 44 | 0 | 0 | 0 |
+| | cam05 | 55/55 | 55 / 55 | 0 | 0 | 0 |
+
+- **Both ingestion cases:** capture resumed by itself in a new session (OMNI-504) and went on
+  producing; every row stored before the failure was still there
+- **The kill on `cam05`:** 14 rows against a last report of 13: one frame admitted, published
+  and stored after the worker's last report and before the kill. Expected; a kill sends no
+  final report
+- **Consumer cases:** the live queue held 14-26 messages while `consumer-live` was down or
+  dead; all were stored once it started. 0 frames dropped by the worker (`dropped` 0 in every
+  case)
+- Both runs: **32 of 32 checks**
+
+**Result: 0 frames lost in all four cases, two runs, by the new rule.** Preliminary: one
+machine, two runs, one camera per case.
+
+**Not covered:** many cameras at once during a failure; a failure longer than 15 s (the
+backlog limit, `live_max_backlog` 2,000, was not reached); the broker recreated or killed
+with live capture running (OMNI-311 covered it for files only); few frames per case: the gate
+kept about 3-4% of frames on these feeds during the runs, so 22-55 admitted frames per case.

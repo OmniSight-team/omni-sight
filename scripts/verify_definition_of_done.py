@@ -1,4 +1,5 @@
-"""The definition of done for slices 3 and 4, run against the live stack (OMNI-319).
+"""The definition of done for slices 3 and 4, run against the live stack (OMNI-319);
+check F brought up to date for slice 5's live pipeline (OMNI-601).
 
 Checks, through the real API, database, broker and containers:
 
@@ -9,16 +10,25 @@ Checks, through the real API, database, broker and containers:
      stream are served (the click itself is a browser check, not done here)
   D  a camera started against the simulator: frames arrive continuously, counters climb
   E  the simulator killed: the camera goes unreachable, then recovers on its own
-  F  the worker restarted mid-capture, three ways, and nothing already accepted is lost:
+  F  a failure mid-capture, four ways, and nothing already accepted is lost:
        graceful  `docker compose restart ingestion`
        hard      `docker compose kill ingestion` (SIGKILL, no shutdown code runs)
-       consumer  `docker compose stop consumer`, then start (the queue must hold the backlog)
+       consumer  `docker compose stop consumer-live` for 15 s, then start (the queue holds the backlog)
+       killed    `docker compose kill consumer-live` for 15 s, then start
 
-"Accepted" means the broker confirmed the publish. For F the ground truth is the disk:
-every frame the worker admits is written to /data/frames before it is published, so a
-file on disk without a row is a frame that was never confirmed (allowed only at the very
-end of a killed worker's last moments), and a gap in the middle of a session's frame
-indexes, or a row whose file is missing, is a real loss.
+"Accepted" means the broker confirmed the publish. Since OMNI-501 a live camera stores
+admitted frames only, while its frame index counts every captured frame, so gaps in a
+session's indexes are normal and say nothing about loss. Loss is, instead:
+  - a row whose file is missing, or
+  - fewer stored rows than the worker said it had admitted: per session, against the
+    highest `camera_stats` report seen while it ran, and per camera, against the
+    lifetime `admitted` counters. The worker counts a frame as admitted after writing
+    it to disk, publishes it (confirmed) before taking the next frame, and reports
+    between frames, so every report's count was already confirmed by the broker.
+A file without a row is a frame written but never confirmed (allowed only for a killed
+worker's last moments). Since OMNI-504 the restarted worker resumes by itself. Since
+OMNI-502 live frames go to their own queue and consumer (`consumer-live`), so the check
+waits for the file queue, the live queue and the camera queue (the stats) to drain.
 
 Run from the repo root, in the background (it takes several minutes):
 
@@ -29,10 +39,10 @@ Run from the repo root, in the background (it takes several minutes):
 """
 
 import argparse
-import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from itertools import pairwise
 from pathlib import Path
@@ -77,12 +87,15 @@ def queue_depth(queue: str) -> int:
         return conn.channel().queue_declare(queue, passive=True).method.message_count
 
 
+DRAINED_QUEUES = (SETTINGS.segment_queue, SETTINGS.live_segment_queue, SETTINGS.camera_event_queue)
+
+
 def wait_drained(timeout_s: float = 180) -> bool:
     deadline = time.time() + timeout_s
     calm = 0
     while time.time() < deadline:
         try:
-            calm = calm + 1 if queue_depth(SETTINGS.segment_queue) == 0 else 0
+            calm = calm + 1 if all(queue_depth(q) == 0 for q in DRAINED_QUEUES) else 0
         except Exception:  # noqa: BLE001 - the broker may be busy; ask again
             calm = 0
         if calm >= 3:
@@ -152,32 +165,93 @@ def sessions_of(rows):
     return out
 
 
-def analyse(rows, disk: set[str]) -> dict:
-    """What a capture's stored rows say about loss, given the files on disk."""
+class StatsWatch:
+    """Reads a camera's `camera_stats` row every half second while a scenario runs and
+    keeps the highest `admitted` each session (worker) reported. Every report counts
+    frames the broker had already confirmed (see the docstring), so it is a floor for
+    that session's stored rows. Sessions are kept in the order they appeared."""
+
+    def __init__(self, camera_id: int):
+        self.camera_id = camera_id
+        self.by_session: dict[str, int] = {}
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.poll()
+            self._stop.wait(0.5)
+
+    def poll(self) -> None:
+        with SessionLocal() as s:
+            r = s.execute(text(
+                "select session_id, session_admitted_motion + session_admitted_heartbeat as admitted "
+                "from camera_stats where camera_id = :c"), {"c": self.camera_id}).first()
+        if r is not None and r.session_id:
+            self.by_session[r.session_id] = max(self.by_session.get(r.session_id, 0), r.admitted)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join()
+        self.poll()
+
+    def counts(self) -> list[int]:
+        return list(self.by_session.values())
+
+
+def lifetime_admitted(camera_id: int) -> int:
+    with SessionLocal() as s:
+        return s.execute(text(
+            "select coalesce(sum(admitted_motion + admitted_heartbeat), 0) from camera_stats where camera_id = :c"),
+            {"c": camera_id}).scalar_one()
+
+
+def analyse(rows, disk: set[str], session_counts: list[int], lifetime: int) -> dict:
+    """What a live capture's stored rows say about loss, given the files on disk and
+    the admitted counts the worker reported (per session, and the camera's lifetime
+    total). Gaps in the frame indexes are not looked at: they are normal (OMNI-501)."""
     row_paths = {r.frame_path for r in rows if r.frame_path}
-    gaps = []
-    for sess in sessions_of(rows):
-        idx = [r.frame_index for r in sess]
-        gaps.append((idx[0], idx[-1], sorted(set(range(idx[0], idx[-1] + 1)) - set(idx))))
-    return {"rows_without_file": row_paths - disk, "files_without_row": disk - row_paths, "sessions": gaps}
+    sessions = []
+    for i, sess in enumerate(sessions_of(rows)):
+        counted = session_counts[i] if i < len(session_counts) else None
+        sessions.append({"first": sess[0].frame_index, "last": sess[-1].frame_index, "rows": len(sess),
+                         "admitted": counted, "short": max(0, (counted or 0) - len(sess))})
+    # a session the worker reported but none of whose rows were stored is short by all of it
+    for counted in session_counts[len(sessions):]:
+        sessions.append({"first": None, "last": None, "rows": 0, "admitted": counted, "short": counted})
+    return {"rows_without_file": row_paths - disk, "files_without_row": disk - row_paths, "sessions": sessions,
+            "rows": len(rows), "lifetime_admitted": lifetime, "lifetime_short": max(0, lifetime - len(rows))}
 
 
 def selftest() -> None:
-    """The loss detector must be able to fail: feed it a loss and see it say so."""
+    """The loss detector must be able to fail: feed it a loss and see it say so, and
+    feed it a normal live capture (gaps in the indexes) and see it stay quiet."""
     from types import SimpleNamespace as R
 
-    def row(i, path=True):
-        return R(frame_index=i, timestamp_s=float(i), admitted=True, frame_path=f"/f/{i}.jpg" if path else None)
+    def row(i, session):
+        return R(frame_index=i, timestamp_s=float(session * 100 + i), admitted=True, frame_path=f"/f/{session}-{i}.jpg")
 
-    good = [row(i) for i in range(10)] + [row(i) for i in range(4)]  # a session of 10, then a restarted one of 4
-    disk = {f"/f/{i}.jpg" for i in range(10)}
-    ok = analyse(good, disk)
-    assert [(a, b, g) for a, b, g in ok["sessions"]] == [(0, 9, []), (0, 3, [])], ok
-    lost_row = analyse([r for r in good if r.frame_index != 5 or r.timestamp_s != 5.0], disk)
-    assert lost_row["sessions"][0][2] == [5] and lost_row["files_without_row"] == {"/f/5.jpg"}, lost_row
-    lost_file = analyse(good, disk - {"/f/2.jpg"})
-    assert lost_file["rows_without_file"] == {"/f/2.jpg"}, lost_file
-    print("selftest: the detector flags a missing row, a missing file, and keeps restarted sessions apart")
+    # live: admitted frames only, so the indexes have gaps; a session, then a restarted one
+    good = [row(i, 0) for i in (0, 3, 4, 9, 15, 16)] + [row(i, 1) for i in (0, 2, 7)]
+    disk = {r.frame_path for r in good}
+    ok = analyse(good, disk, [6, 3], 9)
+    assert [(x["first"], x["last"], x["rows"], x["short"]) for x in ok["sessions"]] == [(0, 16, 6, 0), (0, 7, 3, 0)], ok
+    assert not ok["rows_without_file"] and not ok["files_without_row"] and ok["lifetime_short"] == 0, ok
+    # a killed worker's last report is below what it stored: not a loss
+    assert analyse(good, disk, [4, 3], 7)["lifetime_short"] == 0
+    lost_row = analyse([r for r in good if r.frame_path != "/f/0-9.jpg"], disk, [6, 3], 9)
+    assert lost_row["sessions"][0]["short"] == 1 and lost_row["lifetime_short"] == 1, lost_row
+    assert lost_row["files_without_row"] == {"/f/0-9.jpg"}, lost_row
+    lost_file = analyse(good, disk - {"/f/1-2.jpg"}, [6, 3], 9)
+    assert lost_file["rows_without_file"] == {"/f/1-2.jpg"}, lost_file
+    short = analyse(good, disk, [6, 5], 11)
+    assert short["sessions"][1]["short"] == 2 and short["lifetime_short"] == 2, short
+    print("selftest: the detector flags a missing row, a missing file and a short count, "
+          "and does not flag the normal gaps of a live capture")
 
 
 def files_on_disk(camera_id: int) -> set[str]:
@@ -291,25 +365,33 @@ try:
     # -------------------------------------------------------------------- F
     if "F" in ONLY:
         def scenario(label: str, action, *, worker_dies: bool):
-            print(f"\nF. restart mid-capture: {label}")
+            print(f"\nF. failure mid-capture: {label}")
             cam = new_camera(c, f"restart-{label.split()[0]}")
             camera_ids.append(cam)
-            if not start_and_settle(c, cam, 14):
-                check(f"F/{label}. capture starts", False)
-                return
-            stored_before = len(rows_for(cam))
-            print(f"    before the action: {stored_before} rows stored")
-            action()
-            time.sleep(3)
-            drained = wait_drained()
-            time.sleep(3)
-            check(f"F/{label}. the queue drains afterwards", drained)
-            if not worker_dies:
-                # still capturing: prove it kept producing, then stop it and let the
-                # queue drain so the files and rows can be compared without a race
+            with StatsWatch(cam) as watch:
+                if not start_and_settle(c, cam, 14):
+                    check(f"F/{label}. capture starts", False)
+                    return
+                stored_before = len(rows_for(cam))
+                print(f"    before the action: {stored_before} rows stored")
+                action()
+                time.sleep(3)
+                drained = wait_drained()
+                time.sleep(3)
+                check(f"F/{label}. the queues drain afterwards", drained)
+                if worker_dies:
+                    # OMNI-504: query starts the camera's worker again by itself
+                    deadline = time.time() + 60
+                    while time.time() < deadline and len(sessions_of(rows_for(cam))) < 2:
+                        time.sleep(1)
+                    n_sessions = len(sessions_of(rows_for(cam)))
+                    check(f"F/{label}. capture resumed by itself in a new session (OMNI-504)", n_sessions >= 2,
+                          f"{n_sessions} sessions")
+                # capturing still (or again): prove it goes on producing, then stop it and let
+                # the queues drain so files, rows and counters are compared without a race
                 mid = len(rows_for(cam))
                 time.sleep(6)
-                check(f"F/{label}. the capture was never interrupted and went on producing", len(rows_for(cam)) > mid,
+                check(f"F/{label}. capture goes on producing after the failure", len(rows_for(cam)) > mid,
                       f"{mid} -> {len(rows_for(cam))} rows")
                 c.post(f"/cameras/{cam}/stop")
                 time.sleep(4)
@@ -317,49 +399,44 @@ try:
                 time.sleep(3)
             rows = rows_for(cam)
             disk = files_on_disk(cam)
-            found = analyse(rows, disk)
+            found = analyse(rows, disk, watch.counts(), lifetime_admitted(cam))
             check(f"F/{label}. rows stored before the action are still there", len(rows) >= stored_before, f"{stored_before} -> {len(rows)}")
             check(f"F/{label}. every stored frame's file exists (no row without its file)", not found["rows_without_file"],
                   f"{len(found['rows_without_file'])} rows without a file")
-            for i, (first, last, gaps) in enumerate(found["sessions"]):
-                check(f"F/{label}. session {i + 1}: frame indexes {first}..{last} have no gap", not gaps,
-                      f"missing {gaps[:8]}" if gaps else "")
+            for i, sess in enumerate(found["sessions"]):
+                check(f"F/{label}. session {i + 1}: stored rows not short of the admitted counter",
+                      sess["admitted"] is not None and sess["short"] == 0,
+                      f"{sess['rows']} rows, worker reported {sess['admitted']} admitted, indexes {sess['first']}..{sess['last']}")
+            check(f"F/{label}. camera total: stored rows not short of the lifetime admitted counter", found["lifetime_short"] == 0,
+                  f"{found['rows']} rows, {found['lifetime_admitted']} admitted")
             unconfirmed = found["files_without_row"]
             print(f"    files on disk without a row (written, never confirmed by the broker): {len(unconfirmed)}")
             check(f"F/{label}. at most a handful of frames were in flight", len(unconfirmed) <= (12 if worker_dies else 0), f"{len(unconfirmed)} files")
-            if worker_dies:
-                snap = json.loads(dc("exec", "-T", "ingestion", "/workspace/.venv/bin/python", "-c",
-                                     "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/workers').read().decode())").stdout or "[]")
-                print(f"    camera status now: {camera_status(c, cam)}; workers in ingestion: {[w['camera_id'] for w in snap]}")
-                check(f"F/{label}. the restarted worker did not resume by itself (known)", cam not in [w["camera_id"] for w in snap],
-                      "capture has to be started again")
-                again = c.post(f"/cameras/{cam}/start")
-                check(f"F/{label}. capture can be started again", again.status_code == 200, f"{again.status_code}")
-                time.sleep(8)
-                more = rows_for(cam)
-                check(f"F/{label}. new frames arrive as a new session and the old ones remain",
-                      len(sessions_of(more)) == len(found["sessions"]) + 1 and len(more) > len(rows), f"{len(rows)} -> {len(more)} rows")
-            c.post(f"/cameras/{cam}/stop")
-            time.sleep(4)
+            with SessionLocal() as s:
+                st = s.execute(text("select captured, dropped, gated, discarded from camera_stats where camera_id = :c"),
+                               {"c": cam}).first()
+            print(f"    camera_stats: captured {st.captured}, dropped {st.dropped}, gated {st.gated}, "
+                  f"admitted {found['lifetime_admitted']}, discarded {st.discarded}; per session seen: {watch.counts()}")
 
         scenario("graceful (docker compose restart ingestion)", lambda: (dc("restart", "ingestion"), ingestion_up()), worker_dies=True)
         scenario("hard (kill -9 the ingestion container)", lambda: (dc("kill", "ingestion"), dc("up", "-d", "ingestion"), ingestion_up()), worker_dies=True)
 
+        # OMNI-502: live frames are stored by `consumer-live`, from a queue of their own
         def stop_consumer_a_while():
-            dc("stop", "consumer")
+            dc("stop", "consumer-live")
             time.sleep(15)
-            print(f"    queue depth while the consumer is down: {queue_depth(SETTINGS.segment_queue)}")
-            dc("start", "consumer")
+            print(f"    live queue depth while consumer-live is down: {queue_depth(SETTINGS.live_segment_queue)}")
+            dc("start", "consumer-live")
 
-        scenario("consumer (stopped 15 s and started again)", stop_consumer_a_while, worker_dies=False)
+        scenario("consumer-live (stopped 15 s and started again)", stop_consumer_a_while, worker_dies=False)
 
         def kill_consumer_a_while():
-            dc("kill", "consumer")
+            dc("kill", "consumer-live")
             time.sleep(15)
-            print(f"    queue depth while the consumer is dead: {queue_depth(SETTINGS.segment_queue)}")
-            dc("start", "consumer")
+            print(f"    live queue depth while consumer-live is dead: {queue_depth(SETTINGS.live_segment_queue)}")
+            dc("start", "consumer-live")
 
-        scenario("consumer killed (kill -9 for 15 s, then started)", kill_consumer_a_while, worker_dies=False)
+        scenario("consumer-live killed (kill -9 for 15 s, then started)", kill_consumer_a_while, worker_dies=False)
 
     print("\n=== summary")
     for label, ok, detail in RESULTS:
@@ -368,6 +445,7 @@ try:
     print(f"\n{len(RESULTS) - len(failed)} passed, {len(failed)} failed")
 finally:
     dc("start", "consumer")
+    dc("start", "consumer-live")
     dc("start", "mediamtx")
     dc("up", "-d", "ingestion")
     if c is not None:

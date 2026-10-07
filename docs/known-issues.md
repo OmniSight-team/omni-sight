@@ -12,7 +12,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-8 | Storage grows about 7.7 GB per camera per day, nothing prunes | Disk | OMNI-312 | Slice 16 (retention) |
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
-| K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | **Ahmad's decision**: reword OMNI-506's acceptance or change the design (OMNI-506 done with it open) |
 | K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | Before the demo (moved 2026-10-04: not dealt with in slice 5) |
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
@@ -92,18 +91,6 @@ Not measured per day.
 - nginx resolves `query` and `frontend` once, when it starts. Restarting them together can
   swap their container addresses, and nginx then answers 502 for everything until it is
   restarted too (`docker compose restart nginx`; seen 2026-10-02, OMNI-507)
-
-## K-11 · The restart loss check no longer fits live rows
-
-`scripts/verify_definition_of_done.py` (OMNI-319) decides that a frame was lost across a
-restart from three things: a row without a file, a file without a row, and **a gap in a
-session's frame indexes**. Since OMNI-501 a live camera stores admitted frames only while the
-index still counts every gated frame, so gaps are normal and the third check will report
-loss where there is none. Read from the code, not run. The first two checks still hold.
-Since OMNI-502 it also waits for the wrong queue to empty: it reads the file queue
-(`segment_queue`), and live frames are on `omnisight.segments.live`.
-**Fix candidate:** drop the gap check for live sessions and rely on files against rows, or
-compare the stored rows with the `admitted` counter.
 
 ## K-12 · Preview polls on a live feed are never 304
 
@@ -199,6 +186,7 @@ the resume started all ten at once both times, 0 failed attempts, all `live` aga
 | K-5 | After an ingestion restart, workers do not resume and the camera still reads `connected` | FR-1a | OMNI-312, OMNI-319 | OMNI-504, 2026-10-02 |
 | K-15 | The simulator's frame size was written as 320x240; the clips are 640x360 | Stated conditions | 2026-10-02 | OMNI-509, 2026-10-03 |
 | K-2 | 10 concurrent feeds not sustained | NFR-4 | OMNI-317 | Resolved by revising NFR-4 to 3 per machine (D-19), 2026-10-03 |
+| K-11 | The restart loss check read index gaps as lost frames, and waited for the wrong queue | NFR-5 (the mid-capture check) | OMNI-501 | OMNI-601, 2026-10-07 |
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 
@@ -271,3 +259,18 @@ consumer commits (unmeasured); a separate live queue (K-1); services off the one
 (D-20), this machine sustains 3 realistic feeds over 10 minutes with the wall open; 4 hold for
 3 minutes, not 10. NFR-4 now reads 3 live feeds per machine of this class (D-19). The
 vectorised grid was not tried; it could raise the number, and stays a candidate.
+
+### K-11 · The restart loss check no longer fitted live rows · fixed 2026-10-07
+
+**Was:** `scripts/verify_definition_of_done.py` (OMNI-319) counted a gap in a session's frame
+indexes as a lost frame. Since OMNI-501 a live camera stores admitted frames only, so gaps are
+normal; and it waited for the file queue while live frames are on `omnisight.segments.live`
+(OMNI-502).
+**Fix (OMNI-601):** for live sessions the gap check is gone. Loss is a row without its file,
+or fewer stored rows than the worker reported admitted, per session (the highest
+`camera_stats` report seen while it ran) and per camera (the lifetime counters). It waits for
+the file, live and camera queues to drain. The consumer cases now stop and kill
+`consumer-live`. A self-test feeds the detector a missing row, a missing file and a short
+count (each flagged) and a capture with gaps (not flagged).
+**Result:** two runs (`cam02`, `cam05`), 32 of 32 checks each, 0 frames lost in all four
+cases (`results.md`, OMNI-601).

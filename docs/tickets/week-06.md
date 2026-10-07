@@ -93,14 +93,14 @@ normal, and the script reads them as losses; since OMNI-502 live frames are on
 `omnisight.segments.live`, and the script waits for the other queue. The NFR-5 scoreboard row
 still rests on OMNI-319, which tested the old pipeline.
 
-- [ ] For live sessions, drop the index-gap check. Loss is: a row without a file, or stored
+- [x] For live sessions, drop the index-gap check. Loss is: a row without a file, or stored
       rows short of the worker's `admitted` counter for that session
-- [ ] Wait for **both** queues to drain
-- [ ] Self-test: the detector flags a missing row, a missing file and a short count, and does
+- [x] Wait for **both** queues to drain
+- [x] Self-test: the detector flags a missing row, a missing file and a short count, and does
       **not** flag a normal gap
-- [ ] Rerun the four cases on the real stack: `restart ingestion`, `kill ingestion`, consumer
+- [x] Rerun the four cases on the real stack: `restart ingestion`, `kill ingestion`, consumer
       stopped 15 s, consumer `kill -9` 15 s (now `consumer-live`)
-- [ ] `results.md`: a new entry and the NFR-5 scoreboard row updated; K-11 moved to *Fixed*
+- [x] `results.md`: a new entry and the NFR-5 scoreboard row updated; K-11 moved to *Fixed*
 
 **Acceptance:** all four cases, zero frames lost by the new rule, recorded with the numbers.
 
