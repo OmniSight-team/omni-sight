@@ -27,6 +27,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
 | SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
 | UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
+| Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1211,3 +1212,54 @@ Vandalism 2.2 s (4). Small groups; read as indications.
 differs from training (Robbery 5 here, 109 timed in training); whether 30 fps holds for every
 video (OMNI-607 probes each); whether either annotation is right (OMNI-609, by eye); the 30
 test anomalies the rule could not time (they keep their official times).
+
+## OMNI-605 · The fixed split: counts per split per class, seed and hashes · 2026-10-08
+
+**Conditions:** `uv run python scripts/build_dataset_split.py`, the rule in D-22, seed 605,
+on the manifest from OMNI-604 (loaders on the local mirror with Drive's `video_files.txt`).
+Run twice: identical files. Deterministic; one machine.
+
+**UCF-Crime** (1,900):
+
+| Class | Train | Validation | Held-out |
+|---|---|---|---|
+| Abuse | 40 | 8 | 2 |
+| Arrest | 39 | 6 | 5 |
+| Arson | 35 | 6 | 9 |
+| Assault | 40 | 7 | 3 |
+| Burglary | 74 | 13 | 13 |
+| Explosion | 24 | 5 | 21 |
+| Fighting | 38 | 7 | 5 |
+| RoadAccidents | 108 | 19 | 23 |
+| Robbery | 124 | 21 | 5 |
+| Shooting | 23 | 4 | 23 |
+| Shoplifting | 24 | 5 | 21 |
+| Stealing | 81 | 14 | 5 |
+| Vandalism | 38 | 7 | 5 |
+| Normal | 680 | 120 | 150 |
+| **Total** | **1,368** | **242** | **290** |
+
+Anomalies with an event time: train 505 (UCA), validation 89 (UCA), held-out 140 (official).
+Untimed: train 183, validation 33.
+
+**CCD** (4,500):
+
+| Class | Train | Validation | Held-out |
+|---|---|---|---|
+| Crash | 1,032 (90 source videos) | 225 (23) | 243 (20) |
+| Normal | 2,100 | 450 | 450 |
+| **Total** | **3,132** | **675** | **693** |
+
+No source video on two sides (test). **VIRAT:** 275, all `evaluation`.
+
+**Files** (`datasets/splits/`, LF, sorted by `clip_key`, columns `clip_key,event_class,split`):
+
+| File | SHA-256 |
+|---|---|
+| `ucf_crime.csv` | `9d167d543433756afa846ee5f65f448a069fcf16334581b1575e05029a224a78` |
+| `ccd.csv` | `a555c747da58e32a0964278295bc993b4b1d115cb07afa89af9199282c7673c4` |
+| `virat.csv` | `a031e637e3e02b0281dd72c6c518af2cd780363684868d2be3546ac29ac5bddd` |
+
+**Not covered:** balance on anything but class (scene, camera, time of day); CCD normals
+cannot be grouped by source video (no field for it); held-out classes are as small as the
+official test set makes them (Abuse 2, Assault 3).

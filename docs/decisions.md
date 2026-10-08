@@ -397,3 +397,37 @@ often, it goes in `known-issues.md` before slice 9.
 
 **Not used:** UCA's own Train / Val / Test split (it is not the official one; OMNI-605 fixes
 the split from the official lists); its descriptions of non-crime events.
+
+## D-22 · The train / validation / held-out split, fixed once · 2026-10-08
+
+**Why:** every measurement from slice 9 on compares models on the same clips. Phase A asks
+for "held-out clips" (SM-2) and "a held-out validation split" to set alert thresholds
+(§3.5.4.2) but gives no fractions, so they are chosen here, before any window is used.
+
+**The rule** (`omnisight_common.datasets.split`, seed **605**, inputs sorted before every
+shuffle):
+
+| Dataset | Held-out | Validation | Train |
+|---|---|---|---|
+| UCF-Crime | the official 290 test videos, exactly | 15% of the official training list, per class, and within a class per timed / untimed | the rest |
+| CCD | 15% of crash clips, by whole source video; 15% of normal clips | the same | the rest |
+| VIRAT | evaluation only (SM-1); no training split | - | - |
+
+**Why 15%:** UCF-Crime's official test set is 290 of 1,900, 15%; validation and CCD's two
+held-back parts use the same share, so the parts are comparable in size across the two
+training datasets. Not tuned against anything.
+
+**Choices inside the rule:**
+- UCF-Crime validation is also stratified by timed / untimed, so validation keeps the same
+  share of videos that get lead-up windows as train (the ticket asked for class only)
+- CCD crash clips are assigned by `youtube_id`, whole groups at a time, in shuffled order,
+  to held-out until it reaches 15%, then validation, then train. A group is never split,
+  so held-out overshoots by part of one group: 243 crash clips instead of 225. CCD normals
+  (BDD100K) have no source-video field and are split per clip
+- Split names: `train`, `validation`, `held_out`, `evaluation`
+
+**The split never moves:** the committed `datasets/splits/*.csv` are the split.
+`scripts/build_dataset_split.py` rebuilds it and stops, writing nothing, if a rebuilt file
+differs from the committed one; a test checks the rebuild byte for byte. `.gitattributes`
+keeps `datasets/` byte-exact (no line-ending conversion) so the hashes hold on every
+checkout. Counts and hashes: `results.md`, OMNI-605.

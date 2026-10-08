@@ -289,3 +289,59 @@ only the 38 in the local mirror, because training runs on Colab from Drive.
 `dataset_manifest` holds every clip of the three datasets, 6,675 rows, every count equal to
 the audited numbers, and every loader trap has a passing test. `split` and `video_id` are
 empty until OMNI-605 and OMNI-608.
+
+---
+
+## OMNI-605 · Fix the train / validation / held-out split
+
+### Why this ticket exists
+
+Every measurement from now on compares on the same clips. A split that moves invalidates
+every comparison, so it is fixed once, before any window is derived.
+
+### What was done
+
+2026-10-08.
+
+- **Fractions.** Phase A asks for held-out clips and a held-out validation split but gives
+  no fractions. 15% everywhere, the share UCF-Crime's official test set already has (290 of
+  1,900). Written as **D-22**
+- **`omnisight_common.datasets.split`**: UCF-Crime held-out = the official test list;
+  validation 15% of the official training list per class, and within a class per timed /
+  untimed (the ticket said class; this keeps validation's share of windowed videos equal to
+  train's). CCD: crash clips by whole `youtube_id` group in shuffled order (held-out to 15%,
+  then validation, then train), normals per clip. VIRAT all `evaluation`. Seed 605, inputs
+  sorted before each shuffle, so nothing depends on dict or set order
+- **`scripts/build_dataset_split.py`** writes `datasets/splits/{ucf_crime,ccd,virat}.csv` and
+  `dataset_manifest.split`. If a committed CSV exists and the rebuild differs, it stops and
+  writes nothing: the split never moves
+- **`.gitattributes`** (new): `datasets/** -text`. `core.autocrlf` is on here; without it,
+  git would rewrite the CSVs' line endings on checkout and the recorded hashes would not
+  match the files a clone gets
+- **6 tests** in `services/common/tests/test_dataset_split.py` (8 cases): rebuild
+  byte-identical to the committed file per dataset, held-out exactly the official test list,
+  every UCF-Crime class in all three parts, no CCD source video on two sides, crash and
+  normal in every part, VIRAT evaluation only. Skipped when the local mirror is missing
+- D-22 in `decisions.md`; counts, seed and hashes in `results.md` with a scoreboard row
+
+### Verification performed
+
+- Ran the script twice: same files, same hashes; 0 manifest rows without a split
+- Guard: changed one line of `ccd.csv` by hand and ran the script: it refused and wrote
+  nothing; file restored, hash back to the recorded one
+- `git check-attr text datasets/splits/ccd.csv`: unset (no conversion)
+- Counts in Postgres agree with the CSVs: UCF-Crime held-out 140 official + 150 normal;
+  CCD 20 / 23 / 90 source videos in held-out / validation / train
+- `uv run pytest services/common/tests`: 26 passed; ruff clean
+
+### Not verified
+
+- Balance beyond class: scene, camera, time of day are not stratified
+- CCD normals may share source footage; CCD gives no field to group them by
+- The CSVs were not yet read on Colab
+
+### Result
+
+The split is fixed: UCF-Crime 1,368 / 242 / 290, CCD 3,132 / 675 / 693, VIRAT 275
+evaluation, seed 605, hashes in `results.md`. CCD's crash held-out is 243, not 225, because
+source videos are never split.

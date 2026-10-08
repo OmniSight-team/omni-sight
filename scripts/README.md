@@ -8,6 +8,9 @@ Not part of the running system.
 - `list_dataset_videos.py` — run in Colab against Drive: writes each dataset's `video_files.txt` (every
   video's relative path) and packs those plus VIRAT's full `annotations/`, empty directories kept, into
   `omni604_mirror.zip` for the local mirror (OMNI-604). Standard library only.
+- `build_dataset_split.py` — fixes the train / validation / held-out split (D-22), writes
+  `datasets/splits/*.csv` and `dataset_manifest.split`; refuses to write a split that differs from the
+  committed files (OMNI-605). Prints counts per split per class and the SHA-256 of each file.
 - `build_dataset_manifest.py` — fills `dataset_manifest` from the three loaders in
   `omnisight_common.datasets` and checks the counts against `docs/dataset-layout.md`; exits non-zero on
   a mismatch (OMNI-604). Upserts; never touches `split` or `video_id`.

@@ -190,14 +190,14 @@ audited numbers exactly, and every trap test passes.
 **Why:** every measurement from now on uses the same split. A split that moves invalidates
 every comparison.
 
-- [ ] **UCF-Crime:** held-out = the official 290 test videos (SM-4's normals stay there);
+- [x] **UCF-Crime:** held-out = the official 290 test videos (SM-4's normals stay there);
       validation carved from the official training list, stratified by class; train = the rest
-- [ ] **CCD:** stratified crash / normal; crash clips **grouped by `youtubeID`** so clips cut
+- [x] **CCD:** stratified crash / normal; crash clips **grouped by `youtubeID`** so clips cut
       from the same source video never sit on both sides
-- [ ] **VIRAT:** evaluation only (SM-1), no training split; recorded as such
-- [ ] A fixed seed; the split written to `dataset_manifest.split` **and** to committed CSV
+- [x] **VIRAT:** evaluation only (SM-1), no training split; recorded as such
+- [x] A fixed seed; the split written to `dataset_manifest.split` **and** to committed CSV
       files under `datasets/splits/`, with their SHA-256 in `results.md`
-- [ ] A test that rebuilding the split gives byte-identical files
+- [x] A test that rebuilding the split gives byte-identical files
 
 **Acceptance:** `results.md` records each dataset's counts per split per class, the seed and
 the file hashes.
