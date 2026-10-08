@@ -431,3 +431,34 @@ training datasets. Not tuned against anything.
 differs from the committed one; a test checks the rebuild byte for byte. `.gitattributes`
 keeps `datasets/` byte-exact (no line-ending conversion) so the hashes hold on every
 checkout. Counts and hashes: `results.md`, OMNI-605.
+
+## D-23 · The SM-3 target rule, written before CCD's footage was measured · 2026-10-08
+
+**Why:** D-2 sets SM-3's target from CCD's pre-event footage, before any model is trained,
+so it cannot be chosen to flatter a result. The rule comes first, then the numbers.
+
+**The rule** (OMNI-606's recommendation, adopted unchanged):
+
+> **SM-3 target = mean time-to-accident (mTTA) of at least half the median pre-event
+> footage in CCD's held-out crash clips.**
+
+- *Pre-event footage* of a crash clip = seconds from the clip's first frame to its first
+  accident frame = index of the first `1` in `binlabels` / 10 fps (`event_start_s` in the
+  manifest)
+- *Held-out crash clips* = the 243 crash clips with `split = held_out` (D-22)
+- Warning at the very first frame is the ceiling any model can reach; half of the median
+  means warning, on average, within the first half of the typical lead-up
+- The value is used as computed, not rounded to a friendlier number
+
+**Disclosed:** OMNI-604's sanity check printed the median start over all 1,500 crash clips
+(3.6 s) before this entry was written. The rule is the one written in the ticket file when
+the sprint was planned, before that; it is not changed here.
+
+**Applied** (`scripts/ccd_pre_event.py`, `results.md` OMNI-606): held-out median pre-event
+footage **3.60 s**, so **SM-3 target: mTTA ≥ 1.80 s**. The ceiling (warning at the first
+frame) is the held-out mean, 3.68 s.
+
+**What the distribution says:** every CCD crash clip has between 3.0 and 4.9 s before the
+accident (none under 1 s); the accident always falls in the last 2 s of the 5 s clip. That
+is how CCD was cut, not how long real lead-ups are, so the target measures early warning
+within CCD's window, not the 15 s Phase A asked for (D-2).

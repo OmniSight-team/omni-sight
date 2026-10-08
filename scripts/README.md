@@ -8,6 +8,8 @@ Not part of the running system.
 - `list_dataset_videos.py` — run in Colab against Drive: writes each dataset's `video_files.txt` (every
   video's relative path) and packs those plus VIRAT's full `annotations/`, empty directories kept, into
   `omni604_mirror.zip` for the local mirror (OMNI-604). Standard library only.
+- `ccd_pre_event.py` — CCD's footage before the first accident frame, all crash clips and per split,
+  and the SM-3 target from rule D-23 (OMNI-606). Reads label files only.
 - `build_dataset_split.py` — fixes the train / validation / held-out split (D-22), writes
   `datasets/splits/*.csv` and `dataset_manifest.split`; refuses to write a split that differs from the
   committed files (OMNI-605). Prints counts per split per class and the SHA-256 of each file.

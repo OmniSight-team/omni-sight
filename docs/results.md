@@ -25,7 +25,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, layouts and pins (no Phase A target) | Choose 4x4, pin a camera top-left, reload: both kept | Kept after a reload; the pin held when a camera was added and removed; blocked or broken storage falls back to 3x3 with no pins | **Pass** (one pass) | 2026-10-04 | OMNI-512 |
 | TC-1 | Live camera and uploaded file together: both decode, only motion (or heartbeat) forwarded, the camera live on the wall throughout | 2 runs, 15 of 15 checks each: file 1,930 of 1,930, 356 admitted, 0 violations; live counters exact, every stored row admitted; camera live at every sample | **Pass, complete** | 2026-09-26, 2026-10-03 | OMNI-316, OMNI-511 |
 | NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
-| SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
+| SM-3 | **mTTA ≥ 1.80 s** on CCD's held-out crash clips (D-2, rule D-23: half the held-out median pre-event footage, 3.60 s) | - | **Not measured yet** (no model before slice 10) | 2026-10-08 (target) | OMNI-606 |
 | UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
 | Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
@@ -1263,3 +1263,38 @@ No source video on two sides (test). **VIRAT:** 275, all `evaluation`.
 **Not covered:** balance on anything but class (scene, camera, time of day); CCD normals
 cannot be grouped by source video (no field for it); held-out classes are as small as the
 official test set makes them (Abuse 2, Assault 3).
+
+## OMNI-606 · CCD pre-event footage, and the SM-3 target · 2026-10-08
+
+**Conditions:** `uv run python scripts/ccd_pre_event.py`. All 1,500 crash clips from
+`Crash-1500.txt` (pre-event footage = first `1` in `binlabels` / 10 fps), split from the
+committed `datasets/splits/ccd.csv` (D-22). Rule D-23 written before running. Labels only:
+the videos were not read, so the 10 fps and 50 frames rest on the sampled clips
+(`dataset-layout.md`). Deterministic; one run.
+
+**Seconds before the first accident frame:**
+
+| Crash clips | n | Mean | Median | p10 | p25 | p75 | p90 | Min | Max | Under 1 s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| All | 1,500 | 3.72 | 3.60 | 3.00 | 3.20 | 4.20 | 4.60 | 3.00 | 4.90 | 0 |
+| Train | 1,032 | 3.73 | 3.60 | 3.00 | 3.20 | 4.20 | 4.60 | 3.00 | 4.90 | 0 |
+| Validation | 225 | 3.71 | 3.60 | 3.00 | 3.20 | 4.10 | 4.60 | 3.00 | 4.90 | 0 |
+| **Held-out** | **243** | **3.68** | **3.60** | 3.00 | 3.20 | 4.10 | 4.50 | 3.00 | 4.90 | 0 |
+
+Percentiles: linear interpolation between order statistics.
+
+**Histogram** (0.5 s bins):
+
+| Pre-event footage | All | Train | Validation | Held-out |
+|---|---|---|---|---|
+| 3.0-3.5 s | 606 | 408 | 95 | 103 |
+| 3.5-4.0 s | 376 | 261 | 54 | 61 |
+| 4.0-4.5 s | 290 | 199 | 44 | 47 |
+| 4.5-5.0 s | 228 | 164 | 32 | 32 |
+
+**SM-3 target (D-23):** half of 3.60 s = **mTTA ≥ 1.80 s**. Ceiling: 3.68 s (held-out mean,
+a warning at every clip's first frame).
+
+**Not covered:** the real lead-up before each crash (CCD clips start where the dataset cut
+them, so footage is never under 3.0 s or over 4.9 s); frame rates of the 1,490 crash clips
+not in the local mirror.

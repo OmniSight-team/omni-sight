@@ -345,3 +345,42 @@ every comparison, so it is fixed once, before any window is derived.
 The split is fixed: UCF-Crime 1,368 / 242 / 290, CCD 3,132 / 675 / 693, VIRAT 275
 evaluation, seed 605, hashes in `results.md`. CCD's crash held-out is 243, not 225, because
 source videos are never split.
+
+---
+
+## OMNI-606 · CCD pre-event footage, and the SM-3 target
+
+### Why this ticket exists
+
+D-2 replaced Phase A's 15 s (unreachable on DoTA) with mTTA on CCD, the target to be set from
+CCD's own pre-event footage before any model exists, by a rule written before the numbers.
+
+### What was done
+
+2026-10-08.
+
+- **Rule first.** D-23 written into `decisions.md` before the script existed: the ticket's
+  recommended rule, unchanged (target = half the median pre-event footage of the held-out
+  crash clips). Disclosed in D-23: OMNI-604's sanity check had already printed the median
+  over all crash clips (3.6 s); the rule predates that, in the ticket file
+- **`scripts/ccd_pre_event.py`**: reads the labels through the CCD loader and the split from
+  the committed CSV; mean, median, p10-p90, min, max, under 1 s and a 0.5 s histogram, for
+  all crash clips and per split; then applies D-23
+- **Result:** held-out median 3.60 s, **target mTTA ≥ 1.80 s**, written into the SM-3
+  scoreboard row and appended to D-23
+
+### Verification performed
+
+- Totals agree with OMNI-604's manifest check (min 3.0, median 3.6, max 4.9 over 1,500)
+- Split sizes 1,032 / 225 / 243 equal `results.md` OMNI-605
+- Histogram rows sum to each group's n
+
+### Not verified
+
+- Videos not read: 10 fps and 50 frames per clip rest on the clips sampled in OMNI-300;
+  OMNI-607 probes fps
+
+### Result
+
+SM-3 has a target, mTTA ≥ 1.80 s, from a rule written before the data was looked at.
+Every crash clip has 3.0-4.9 s before the accident; nothing to shorten or drop for OMNI-607.

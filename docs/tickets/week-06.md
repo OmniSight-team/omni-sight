@@ -209,13 +209,13 @@ the file hashes.
 **Why:** D-2. SM-3's target is set from CCD's measured pre-event footage **before any model is
 trained**, so it cannot be chosen to flatter the result.
 
-- [ ] **Write the rule before computing anything**, in `decisions.md`. Recommended: *SM-3
+- [x] **Write the rule before computing anything**, in `decisions.md`. Recommended: *SM-3
       target = mean time-to-accident of at least half the median pre-event footage in CCD's
       held-out crash clips.* Warning at the very first frame is the ceiling; half of it means
       warning in the first half of the lead-up
-- [ ] Across all 1,500 crash clips and per split: seconds before the first accident frame —
+- [x] Across all 1,500 crash clips and per split: seconds before the first accident frame —
       mean, median, p10, p25, p75, p90, min, max, a histogram, and how many have under 1 s
-- [ ] Apply the rule; the number goes in the SM-3 scoreboard row as the target
+- [x] Apply the rule; the number goes in the SM-3 scoreboard row as the target
 
 **Acceptance:** SM-3 has a target in `results.md`, derived by a rule written before the data
 was looked at.
