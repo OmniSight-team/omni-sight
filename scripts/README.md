@@ -5,6 +5,12 @@ maintenance.
 
 Not part of the running system.
 
+- `list_dataset_videos.py` — run in Colab against Drive: writes each dataset's `video_files.txt` (every
+  video's relative path) and packs those plus VIRAT's full `annotations/`, empty directories kept, into
+  `omni604_mirror.zip` for the local mirror (OMNI-604). Standard library only.
+- `build_dataset_manifest.py` — fills `dataset_manifest` from the three loaders in
+  `omnisight_common.datasets` and checks the counts against `docs/dataset-layout.md`; exits non-zero on
+  a mismatch (OMNI-604). Upserts; never touches `split` or `video_id`.
 - `measure_capture_latency.py` — capture-to-stored latency of a live camera, alone and with a
   file being extracted at the same time, plus the TC-1 checks (OMNI-316). Needs the stack up;
   see its docstring. Its results are recorded in `docs/results.md`.

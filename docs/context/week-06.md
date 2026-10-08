@@ -211,3 +211,81 @@ nothing to train on. UCA was the candidate, not yet checked for availability.
 UCA is obtainable and covers 804 of 810 training anomalies; the written rule times 594. Its
 starts sit a median 3.0 s from the official ones (34% within 1 s), so UCA-derived windows are
 less exact than official ones; OMNI-609 compares the two by eye. Decision D-21.
+
+---
+
+## OMNI-604 · Dataset manifest and the three loaders
+
+### Why this ticket exists
+
+Each dataset keeps its native layout, so each needs its own loader, and all three must emit
+one shared manifest. The manifest has to cover every clip from the annotation files, not
+only the 38 in the local mirror, because training runs on Colab from Drive.
+
+### What was done
+
+2026-10-08.
+
+- **Loaders** in `services/common/omnisight_common/datasets/` (`ucf_crime.py`, `ccd.py`,
+  `virat.py`), pure file readers with no database, so Colab can import them. The D-21 rule
+  moved unchanged from `scripts/uca_event_times.py` into `datasets/uca.py`; the script now
+  imports it
+- **The whole dataset without the whole dataset.** The mirror holds 38 videos. A loader
+  needs the list of every video file (CCD normals have no label file; UCF-Crime's class is
+  the folder on disk). `scripts/list_dataset_videos.py`, run in Colab, wrote
+  `<dataset>/video_files.txt` on Drive (UCF-Crime 1,950, CCD 4,500, VIRAT 329) and packed
+  those with VIRAT's full `annotations/` into a 31.7 MB zip, empty directories kept (865
+  files, 122 empty directories). Unzipped into `data/`
+- **Migration `48f90770010b`**, `dataset_manifest`, unique `(dataset, clip_key)`. Added to
+  the ticket's columns: `video_relpath` (where the file is, for OMNI-608) and `attributes`
+  JSONB (UCF-Crime's official list and second interval, CCD's `youtube_id` and conditions
+  for OMNI-605's grouping, VIRAT's scene and event counts). `annotation_source` says where
+  a time comes from: `ucf_crime_temporal`, `uca`, `ccd_binlabels`, `virat_events`, or why
+  there is none: `normal`, `untimed`
+- **Choices inside the loaders.** UCF-Crime test anomalies take the official time even when
+  UCA has one (86 official test anomalies sit in UCA's Train); the first interval is the
+  event, the second goes in `attributes` for OMNI-607 to skip and count. CCD
+  `event_end_s` = end of the last labelled frame. VIRAT rows carry no class or time
+  (many events per video, SM-1 only). Any inconsistency raises instead of being skipped:
+  a filename listed twice, a listed video not on disk, a list class that disagrees with the
+  disk folder, a crash clip with no label line, a mapping naming an object not in the
+  objects file
+- **`scripts/build_dataset_manifest.py`** upserts every entry (labels refreshed, `split` and
+  `video_id` never touched) and checks the counts; exits non-zero on a mismatch
+- **18 trap tests** in `services/common/tests/test_dataset_loaders.py`, each building a tiny
+  dataset with the trap in it: UCF-Crime event-recognition namesakes, a duplicate filename,
+  the 0-byte split-folder training list, class from the folder not `Part-N`, frames at 30
+  fps with a second interval, UCA's split not used, earliest matching UCA segment, normals'
+  lists; CCD commas inside the brackets, first `1` / 10 fps, `(subset, id)` identity, an
+  unlabelled crash clip; VIRAT empty directories, objects only, the three files together,
+  a mapping to a missing object, events without mapping, scene from the filename
+- Not loader traps, so no test here: UCF-Crime length and 30 fps (OMNI-607 probes), the
+  normal footage split three ways (OMNI-605), CCD's 5 s clips (OMNI-606), CCD normals from
+  BDD100K (slice 10), VIRAT's unbalanced scenes (SM-1's query draw)
+
+### Verification performed
+
+- Real stack (`docker compose up -d`), Postgres in Docker. Migration upgraded, downgraded,
+  upgraded; `alembic check`: no difference between model and migration
+- `build_dataset_manifest.py`: UCF-Crime 1,900, CCD 1,500 crash + 3,000 normal, VIRAT 275,
+  all equal to `dataset-layout.md`. 6,675 rows. Run twice: same rows
+- UCF-Crime: 140 official test times, 594 UCA times, 216 untimed (6 not in UCA, 210 no
+  segment matches), 950 normal; equal to D-21. 16 test videos have a second interval
+- VIRAT per scene equal to `dataset-layout.md`'s "with events" row, all 11 scenes
+- CCD crash starts 3.0 to 4.9 s, median 3.6 s; none at 0
+- `scripts/uca_event_times.py` output byte-identical before and after the move
+- `uv run pytest`: 405 passed, 1 skipped (the 18 new ones included); ruff clean on the new
+  and changed files
+
+### Not verified
+
+- The listings are Drive as of 2026-10-08; nothing checks they stay in step with Drive
+- No time is checked by eye: OMNI-609
+- The loaders were not run on Colab against Drive itself, only against the local mirror,
+  which uses the same relative paths
+
+### Result
+
+`dataset_manifest` holds every clip of the three datasets, 6,675 rows, every count equal to
+the audited numbers, and every loader trap has a passing test. `split` and `video_id` are
+empty until OMNI-605 and OMNI-608.

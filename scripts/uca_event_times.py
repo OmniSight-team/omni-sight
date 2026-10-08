@@ -10,7 +10,7 @@ The rule (written before the agreement was computed, from training-video descrip
 only; this is the "semi-automatic" part Phase A names):
 
   1. Each anomaly class has a list of word patterns naming its act (CLASS_PATTERNS
-     below: "collided", "crash" for RoadAccidents; "shot", "gun" for Shooting ...).
+     in `omnisight_common.datasets.uca`: "collided", "crash" for RoadAccidents; "shot", "gun" for Shooting ...).
   2. A video's event is the UCA segment with the **earliest start** whose description
      matches one of its class's patterns (UCA's segments are not in time order).
      Event start and end = that segment's start and end.
@@ -29,70 +29,21 @@ Run from the repo root (reads the local annotation mirror, nothing else):
   uv run python scripts/uca_event_times.py
 """
 
-import json
-import re
 import statistics
 from collections import Counter
 from pathlib import Path
+
+from omnisight_common.datasets.uca import CLASS_PATTERNS, class_of, pick_event
+from omnisight_common.datasets.uca import load_uca as _load_uca
 
 ROOT = Path(__file__).resolve().parents[1]
 ANN = ROOT / "data" / "ucf_crime" / "annotations"
 UCA = ANN / "uca" / "json"
 OFFICIAL_FPS = 30.0
 
-# Word patterns naming each class's act, matched case-insensitively on word starts.
-CLASS_PATTERNS: dict[str, list[str]] = {
-    "Abuse": [r"hit", r"beat", r"kick", r"punch", r"slap", r"slam", r"push", r"struck", r"strangl",
-              r"chok", r"drag", r"abus", r"threw .* (to|on) the (ground|floor|bed)"],
-    "Arrest": [r"arrest", r"handcuff", r"pressed", r"pinned", r"subdu", r"controll", r"detain",
-               r"pushed .* (down|ground)", r"escort", r"pulled .* out of"],
-    "Arson": [r"fire", r"burn", r"ignit", r"lit", r"flame", r"blaz", r"pour", r"sprinkl"],
-    "Assault": [r"beat", r"hit", r"punch", r"kick", r"stab", r"struck", r"knock", r"attack", r"slash",
-                r"push", r"slap", r"strangl"],
-    "Burglary": [r"broke", r"break", r"pry", r"pried", r"smash", r"kicked (in|open)", r"forc", r"climb",
-                 r"stole", r"steal", r"crowbar"],
-    "Explosion": [r"explo", r"blast", r"blew", r"detonat"],
-    "Fighting": [r"fight", r"fought", r"punch", r"kick", r"beat", r"hit", r"push", r"knock", r"struggl",
-                 r"scuffl", r"brawl", r"wrestl"],
-    "RoadAccidents": [r"collid", r"collision", r"crash", r"hit", r"knock", r"overturn", r"rolled over",
-                      r"accident", r"struck", r"ran over", r"run over"],
-    "Robbery": [r"gun", r"knife", r"pistol", r"weapon", r"threat", r"rob", r"grab", r"snatch", r"forc",
-                r"held up", r"point"],
-    "Shooting": [r"shot", r"shoot", r"gun", r"pistol", r"rifle", r"fired"],
-    "Shoplifting": [r"(put|stuff|tuck|hid|slipp)\w* .* (pocket|bag|pants|skirt|coat|clothes|purse|backpack|waist|sleeve)",
-                    r"conceal", r"hid", r"stole", r"steal"],
-    "Stealing": [r"stole", r"steal", r"pry", r"pried", r"broke", r"unlock", r"took away", r"(rode|drove|carried) away",
-                 r"took .* (from|out of)", r"lift"],
-    "Vandalism": [r"smash", r"kick", r"spray", r"paint", r"threw", r"broke", r"break", r"damag", r"destroy",
-                  r"graffiti", r"scratch", r"knock", r"overturn"],
-}
-COMPILED = {c: re.compile(r"\b(" + "|".join(p) + r")", re.IGNORECASE) for c, p in CLASS_PATTERNS.items()}
-
-
-def class_of(name: str) -> str:
-    """`Robbery048_x264` -> `Robbery`; `Normal_Videos_003_x264` -> `Normal`."""
-    if name.startswith("Normal"):
-        return "Normal"
-    return re.match(r"([A-Za-z]+)\d", name).group(1)
-
-
-def pick_event(event_class: str, entry: dict) -> tuple[float, float, str] | None:
-    """The rule: the earliest-starting UCA segment whose description names the class's act.
-    Returns (start_s, end_s, sentence), or None when no segment matches (no event time)."""
-    pattern = COMPILED.get(event_class)
-    if pattern is None:
-        return None
-    hits = [(a, b, s) for (a, b), s in zip(entry["timestamps"], entry["sentences"], strict=True) if pattern.search(s)]
-    return min(hits, key=lambda h: (h[0], h[1])) if hits else None
-
 
 def load_uca() -> dict[str, tuple[str, dict]]:
-    out = {}
-    for split in ("Train", "Val", "Test"):
-        for name, entry in json.loads((UCA / f"UCFCrime_{split}.json").read_text(encoding="utf-8")).items():
-            assert name not in out, name
-            out[name] = (split, entry)
-    return out
+    return _load_uca(UCA)
 
 
 def official_lists() -> tuple[list[str], list[str]]:

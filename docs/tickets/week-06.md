@@ -164,20 +164,20 @@ dataset_manifest(id, dataset, clip_key, domain, event_class, event_start_s, even
                  annotation_source, split, video_id NULL)
 ```
 
-- [ ] Copy every annotation file (small) into the local mirror: VIRAT's full `annotations/`,
+- [x] Copy every annotation file (small) into the local mirror: VIRAT's full `annotations/`,
       UCF-Crime's `annotations/` plus UCA, CCD's `Crash-1500.txt`
-- [ ] Alembic migration for `dataset_manifest`; `clip_key` is the dataset's own identity
+- [x] Alembic migration for `dataset_manifest`; `clip_key` is the dataset's own identity
       (`(subset, id)` for CCD, filename for UCF-Crime, base name for VIRAT); unique per dataset
-- [ ] **UCF-Crime:** class from the class folder, never `Part-N`; exclude
+- [x] **UCF-Crime:** class from the class folder, never `Part-N`; exclude
       `Normal_Videos_for_Event_Recognition/`; the real training list is the top-level
       `Anomaly_Train.txt` (the one in the splits folder is 0 bytes); up to two intervals per
       test video, frame numbers at 30 fps; training times from OMNI-603
-- [ ] **CCD:** pull the bracketed `binlabels` block out with a regex before splitting; event
+- [x] **CCD:** pull the bracketed `binlabels` block out with a regex before splitting; event
       start = first `1` / 10 fps; normal clips have no event
-- [ ] **VIRAT:** `isfile()`, not `exists()`; read events, objects and mapping together; only
+- [x] **VIRAT:** `isfile()`, not `exists()`; read events, objects and mapping together; only
       the 275 with events; scene from the filename
-- [ ] Each trap in `dataset-layout.md` has a test that fails if the loader falls into it
-- [ ] Counts after loading, against `dataset-layout.md`: UCF-Crime 1,900; CCD 1,500 + 3,000;
+- [x] Each trap in `dataset-layout.md` has a test that fails if the loader falls into it
+- [x] Counts after loading, against `dataset-layout.md`: UCF-Crime 1,900; CCD 1,500 + 3,000;
       VIRAT 275 with events
 
 **Acceptance:** the manifest holds every clip of the three datasets, the counts match the

@@ -26,6 +26,14 @@ Paths below are relative to the Drive root `MyDrive/omnisight/data/`. The local
 mirror under `phase-b/data/` uses **the same relative paths**, so a loader works
 unchanged against either.
 
+**The loaders** (OMNI-604) are `omnisight_common.datasets.{ucf_crime,ccd,virat}`; each
+emits one manifest entry per clip, written to the `dataset_manifest` table by
+`scripts/build_dataset_manifest.py`. They read the annotation files plus
+**`<dataset>/video_files.txt`**, one relative path per video file, made from the full
+copy on Drive by `scripts/list_dataset_videos.py` (2026-10-08: UCF-Crime 1,950, CCD
+4,500, VIRAT 329). The listing is not part of any download; it is what lets the
+manifest cover every clip while the mirror holds 38.
+
 ## At a glance
 
 | Dataset | Domain | Role | Videos | Status |
@@ -323,9 +331,9 @@ OMNI-318 gating check:
 
 | Dataset | Subset |
 |---|---|
-| UCF-Crime | ~10 anomaly clips across several classes, ~5 from `Testing_Normal_Videos_Anomaly/`, plus the annotations folder |
-| CCD | 10 from `Crash-1500/`, 10 from `Normal/`, plus `Crash-1500.txt` |
-| VIRAT | 3 videos from different scenes, plus their three annotation files each |
+| UCF-Crime | ~10 anomaly clips across several classes, ~5 from `Testing_Normal_Videos_Anomaly/`, plus the annotations folder (with UCA) and `video_files.txt` |
+| CCD | 10 from `Crash-1500/`, 10 from `Normal/`, plus `Crash-1500.txt` and `video_files.txt` |
+| VIRAT | 3 videos from different scenes, plus the **full** `annotations/` (987 names: 865 files, 122 empty directories, added 2026-10-08) and `video_files.txt` |
 
 The full sets stay on Drive, where Colab reads them for encoding and training. The
 local subset is also what the ten MediaMTX simulator feeds loop.

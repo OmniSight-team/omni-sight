@@ -9,6 +9,7 @@ from omnisight_common import (
     VideoSource,
     VideoStatus,
 )
+from omnisight_common.datasets import AnnotationSource
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -20,10 +21,12 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    UniqueConstraint,
     false,
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -264,3 +267,33 @@ class CameraStats(Base):
     # Frames processed per second, as the worker last reported it, and when.
     fps_effective: Mapped[float | None] = mapped_column(Float)
     reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DatasetManifest(Base):
+    """One row per clip of every dataset, from its annotation files (OMNI-604), whether
+    or not the clip is loaded into the product. Written by
+    `scripts/build_dataset_manifest.py`; `split` is set once by OMNI-605 and `video_id`
+    when the clip is uploaded (OMNI-608)."""
+
+    __tablename__ = "dataset_manifest"
+    __table_args__ = (UniqueConstraint("dataset", "clip_key", name="uq_dataset_manifest_clip"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dataset: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # The dataset's own identity: the filename for UCF-Crime, `subset/id` for CCD, the
+    # base name for VIRAT.
+    clip_key: Mapped[str] = mapped_column(String, nullable=False)
+    domain: Mapped[Domain] = mapped_column(_enum_column(Domain, "domain"), nullable=False)
+    event_class: Mapped[str | None] = mapped_column(String)
+    event_start_s: Mapped[float | None] = mapped_column(Float)
+    event_end_s: Mapped[float | None] = mapped_column(Float)
+    annotation_source: Mapped[AnnotationSource] = mapped_column(
+        _enum_column(AnnotationSource, "annotation_source"), nullable=False
+    )
+    split: Mapped[str | None] = mapped_column(String)
+    video_id: Mapped[int | None] = mapped_column(ForeignKey("videos.id", ondelete="SET NULL"))
+    # Where the video sits, relative to the dataset's folder on Drive and in the mirror.
+    video_relpath: Mapped[str] = mapped_column(String, nullable=False)
+    # What only one dataset has: UCF-Crime's official list and second interval, CCD's
+    # source video and conditions, VIRAT's scene and event counts.
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
