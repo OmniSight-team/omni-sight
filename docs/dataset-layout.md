@@ -34,6 +34,11 @@ copy on Drive by `scripts/list_dataset_videos.py` (2026-10-08: UCF-Crime 1,950, 
 4,500, VIRAT 329). The listing is not part of any download; it is what lets the
 manifest cover every clip while the mirror holds 38.
 
+**`<dataset>/video_probe.csv`** (UCF-Crime and CCD, OMNI-607): every listed video's fps,
+frame count and duration, read by `ffprobe` from the file on Drive by
+`scripts/probe_dataset_videos.py`. Lead-up windows are cut against these, never against an
+assumed rate or length.
+
 ## At a glance
 
 | Dataset | Domain | Role | Videos | Status |

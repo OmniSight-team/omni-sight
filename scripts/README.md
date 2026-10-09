@@ -8,6 +8,13 @@ Not part of the running system.
 - `list_dataset_videos.py` — run in Colab against Drive: writes each dataset's `video_files.txt` (every
   video's relative path) and packs those plus VIRAT's full `annotations/`, empty directories kept, into
   `omni604_mirror.zip` for the local mirror (OMNI-604). Standard library only.
+- `probe_dataset_videos.py` — run in Colab against Drive: `ffprobe` on every UCF-Crime and CCD video,
+  writes each dataset's `video_probe.csv` (fps, frames, duration) and packs both into `omni607_probe.zip`
+  for the local mirror (OMNI-607). Standard library plus `ffprobe`.
+- `build_event_windows.py` — derives the lead-up windows (D-24) from the manifest entries, the committed
+  split and the probes; exports `datasets/windows/*.csv` (refuses to change existing files) and fills
+  `event_windows` (OMNI-607). Prints counts per class, split and length, shortened and skipped counts,
+  videos off their labels' frame rate, and each file's SHA-256.
 - `ccd_pre_event.py` — CCD's footage before the first accident frame, all crash clips and per split,
   and the SM-3 target from rule D-23 (OMNI-606). Reads label files only.
 - `build_dataset_split.py` — fixes the train / validation / held-out split (D-22), writes

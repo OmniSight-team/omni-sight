@@ -462,3 +462,46 @@ frame) is the held-out mean, 3.68 s.
 accident (none under 1 s); the accident always falls in the last 2 s of the 5 s clip. That
 is how CCD was cut, not how long real lead-ups are, so the target measures early warning
 within CCD's window, not the 15 s Phase A asked for (D-2).
+
+## D-24 · How lead-up windows are cut, and when an event gets none · 2026-10-09
+
+**Why:** Phase A derives lead-up windows "by working backward from each known event"
+(§3.4, §3.6) and runs the predictor on "30s and 60s" windows (TC-5), but does not say what
+happens at the edges: an event near the start of its video, a video with two events, a
+dataset whose clips are 5 s long, or where negative windows come from. The rules are fixed
+here, in `omnisight_common.datasets.windows`, before the windows are used.
+
+**The rules** (seed **607**, inputs sorted before any random draw):
+
+| Case | Rule |
+|---|---|
+| Positive, UCF-Crime | `[event_start - L, event_start)` for L = 30 s and 60 s. Half-open: a window never contains any part of the event |
+| Less than L before the event | the window starts at 0 instead, keeps its nominal L, and is flagged `shortened` |
+| Second interval (16 UCF-Crime test videos) | no window: its lead-up runs through the first event. Skipped and counted, per L |
+| Event at 0 s | no window (no footage before it). Skipped and counted |
+| Event after the probed end of its video | no window. Skipped and counted |
+| Anomaly with no time (216 UCF-Crime training videos, D-21) | no window. Recorded as skipped, per L, so every anomaly is accounted for |
+| Positive, CCD | one window `[0, accident_start)`, as long as the footage is (3.0-4.9 s, D-23). Its nominal length is empty: no 30 s or 60 s window exists on CCD and none is made |
+| Negative, UCF-Crime | one window per normal video and L, start drawn uniformly from `[0, duration - L]` (floored to the millisecond); a video shorter than L gives `[0, duration)`, flagged `shortened` |
+| Negative, CCD | one window per normal clip; its length drawn from the crash windows of the **same split**, so negatives have the positives' length distribution; position drawn as above |
+| Split | every window takes its clip's split from `datasets/splits/` (D-22) |
+
+**Duration and fps from each video's own probe, never assumed.** The full videos are on
+Drive; `scripts/probe_dataset_videos.py` runs `ffprobe` on every UCF-Crime and CCD file in
+Colab and writes `video_probe.csv` (fps, frame count, duration). The derivation stops if any
+video has no probe. UCF-Crime's official frame numbers stay converted at 30 fps (its readme);
+every video not at 30 fps (CCD: 10 fps) is listed in `results.md`, not silently re-timed.
+
+**Shortened windows are kept, not dropped.** A positive window of 1 s before an event is
+still lead-up footage; dropping it would remove most UCF-Crime events whose annotated start
+sits in the first seconds. The flag and the real `length_s` travel with every window, so
+training can filter by length without the windows being re-derived.
+
+**Fixed once, like the split:** `scripts/build_event_windows.py` exports
+`datasets/windows/{dataset}.csv` and `{dataset}_skipped.csv` and refuses to overwrite an
+existing file with different content; `event_windows` rows are inserted, never replaced, so
+OMNI-609's hand-check verdicts survive a rerun. Counts and hashes: `results.md`, OMNI-607.
+
+**Disclosed:** before this entry was written, the build script was smoke-tested once with
+stand-in durations (UCA's, 600 s otherwise) to check that it runs end to end; that output
+was deleted. The rules above were in the code before that run and were not changed after it.

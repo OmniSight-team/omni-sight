@@ -233,22 +233,22 @@ event_windows(id, manifest_id, window_start_s, window_end_s, length_s, event_cla
               split, derived, verified, verified_by, verified_at)
 ```
 
-- [ ] **Positive windows:** for every timed event, `window_end = event_start` and
+- [x] **Positive windows:** for every timed event, `window_end = event_start` and
       `window_start = event_start - L`, for **L = 30 s and 60 s** on UCF-Crime. A window never
       contains any part of the event
-- [ ] **Too little footage before the event:** keep the window shortened to what exists, flag
+- [x] **Too little footage before the event:** keep the window shortened to what exists, flag
       it, and count them per L (UCF-Crime events that start in the first seconds)
-- [ ] **Second interval** (UCF-Crime test): its lead-up overlaps the first event → skipped and
+- [x] **Second interval** (UCF-Crime test): its lead-up overlaps the first event → skipped and
       counted
-- [ ] **CCD:** one window per crash clip, `[0, accident_start)`, length as it is (under 5 s,
+- [x] **CCD:** one window per crash clip, `[0, accident_start)`, length as it is (under 5 s,
       D-2); no 30 s or 60 s windows exist on CCD and none are invented
-- [ ] **Negative windows:** from normal videos, the same lengths, seeded random positions,
+- [x] **Negative windows:** from normal videos, the same lengths, seeded random positions,
       in the normal video's own split
-- [ ] `fps` from each video's own probe, never assumed: UCF-Crime frame numbers are converted
+- [x] `fps` from each video's own probe, never assumed: UCF-Crime frame numbers are converted
       at 30 fps and any video not at 30 fps is reported
-- [ ] Export `datasets/windows/{dataset}.csv` (window, class, split, length, flags) for Colab;
+- [x] Export `datasets/windows/{dataset}.csv` (window, class, split, length, flags) for Colab;
       SHA-256 in `results.md`
-- [ ] `results.md`: windows per dataset, per class, per split, per L; shortened and skipped
+- [x] `results.md`: windows per dataset, per class, per split, per L; shortened and skipped
       counts
 
 **Acceptance:** every timed event has its windows or a recorded reason it has none; the CSVs

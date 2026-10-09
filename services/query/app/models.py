@@ -297,3 +297,42 @@ class DatasetManifest(Base):
     # What only one dataset has: UCF-Crime's official list and second interval, CCD's
     # source video and conditions, VIRAT's scene and event counts.
     attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+class EventWindow(Base):
+    """A lead-up window derived from a manifest clip (OMNI-607, D-24): positive windows end
+    where an event starts, negative ones sit in normal videos. Written by
+    `scripts/build_event_windows.py` from the committed `datasets/windows/*.csv`; the hand
+    check (OMNI-609) sets `verified`, `verified_by` and `verified_at`."""
+
+    __tablename__ = "event_windows"
+    __table_args__ = (
+        # One window per clip, kind and length. CCD's length is NULL (as long as the footage),
+        # so NULLs must count as equal.
+        UniqueConstraint(
+            "manifest_id", "kind", "nominal_length_s", name="uq_event_windows_window", postgresql_nulls_not_distinct=True
+        ),
+        CheckConstraint("window_start_s >= 0 AND window_end_s > window_start_s", name="ck_event_windows_bounds"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    manifest_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_manifest.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # positive / negative
+    # L (30 or 60 s on UCF-Crime); NULL on CCD, where a window is as long as the footage.
+    nominal_length_s: Mapped[float | None] = mapped_column(Float)
+    window_start_s: Mapped[float] = mapped_column(Float, nullable=False)
+    window_end_s: Mapped[float] = mapped_column(Float, nullable=False)
+    length_s: Mapped[float] = mapped_column(Float, nullable=False)
+    # Less footage than L before the event: the window starts at 0 instead.
+    shortened: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    event_class: Mapped[str] = mapped_column(String, nullable=False)
+    domain: Mapped[Domain] = mapped_column(_enum_column(Domain, "domain"), nullable=False)
+    split: Mapped[str] = mapped_column(String, nullable=False)
+    # True: derived automatically from an annotation, not drawn by hand.
+    derived: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # NULL until the hand check looks at it; then whether the window is right.
+    verified: Mapped[bool | None] = mapped_column(Boolean)
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

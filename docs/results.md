@@ -28,6 +28,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | SM-3 | **mTTA ≥ 1.80 s** on CCD's held-out crash clips (D-2, rule D-23: half the held-out median pre-event footage, 3.60 s) | - | **Not measured yet** (no model before slice 10) | 2026-10-08 (target) | OMNI-606 |
 | UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
 | Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
+| Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1298,3 +1299,87 @@ a warning at every clip's first frame).
 **Not covered:** the real lead-up before each crash (CCD clips start where the dataset cut
 them, so footage is never under 3.0 s or over 4.9 s); frame rates of the 1,490 crash clips
 not in the local mirror.
+
+## OMNI-607 · The lead-up windows: counts, shortened and skipped, and hashes · 2026-10-09
+
+**Conditions:** `uv run python scripts/build_event_windows.py`, rules D-24, seed 607, on the
+OMNI-604 manifest and the committed split (D-22). Every video's fps and duration from
+`ffprobe` on Drive (`scripts/probe_dataset_videos.py`, Colab, 2026-10-09): 1,950 UCF-Crime
+and 4,500 CCD files, 0 probe errors; the 35 local mirror clips probed locally gave
+identical rows. Run twice: identical files, no new rows. Deterministic; one machine.
+
+**UCF-Crime positive windows** (one per timed event and L; the same per L, 680 each):
+
+| Class | Train | Validation | Held-out |
+|---|---|---|---|
+| Abuse | 26 | 6 | 2 |
+| Arrest | 25 | 4 | 5 |
+| Arson | 32 | 6 | 9 |
+| Assault | 36 | 6 | 3 |
+| Burglary | 37 | 6 | 13 |
+| Explosion | 14 | 2 | 21 |
+| Fighting | 29 | 6 | 5 |
+| RoadAccidents | 74 | 13 | 23 |
+| Robbery | 89 | 13 | 5 |
+| Shooting | 17 | 2 | 23 |
+| Shoplifting | 14 | 3 | 21 |
+| Stealing | 45 | 8 | 5 |
+| Vandalism | 22 | 5 | 5 |
+| **Total, per L** | **485** | **86** | **140** |
+
+Accounting for the 950 anomalies, per L: 680 windows (140 official times, 540 UCA)
++ 54 events at 0 s + 216 untimed = 950. Plus 16 second intervals skipped (held-out).
+
+**UCF-Crime negative windows:** 950 per L (train 680, validation 120, held-out 150), one per
+normal video.
+
+**How much footage the windows really have** (length in seconds):
+
+| Windows | n | Shortened | p25 | Median | p75 | Under 5 s | Under 10 s |
+|---|---|---|---|---|---|---|---|
+| Positive, L = 30 s | 680 | **454** (67%) | 5.8 | 15.8 | 30.0 | 155 | 256 |
+| Positive, L = 60 s | 680 | **571** (84%) | 5.8 | 15.8 | 38.8 | 155 | 256 |
+| Negative, L = 30 s | 950 | 172 | 30.0 | 30.0 | 30.0 | 0 | 14 |
+| Negative, L = 60 s | 950 | 402 | 37.0 | 60.0 | 60.0 | 0 | 14 |
+
+Shortest positive: 0.033 s (one frame). Shortened positives by source, L = 30 s: official
+81 of 140 (median length 20.7 s), UCA 373 of 540 (median 15.0 s); L = 60 s: 109 and 462.
+**Most UCF-Crime events start less than 30 s into their video**, so a full 30 s lead-up exists
+for a third of them and a full 60 s for a sixth.
+
+**Skipped** (`ucf_crime_skipped.csv`, 572 rows):
+
+| Reason | Per L | Note |
+|---|---|---|
+| Event starts at 0 s | 54 | all UCA times (train 45, validation 9); none official |
+| No event time | 216 | D-21: 6 not in UCA, 210 no matching segment |
+| Second interval | 16 | held-out test videos |
+| Event after the probed end | 0 | |
+
+**CCD:** 1,500 positive windows `[0, accident_start)` (train 1,032, validation 225, held-out
+243), 3.0-4.9 s, median 3.6 s, none shortened or skipped; 3,000 negatives (2,100 / 450 / 450),
+lengths drawn from the same split's crash windows. All 4,500 clips at 10 fps; 4,498 run
+5.000 s, 2 run 4.900 s.
+
+**Frame rates:** 11 UCF-Crime videos are not at 30 fps: `Arrest050` (29.97) and 10 training
+normals in `Training-Normal-Videos-Part-2` (25: `Normal_Videos586, 600, 635, 644, 645, 648,
+649, 650, 651, 653`). None has an official frame-number time (Arrest050 is timed by UCA in
+seconds; normals have no event), so no window is affected by the 30 fps conversion.
+
+**`event_windows`:** 7,760 rows (UCF-Crime 3,260, CCD 4,500), equal to the CSVs. In SQL:
+0 positive windows ending anywhere but their event start, 0 windows whose split differs from
+the manifest, 0 negatives on a non-normal clip, 0 verified yet.
+
+**Files** (`datasets/windows/`, LF, sorted by clip, kind, length):
+
+| File | Rows | SHA-256 |
+|---|---|---|
+| `ucf_crime.csv` | 3,260 | `9115e1afc9d68ce4cebdd61d910619bf4a511df333f60795deb4429b7a2fd500` |
+| `ucf_crime_skipped.csv` | 572 | `d8c85c4d43a91e5a3b74ed0aa261db9756c6fc4deeabc75ef71bd2361a462a5e` |
+| `ccd.csv` | 4,500 | `6e892642198d80e447d91ba30b6dd3c6aa3aaaebf72da4ee7760d57e9adfa044` |
+| `ccd_skipped.csv` | 0 | `c0776c437b989dcea1504d875a69a305718ebafc3c6a3064123382ce4c4a8284` |
+
+**Not covered:** whether any window is right by eye (OMNI-609); whether the 54 UCA events
+at 0 s really start at 0 s or the D-21 rule picked a scene-setting segment; whether the
+shortened windows carry enough lead-up to learn from (slice 9 and on); the CSVs not yet read
+on Colab.

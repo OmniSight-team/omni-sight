@@ -384,3 +384,76 @@ CCD's own pre-event footage before any model exists, by a rule written before th
 
 SM-3 has a target, mTTA ≥ 1.80 s, from a rule written before the data was looked at.
 Every crash clip has 3.0-4.9 s before the accident; nothing to shorten or drop for OMNI-607.
+
+---
+
+## OMNI-607 · Derive the lead-up windows
+
+### Why this ticket exists
+
+The sprint's dependency milestone. Phase A derives lead-up windows by working backward from
+each known event and feeds the predictor 30 s and 60 s windows; no dataset ships them, and
+slices 9 to 12 train on them.
+
+### What was done
+
+2026-10-09.
+
+- **Probe first.** The ticket wants each video's fps from its own probe, and negative
+  windows need each normal video's length, but only 38 videos are local.
+  `scripts/probe_dataset_videos.py` (standard library plus `ffprobe`, header only) ran in
+  Colab against Drive, like `list_dataset_videos.py`, and wrote `video_probe.csv` for
+  UCF-Crime and CCD: 6,450 files, 0 errors. Unzipped into `data/`
+- **`omnisight_common.datasets.windows`**: pure functions over the loaders' entries, the
+  committed split and the probes. Positive `[start - L, start)`, L = 30 / 60 s on UCF-Crime;
+  CCD one window `[0, accident)`; shortened to 0 and flagged; second interval, event at 0 s,
+  event past the video's end and untimed anomalies skipped with a reason; negatives at a
+  seeded random position (seed 607), CCD negatives with a length drawn from the same split's
+  crash windows. A missing or failed probe stops the derivation
+- **Rules written as D-24** for the cases the ticket left open (negative lengths on CCD, a
+  normal video shorter than L, events at 0 s, keeping shortened windows)
+- **Migration `5c0e2f7a9b13`**, `event_windows`: the ticket's columns plus `kind`,
+  `nominal_length_s` (NULL on CCD) and `shortened`; unique `(manifest_id, kind,
+  nominal_length_s)` with NULLs not distinct; a check that every window has positive length
+- **`scripts/build_event_windows.py`** writes `datasets/windows/{dataset}.csv` and
+  `{dataset}_skipped.csv`, refuses to change an existing file (like the split), inserts rows
+  with `ON CONFLICT DO NOTHING` so OMNI-609's verdicts survive a rerun, and prints the counts,
+  the off-rate videos and the hashes. `.gitattributes` already keeps `datasets/**` byte-exact
+- **15 tests** in `services/common/tests/test_event_windows.py`: window ends at the event,
+  shortening, second interval per L, the three skip reasons, negatives inside the video and
+  in their split, a short normal video, determinism and input order, CCD's single window,
+  CCD negative lengths per split, off-rate report, missing / failed probe, and the committed
+  files rebuilt byte for byte
+- **A detour:** before writing D-24, the build was smoke-tested once with stand-in
+  durations (UCA's, else 600 s) to see it run end to end; output and rows deleted, the rules
+  unchanged after. Disclosed in D-24
+- `results.md` entry and scoreboard row; `scripts/README.md`, `dataset-layout.md` updated
+
+### Verification performed
+
+- Real stack, Postgres in Docker. Migration upgraded, downgraded, upgraded; `alembic check`
+  clean; `\d event_windows` shows `NULLS NOT DISTINCT` and the check constraint
+- Drive probe vs local probe on the 35 mirror clips: identical rows
+- Ran the build twice: identical files, still 7,760 rows. Guard: edited line 2 of `ccd.csv`,
+  the script refused and wrote nothing (exit 1); file restored, hash back
+- Accounting: 680 + 54 + 216 = 950 anomalies per L; 540 = 594 UCA - 54 at 0 s
+- SQL: 0 positives ending off their event start, 0 split mismatches with the manifest,
+  0 negatives on non-normal clips
+- `git check-attr text datasets/windows/ccd.csv`: unset
+- `uv run pytest services/common/tests`: 41 passed. Full suite: 425 passed, 1 failed
+  (`test_no_frame_is_lost_or_counted_twice_across_a_reconnection`, the intermittent failure
+  already in `known-issues.md`; 53 of 53 on rerun of its file). Ruff clean on new files
+
+### Not verified
+
+- No window looked at by eye: OMNI-609
+- The 54 UCA events at 0 s: real starts, or the D-21 rule picking a scene-setting sentence?
+  Worth a look in OMNI-609
+- The CSVs not yet read on Colab; not yet copied to Drive
+
+### Result
+
+7,760 windows derived, exported and hashed: UCF-Crime 680 positive and 950 negative per L,
+CCD 1,500 positive and 3,000 negative. Every anomaly has its windows or a recorded reason.
+Most UCF-Crime events start early in their video: 67% of 30 s and 84% of 60 s positive
+windows are shortened (median 15.8 s of footage), which slice 9 has to live with.
