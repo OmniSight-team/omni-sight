@@ -457,3 +457,86 @@ slices 9 to 12 train on them.
 CCD 1,500 positive and 3,000 negative. Every anomaly has its windows or a recorded reason.
 Most UCF-Crime events start early in their video: 67% of 30 s and 84% of 60 s positive
 windows are shortened (median 15.8 s of footage), which slice 9 has to live with.
+
+---
+
+## OMNI-608 · Load the datasets into the product
+
+### Why this ticket exists
+
+The plan put CCD (4,500), VIRAT with events (275) and UCF-Crime held-out (290) into the
+product so slice 7 could encode them and the dashboard would show real volumes, with the
+sprint rule that dataset footage goes through the normal upload path.
+
+### What was done
+
+2026-10-09. The ticket changed scope half-way (D-26); both halves are here.
+
+- **The shared upload function.** `POST /videos/upload`'s body moved into `store_video()`
+  (sniff, stream, row, probe), behaviour unchanged (its 15 tests pass). An `on_insert` hook
+  writes the manifest link in the video row's own transaction. `claim_extraction()` came
+  out of the extract route so the loader claims a video the same way
+- **`POST /datasets/{name}/load {limit}`** (admin) and **`GET /datasets`** in
+  `services/query/app/datasets.py`: a background thread loads clips one at a time through
+  `store_video`, then `run_extraction`; resumable (a clip is done when `ready` with a
+  finished extraction; a stored but unextracted clip is extracted, not stored again); a
+  `failed` count added to the ticket's response for the acceptance check and OMNI-612.
+  The mirror is mounted read-only into `query` at `/datasets`
+- **Never expires:** `source = dataset`, `retention_until` NULL; `backfill_retention.py`
+  now skips dataset rows (it would have given them a date)
+- **Estimate first.** The full videos are on Drive: `plan_dataset_load.py` listed the 5,065
+  clips, `estimate_dataset_load.py` (Colab) gave size and frames: 50 GB, 2.13M frames. Two
+  limits would be hit (19 files over 500 MB, two hour-long videos past the 900 s timeout);
+  Ahmad chose to raise both. Then measured live: 34-55 ms per frame end to end at 720p, not
+  the 12-15 ms the estimate assumed, so about 20-23 h with the simulator stopped (27-34 h
+  with it). A stray live worker from a test run was found eating CPU (K-19)
+- **K-18 found and fixed on the way:** five query test files delete every video; with
+  hours of dataset footage in the dev database, one `uv run pytest` would have wiped it.
+  The query tests' `conftest.py` now points them at `omnisight_test`, created and migrated
+  on the fly
+- **The full load started, then stopped (D-26).** Drive for desktop was installed, the copy
+  ran (1,354 CCD clips) and the load was waiting for them when Ahmad asked what the
+  footage is for: real users never see datasets, and model measurements need a GPU, so they
+  run on Colab. Decision D-26: the product holds only OMNI-609's hand-check sample. Copy and
+  load stopped before any clip was loaded; the copied clips, three trial videos and the
+  throwaway admin were removed; the two raised limits reverted (D-25). `CLAUDE.md`'s
+  measuring rule now separates system measurements (the stack) from model measurements
+  (Colab)
+- **The sample, drawn here for OMNI-609:** `omnisight_common.datasets.hand_check`, seed 609:
+  UCF-Crime 15 official + 15 UCA, round-robin over the 13 classes; CCD 30 crash clips.
+  `datasets/hand_check/sample.csv`, fixed like the split; mounted into `query` at
+  `/hand_check`. Copied (60 clips, sizes checked against Drive) and loaded through the API
+- **K-4** moves to slice 7 (Ahmad); 67.6% kept on the 30 sampled CCD clips recorded
+
+### Verification performed
+
+- Real stack: 60 of 60 `ready`, 0 failed; all `source = dataset`, no retention date, linked
+  in the manifest; `GET /datasets` both `loaded`; storage +2.06 GB. Before that, a 3-clip
+  trial through the live endpoint (deleted after)
+- `test_dataset_load.py` (6): admin only (401 / 403 / 404), clips go through `store_video`
+  as `dataset` with no retention date and the file copied byte for byte, only the sample
+  is loaded, a missing file is counted, a stored but unextracted clip resumes without a
+  second copy, a finished dataset re-queues only its failures, the upload route still sets
+  a retention date
+- `test_hand_check_sample.py` (3): redraw byte-identical, 15 + 15 sources each over 13
+  classes, 30 distinct crash clips. The script run twice: same hash
+- Query suite on `omnisight_test`: 260 passed, the dev database untouched (3 users, 6,675
+  manifest rows)
+- Settings in the running `query` container: 500 MB, 900 s, the sample path; nginx 500m
+- Full `uv run pytest`: 435 passed, 1 skipped, 2 failed, both in ingestion's
+  `test_live_capture.py` (drop-summary log timing); that file then passed 53 of 53 three
+  times. No ingestion code changed here; noted under K-14
+
+### Not verified
+
+- A restart in the middle of a real load (the resume logic is tested with a stubbed
+  extraction, not by killing `query` mid-load)
+- VIRAT through the load path (not loaded, D-26)
+- K-19's cause (which test leaves the worker running)
+
+### Result
+
+Dataset footage enters the product only through the upload function and never expires. The
+full load was estimated (50 GB, 20-34 h) and then dropped by D-26: model measurements run
+on Colab, and the product holds the 60-clip hand-check sample, loaded in 36 min with no
+failure. K-4 moved to slice 7; K-18 fixed; K-19 opened.

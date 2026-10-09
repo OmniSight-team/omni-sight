@@ -29,6 +29,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
 | Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
 | Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
+| Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1383,3 +1384,79 @@ the manifest, 0 negatives on a non-normal clip, 0 verified yet.
 at 0 s really start at 0 s or the D-21 rule picked a scene-setting segment; whether the
 shortened windows carry enough lead-up to learn from (slice 9 and on); the CSVs not yet read
 on Colab.
+
+## OMNI-608 · Estimate before loading the datasets into the product · 2026-10-09
+
+**Conditions:** the clips to load listed from the manifest (`scripts/plan_dataset_load.py`:
+CCD all, VIRAT the 275 with events, UCF-Crime the 290 held-out), then size and `ffprobe`
+(header: fps, `nb_frames`, duration) of each file on Drive (`scripts/estimate_dataset_load.py`,
+Colab). 5,065 files, 0 errors, every file reported its frame count. Load time extrapolated
+from OMNI-311's publish cost (12-15 ms per frame), not measured.
+
+| Subset | Videos | Size | Frames | Footage | Frame rates | Over 500 MB | Over 60k frames |
+|---|---|---|---|---|---|---|---|
+| CCD | 4,500 | 7.34 GB | 224,998 | 6.25 h | all 10 | 0 | 0 |
+| VIRAT (with events) | 275 | 34.67 GB | 793,686 | 7.82 h | 23.97 (153), 29.97 (89), 30 (31), 2 others | 17 (largest 1,608 MB) | 0 (largest 29,580) |
+| UCF-Crime held-out | 290 | 7.99 GB | 1,111,808 | 10.30 h | all 30 | 2 (906, 589 MB) | 2 (107,994 and 107,997) |
+| **Total** | **5,065** | **50.0 GB** | **2,130,492** | 24.4 h | | 19 | 2 |
+
+**Load time, first estimate:** publishing 2.13M frames at 12-15 ms = 7.1-8.9 h, plus a
+playback copy for every CCD clip (all 4,500 are MPEG-4 Part 2, not H.264), roughly 1-2 h:
+about 8-11 h. **Too low**, see the measurement below.
+
+**Disk:** 50 GB in the local mirror plus 50 GB copied into `video_storage` by the upload
+path, plus admitted-frame JPEGs, roughly 10-20 GB (extrapolated from 24.2 KB per admitted
+frame at 640x360, OMNI-312; not measured on these resolutions). About 120 GB; 428 GB free.
+
+**Measured before the full load** (the real stack, through `POST /videos/upload` and
+`/extract`, the Drive copy running at the same time; one or two runs each, preliminary):
+
+| Clip | Resolution | Conditions | Extraction, end to end |
+|---|---|---|---|
+| 3 CCD clips via `POST /datasets/ccd/load` | 1280x720, 50 frames | simulator on | 6.9 s per clip (playback copy 2.5-3.5 s, publish 2.2-3.1 s) |
+| VIRAT_S_010208_07 | 1280x720, 461 frames | simulator on + a stray live worker (K-19) / simulator on / simulator off (x2) | 55.2 / 39.1 / 34.3, 34.2 ms per frame |
+| Normal_Videos170 (UCF-Crime) | 320x240, 1,086 frames | same three conditions | 32.4 / 42.3 / 22.9, 19.4 ms per frame |
+
+The 12-15 ms per frame from OMNI-311 was publish only, on 640x360; end to end at these
+resolutions it is 2-4 times that. **Revised projection, simulator stopped:** CCD 6.3-8.6 h,
+VIRAT about 7.5 h, UCF-Crime 5.9-7.1 h, **about 20-23 h** with `mediamtx` stopped (the ten
+simulator feeds cost 40-75% of a core), 27-34 h with it running.
+
+**Outcome: the full load was not run (D-26).** A copy from Drive was started (1,354 CCD
+clips copied, then deleted) and stopped before any clip was loaded. Model measurements move
+to Colab; the product loads only the 60-clip hand-check sample (next entry).
+
+**Limits the full load would have hit:** 19 files over the 500 MB upload limit; 2 videos
+whose publish (22-27 min) exceeds the 900 s extract timeout. Raised, then reverted with
+D-26 (D-25).
+
+## OMNI-608 · The hand-check sample loaded into the product · 2026-10-09
+
+**Conditions:** the real stack (`docker compose up -d`, simulator running, no cameras),
+the 60 clips of `datasets/hand_check/sample.csv` (D-26) copied from Drive
+(`scripts/copy_dataset_subsets.py`, 32 copied and 28 already local, sizes equal to Drive,
+2 min 21 s), then loaded through `POST /datasets/{name}/load` via nginx
+(`scripts/run_dataset_load.py`), which runs each clip through `store_video` (the upload
+path), then extraction. One run.
+
+| Dataset | Clips | Ready | Failed | Load time | Size | Footage | Frames gated | Kept |
+|---|---|---|---|---|---|---|---|---|
+| CCD | 30 | 30 | 0 | 2 min 4 s | 17.4 MB | 2.5 min | 1,500 | 1,014 (67.6%) |
+| UCF-Crime | 30 | 30 | 0 | 33 min 46 s | 1,028 MB | 1.35 h | 145,307 | 30,701 (21.1%) |
+
+All 60: `source = dataset`, `retention_until` NULL, `ready` with a finished extraction,
+`dataset_manifest.video_id` set, no `error`. Every CCD clip got a playback copy (MPEG-4
+Part 2 originals); no UCF-Crime clip needed one (H.264). `GET /datasets`: both `loaded`,
+30 of 30, 0 failed. No stray live worker in ingestion afterwards (K-19).
+
+**Storage** (Docker volumes, after minus before): `video_storage` +1.07 GB (originals plus
+CCD playback copies), `frame_storage` +0.59 GB, `thumb_storage` +0.40 GB: 0.99 GB for 31,715
+kept frames, **about 31 KB per kept frame** (frame plus thumbnail).
+
+**CCD kept 67.6%** on these 30 crash clips (57% on 10 in OMNI-318): the dash-cam moves, so
+most frames look like motion (K-4). Preliminary, 30 clips; the full-set number moves to
+slice 7, on Colab (D-26).
+
+**Not covered:** VIRAT (not loaded, D-26); the full datasets (estimate above); a restart
+in the middle of a real load (the resume is covered by `test_dataset_load.py` only); load
+time with cameras capturing.

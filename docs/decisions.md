@@ -505,3 +505,58 @@ OMNI-609's hand-check verdicts survive a rerun. Counts and hashes: `results.md`,
 **Disclosed:** before this entry was written, the build script was smoke-tested once with
 stand-in durations (UCA's, 600 s otherwise) to check that it runs end to end; that output
 was deleted. The rules above were in the code before that run and were not changed after it.
+
+## D-25 · Dataset footage enters through the upload function · 2026-10-09
+
+**Why:** the sprint rule is that dataset footage is ordinary footage: no back door into the
+product.
+
+**How:**
+- `POST /videos/upload`'s body became `store_video()` (sniff, stream to storage, row,
+  probe), unchanged in behaviour; `POST /datasets/{name}/load` calls the same function for
+  each clip, read from the mirror mounted read-only into `query` at `/datasets`, then
+  extracts it like any video, one clip at a time. Only two things differ: `source =
+  dataset`, and `retention_until` is NULL, never a date. `scripts/backfill_retention.py`
+  now skips dataset rows, which it would otherwise have given a date
+- Resumable without a queue of its own: a clip is done when its video is `ready` with a
+  finished extraction; each call takes the clips not done yet. The manifest link is written
+  in the video row's own transaction, so a restart never stores a clip twice
+- Which clips: D-26
+
+**Tests on their own database** (K-18): the query tests now run on `omnisight_test`,
+created and migrated by their `conftest.py`, so `uv run pytest` can never delete footage
+loaded into the stack.
+
+**Considered and reverted the same day:** for the full load the ticket first planned
+(5,065 clips), the upload limit was raised to 2,048 MB (19 files over 500 MB) and the
+extract timeout to 2,400 s (two hour-long videos). D-26 dropped the full load, so both are
+back to 500 MB and 900 s: no change to the product without a reason that still holds.
+
+## D-26 · Model measurements on Colab; the product holds only the hand-check sample · 2026-10-09
+
+**Why:** OMNI-608 planned to load CCD (4,500), VIRAT (275) and UCF-Crime held-out (290)
+into the product, so models could later be measured inside it. Measured first (`results.md`,
+OMNI-608): 50 GB, 2.13M frames, **about 20-23 h of extraction on this machine** with the
+simulator stopped, 27-34 h with it running. But real users never see dataset footage: they
+connect cameras and upload files. The system is aimed at organisations that already run
+GPUs, and the model measurements (SM-1 to SM-4: embeddings, search quality, forecasting)
+need one; this laptop has none. Running them through a CPU-only local stack would measure
+the laptop, not the method.
+
+**Decision (Ahmad, 2026-10-09):**
+- **Model measurements run on Colab** (GPU), from Drive, with the same code
+  (`services/common`) and the committed split, windows and sample files. The "real running
+  stack" rule in `CLAUDE.md` applies to system measurements (latency, throughput, data loss,
+  storage, the dashboard), not to model accuracy
+- **The product holds only what it needs to show:** the 60 clips of OMNI-609's hand-check
+  sample (30 UCF-Crime: 15 official, 15 UCA, every class; 30 CCD), drawn once with seed 609
+  into `datasets/hand_check/sample.csv`, loaded through D-25's path. The window view plays
+  them
+- VIRAT is not loaded; SM-1's search evaluation runs on Colab
+
+**Not a Phase A deviation:** Phase A does not say where the success metrics are computed.
+It is a change to this sprint's plan (OMNI-608's "what goes in").
+
+**What it costs:** the dashboard's "real footage volumes" are the sample's (60 clips), not
+5,065. The CCD retention on all 4,500 clips (K-4) is a property of Algorithm 1, not of the
+stack, so it moves to a Colab run of the same gate code.

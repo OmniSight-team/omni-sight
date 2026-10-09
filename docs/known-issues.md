@@ -6,7 +6,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | # | Issue | Affects | Found | Must be dealt with by |
 |---|---|---|---|---|
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
-| K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
+| K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 7 (moved 2026-10-09: when kept frames are encoded) |
 | K-6 | Re-gate takes 1.4-2.0 s, grows with length | OMNI-310 target | OMNI-310 | When long recordings are used |
 | K-7 | Publishing costs 12-15 ms per frame | Upload throughput, K-1 | OMNI-311 | With K-1 |
 | K-8 | Storage grows about 7.7 GB per camera per day, nothing prunes | Disk | OMNI-312 | Slice 16 (retention) |
@@ -16,6 +16,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
+| K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
 
 ---
 
@@ -32,6 +33,10 @@ On daylight dash-cam footage (CCD crash) the gate keeps 57%; four clips keep eve
 frame. Raising the threshold cuts fixed-camera activity too, so it is not a fix. A design
 question for Algorithm 1 (e.g. compensating for global motion) before CCD is loaded at
 scale.
+**2026-10-09 (OMNI-608):** 67.6% kept on the 30 CCD clips of the hand-check sample (1,014 of
+1,500). CCD is no longer loaded at scale (D-26); the full 4,500-clip number is measured on
+Colab with the same gate code, in slice 7, where each kept frame starts costing an
+embedding. Algorithm 1 stays as written.
 
 ## K-6 · Re-gate latency
 
@@ -129,6 +134,24 @@ leaves it pending; if the worker is stopped before the read loop counts it, `gra
 one below what the stream delivered, which is what the test compares. The frame is a
 fraction of a second's worth at a moment the camera is being stopped anyway.
 **Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
+**2026-10-09 (OMNI-608):** two other tests in the same file failed once in a full run,
+`test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
+`test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
+summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
+No ingestion code changed in that ticket. Timing-dependent, like the first.
+
+## K-19 · A test run left a live worker capturing for a deleted camera
+
+2026-10-09, during OMNI-608: ingestion's `GET /workers` listed a running worker for camera
+2291, started at 12:05 (when the query suite had just run against the dev database), with
+38,228 frames grabbed; the `cameras` table was empty. It used about 73% of a core in
+ingestion and kept the simulator busy, and it slowed the dataset load's extraction (VIRAT
+55 ms per frame with it, 39 without). Stopped by hand with `POST /workers/stop`. Likely
+source: a query test that reaches the real ingestion (the resume tests in
+`test_live_state.py` start workers through `CaptureResumer`); not confirmed. The query tests
+now use their own database (K-18), but they still share the one ingestion service.
+**Fix candidates:** stop every worker a test started in its teardown; or have the resumer
+stop workers whose camera no longer exists.
 
 ## K-17 · The wall's layout went back to 3x3 by itself
 
@@ -174,6 +197,22 @@ the resume started all ten at once both times, 0 failed attempts, all `live` aga
 | K-2 | 10 concurrent feeds not sustained | NFR-4 | OMNI-317 | Resolved by revising NFR-4 to 3 per machine (D-19), 2026-10-03 |
 | K-11 | The restart loss check read index gaps as lost frames, and waited for the wrong queue | NFR-5 (the mid-capture check) | OMNI-501 | OMNI-601, 2026-10-07 |
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" could not hold | OMNI-506 acceptance | OMNI-503 | Fixed (reworded): OMNI-602, 2026-10-07 |
+| K-18 | `uv run pytest` deleted every video in the dev database | Loaded datasets (OMNI-608) | OMNI-608 | OMNI-608, 2026-10-09 |
+
+### K-18 · The test suite deleted every video in the dev database · fixed 2026-10-09
+
+Five query test files clean up with `session.query(Video).delete()` (or a camera delete
+that cascades): `test_video_upload.py`, `test_video_probe.py`, `test_video_retention.py`,
+`test_video_playback.py`, `test_camera_crud.py`. They run against the database in `.env`,
+the same one the stack uses. Until slice 6 that held only throwaway uploads; once
+OMNI-608 loads 5,065 dataset videos (hours of extraction), one `uv run pytest` deletes
+their rows and segments (cascade) and unlinks `dataset_manifest.video_id` (SET NULL),
+leaving the files orphaned in the volumes. Found reading the tests, not by losing data.
+**Fix candidates:** run the suite against its own database (`POSTGRES_DB=omnisight_test`,
+created and migrated once); or have each test delete only the rows it created.
+**Fixed 2026-10-09 (OMNI-608, D-25):** `services/query/tests/conftest.py` points the tests at
+`omnisight_test` before the app is imported, creates it if missing and migrates it to head.
+Full query suite: 260 passed; the dev database kept its 3 users and 6,675 manifest rows.
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 

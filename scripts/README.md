@@ -15,6 +15,17 @@ Not part of the running system.
   split and the probes; exports `datasets/windows/*.csv` (refuses to change existing files) and fills
   `event_windows` (OMNI-607). Prints counts per class, split and length, shortened and skipped counts,
   videos off their labels' frame rate, and each file's SHA-256.
+- `plan_dataset_load.py` — lists the footage OMNI-608 first planned to load (CCD all, VIRAT the 275 with
+  events, UCF-Crime the 290 held-out; dropped by D-26, kept as the record of the estimate) from the loaders and the committed split into `data/omni608_subsets.txt`.
+- `estimate_dataset_load.py` — run in Colab against Drive with that list: size, fps, frames and duration
+  of every clip to load, into `omni608_estimate.csv` (OMNI-608's estimate). Standard library plus `ffprobe`.
+- `build_hand_check_sample.py` — draws the 60-clip hand-check sample once (seed 609, D-26) into
+  `datasets/hand_check/sample.csv`; refuses to write a different one. These are the only dataset clips
+  loaded into the product.
+- `copy_dataset_subsets.py` — copies the sampled clips from Drive (mounted by Google Drive for desktop)
+  into `data/`, native paths kept, size checked against Drive; rerunnable.
+- `run_dataset_load.py` — loads the sample through `POST /datasets/{name}/load` as a throwaway admin,
+  dataset by dataset, and prints the time and counts (OMNI-608).
 - `ccd_pre_event.py` — CCD's footage before the first accident frame, all crash clips and per split,
   and the SM-3 target from rule D-23 (OMNI-606). Reads label files only.
 - `build_dataset_split.py` — fixes the train / validation / held-out split (D-22), writes

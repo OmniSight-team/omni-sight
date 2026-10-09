@@ -270,16 +270,16 @@ POST /datasets/{name}/load {limit} -> {queued}
 **CCD: all 4,500** · **VIRAT: the 275 with events** · **UCF-Crime: the 290 held-out test
 videos.**
 
-- [ ] **Estimate first:** total size and frames of each subset (`ffprobe`), and load time from
+- [x] **Estimate first:** total size and frames of each subset (`ffprobe`), and load time from
       OMNI-311's measured publish cost (12-15 ms per frame); if the total is over 24 h, stop
       and decide with Ahmad before loading
-- [ ] Copy the subsets from Drive into `data/` (native paths)
-- [ ] `POST /datasets/{name}/load` (admin only) loads up to `limit` manifest clips not yet
+- [x] Copy the subsets from Drive into `data/` (native paths)
+- [x] `POST /datasets/{name}/load` (admin only) loads up to `limit` manifest clips not yet
       loaded, **one at a time through the same function as `POST /videos/upload`**, then
       extraction; sets `dataset_manifest.video_id`; resumable after a restart
-- [ ] **Dataset videos never expire:** `source = dataset`, `retention_until` null. The slice 16
+- [x] **Dataset videos never expire:** `source = dataset`, `retention_until` null. The slice 16
       retention job must never delete research data
-- [ ] Update `dataset-layout.md`'s last section: the load endpoint exists and calls the upload
+- [x] Update `dataset-layout.md`'s last section: the load endpoint exists and calls the upload
       path
 - [ ] **K-4:** with all 4,500 CCD clips gated, record retention on the full set (was 57% on
       10 clips). Algorithm 1 stays as written; K-4's deadline moves to slice 7, where kept

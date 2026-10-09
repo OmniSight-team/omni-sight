@@ -1,8 +1,9 @@
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import BinaryIO, Literal
 
 from fastapi import (
     APIRouter,
@@ -23,6 +24,7 @@ from app.db import SessionLocal, get_db
 from app.deps import get_current_user
 from app.extraction import (
     GateError,
+    claim_extraction,
     remove_segment_files,
     run_extraction,
     run_gate,
@@ -74,27 +76,36 @@ def _detect_video_extension(header: bytes) -> str | None:
     return None
 
 
-@router.post("/upload", response_model=VideoUploadResponse, status_code=status.HTTP_201_CREATED)
-def upload_video(
-    request: Request,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> VideoUploadResponse:
-    # A plain (not async def) route: FastAPI runs it in its threadpool, so
-    # the blocking chunk-by-chunk disk writes below never stall the event
-    # loop the way they would inside an async handler.
+class UploadRejected(Exception):
+    """The bytes were refused before any row was written: not a video, or
+    over the size limit. The upload route turns it into the HTTP error."""
+
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def store_video(
+    stream: BinaryIO,
+    filename: str | None,
+    db: Session,
+    *,
+    source: VideoSource = VideoSource.UPLOAD,
+    on_insert: Callable[[Video], None] | None = None,
+) -> tuple[Video, str | None]:
+    """What `POST /videos/upload` does with a file, for any caller: sniff,
+    stream to storage, insert the row, probe. Dataset footage (OMNI-608) comes
+    through here too, so it meets the same checks and the same probe; it
+    differs only in `source` and in never expiring. `on_insert` runs in the
+    row's own transaction, so a caller can link the new video atomically.
+    Returns the video and the probe error, if any."""
     max_bytes = _max_upload_bytes()
 
-    content_length = request.headers.get("content-length")
-    if content_length is not None and int(content_length) > max_bytes:
-        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=_size_limit_message())
-
-    source = file.file
-    header = source.read(64)
+    header = stream.read(64)
     extension = _detect_video_extension(header)
     if extension is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=NOT_A_VIDEO_MESSAGE)
+        raise UploadRejected(status.HTTP_400_BAD_REQUEST, NOT_A_VIDEO_MESSAGE)
 
     storage_dir = Path(settings.video_storage_path)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -108,39 +119,64 @@ def upload_video(
     try:
         with open(staging_path, "wb") as out:
             out.write(header)
-            while chunk := source.read(CHUNK_SIZE):
+            while chunk := stream.read(CHUNK_SIZE):
                 total_bytes += len(chunk)
                 if total_bytes > max_bytes:
-                    raise HTTPException(
-                        status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=_size_limit_message()
-                    )
+                    raise UploadRejected(status.HTTP_413_CONTENT_TOO_LARGE, _size_limit_message())
                 out.write(chunk)
     except Exception:
         staging_path.unlink(missing_ok=True)
         raise
-    finally:
-        file.file.close()
 
     staging_path.replace(final_path)
 
     # created_at and retention_until come from one timestamp and go in with
     # the same INSERT, so no row ever exists without a retention date and the
-    # gap between them is exactly the configured number of days.
+    # gap between them is exactly the configured number of days. Dataset
+    # footage is research data and never expires (OMNI-608): no date at all.
     created_at = datetime.now(UTC)
     video = Video(
-        filename=file.filename or stored_name,
+        filename=filename or stored_name,
         path=str(final_path),
-        source=VideoSource.UPLOAD,
+        source=source,
         size_bytes=total_bytes,
         status=VideoStatus.UPLOADED,
         created_at=created_at,
-        retention_until=created_at + timedelta(days=settings.video_retention_days),
+        retention_until=None
+        if source == VideoSource.DATASET
+        else created_at + timedelta(days=settings.video_retention_days),
     )
     db.add(video)
+    if on_insert is not None:
+        db.flush()
+        on_insert(video)
     db.commit()
     db.refresh(video)
 
-    probe_error = _probe_and_finalize(video, db)
+    return video, _probe_and_finalize(video, db)
+
+
+@router.post("/upload", response_model=VideoUploadResponse, status_code=status.HTTP_201_CREATED)
+def upload_video(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> VideoUploadResponse:
+    # A plain (not async def) route: FastAPI runs it in its threadpool, so
+    # the blocking chunk-by-chunk disk writes below never stall the event
+    # loop the way they would inside an async handler.
+    content_length = request.headers.get("content-length")
+    if content_length is not None and int(content_length) > _max_upload_bytes():
+        file.file.close()
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=_size_limit_message())
+
+    try:
+        video, probe_error = store_video(file.file, file.filename, db)
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    finally:
+        file.file.close()
 
     return VideoUploadResponse(
         id=video.id,
@@ -366,21 +402,8 @@ def extract_video(
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=VIDEO_NOT_FOUND_MESSAGE)
 
-    # The status check and the change to `extracting` are one UPDATE, so two
-    # requests at once cannot both start an extraction. The same UPDATE names
-    # this run (OMNI-311): from this moment a queued segment from any earlier
-    # run no longer matches the video, so the consumer drops it.
-    extraction_id = uuid.uuid4().hex
-    claimed = (
-        db.query(Video)
-        .filter(Video.id == video_id, Video.status.in_([VideoStatus.READY, VideoStatus.FAILED]))
-        .update(
-            {"status": VideoStatus.EXTRACTING, "error": None, "extraction_id": extraction_id},
-            synchronize_session=False,
-        )
-    )
-    db.commit()
-    if not claimed:
+    extraction_id = claim_extraction(db, video_id)
+    if extraction_id is None:
         db.refresh(video)
         detail = (
             EXTRACTION_RUNNING_MESSAGE

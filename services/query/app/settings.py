@@ -80,6 +80,11 @@ class Settings(CommonSettings):
 
     video_storage_path: str = "/data/videos"
     max_upload_size_mb: int = 500
+    # OMNI-608: the local dataset mirror (`data/`), mounted read-only. Dataset footage
+    # is read from here and goes through the same upload path as any file.
+    datasets_path: str = "/datasets"
+    # OMNI-608, D-26: the committed hand-check sample, the only dataset clips loaded.
+    hand_check_sample_path: str = "/hand_check/sample.csv"
 
     # ge=1: the slice-16 retention job deletes footage past this date, so a
     # zero or negative value would mark every new upload as already expired.

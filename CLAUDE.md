@@ -78,7 +78,11 @@ Rules:
 ## Measuring
 
 - Measure on the **real running stack** (`docker compose up -d`), real footage, real API.
-  Not mocks.
+  Not mocks. This is for **system** measurements (latency, throughput, data loss, storage,
+  the dashboard). **Model** measurements (SM-1 to SM-4: embeddings, search, forecasting) run
+  on **Colab's GPU** from Drive, with the same `services/common` code and the committed
+  split / windows / sample files (D-26). The product holds only the 60-clip hand-check
+  sample of dataset footage, never the full datasets.
 - State the conditions: machine, settings, clip, how many runs. Say what was *not* covered.
 - Report the number you got, including failures. Do not change defaults to make a
   requirement pass; label exploration as exploration.

@@ -330,14 +330,15 @@ name, different folder.
 
 ## Local mirror
 
-Docker reads local disk, not Drive. `phase-b/data/` holds a **small subset** of
-each dataset, in exactly the relative paths above, for development and for the
-OMNI-318 gating check:
+Docker reads local disk, not Drive. `phase-b/data/` holds a **small subset** of each
+dataset, in exactly the relative paths above, for development, for the OMNI-318 gating
+check, and since OMNI-608 the hand-check sample loaded into the product (copied by
+`scripts/copy_dataset_subsets.py`):
 
 | Dataset | Subset |
 |---|---|
-| UCF-Crime | ~10 anomaly clips across several classes, ~5 from `Testing_Normal_Videos_Anomaly/`, plus the annotations folder (with UCA) and `video_files.txt` |
-| CCD | 10 from `Crash-1500/`, 10 from `Normal/`, plus `Crash-1500.txt` and `video_files.txt` |
+| UCF-Crime | ~10 anomaly clips across several classes, ~5 from `Testing_Normal_Videos_Anomaly/`, the **30 sampled clips** (OMNI-608), plus the annotations folder (with UCA), `video_files.txt` and `video_probe.csv` |
+| CCD | 10 from `Crash-1500/`, 10 from `Normal/`, the **30 sampled crash clips** (OMNI-608), plus `Crash-1500.txt`, `video_files.txt` and `video_probe.csv` |
 | VIRAT | 3 videos from different scenes, plus the **full** `annotations/` (987 names: 865 files, 122 empty directories, added 2026-10-08) and `video_files.txt` |
 
 The full sets stay on Drive, where Colab reads them for encoding and training. The
@@ -348,8 +349,16 @@ the `.gitkeep` placeholders.
 
 ## Getting footage into the running system
 
-This layout describes how files sit on disk for the slice 6 loaders. It says
-nothing about how a clip enters the running product — that is always the normal
-`POST /videos/upload` path, the same as a hand-uploaded file. There is no special
-dataset endpoint, and there should not be one: the whole point of slice 6 is that
-dataset footage goes through the same pipeline as everything else.
+This layout describes how files sit on disk for the loaders. A clip enters the running
+product only through the upload path: `POST /datasets/{name}/load` (admin, OMNI-608)
+reads each clip from the mirror (mounted read-only into `query` at `/datasets`) and hands
+it to `store_video()`, **the same function `POST /videos/upload` runs** (same sniff, same
+storage, same probe), then extracts it like any video, one clip at a time. It is a loop
+over the manifest, not a separate pipeline. Two things differ: `source = dataset`, and no
+retention date, because research data is never deleted (D-25).
+
+What goes in (D-26): only the **60 clips of the hand-check sample**
+(`datasets/hand_check/sample.csv`: 30 UCF-Crime, 30 CCD), which the window view plays.
+Real users never see dataset footage; training and every model measurement run on Colab,
+from Drive. `GET /datasets` reports each one's progress; `dataset_manifest.video_id` links
+a clip to its video.
