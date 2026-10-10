@@ -295,14 +295,14 @@ reason recorded per failure; load time and storage recorded in `results.md`.
 **Why:** Phase A: *"check a sample by hand."* A derived window is only trusted once someone has
 looked.
 
-- [ ] A screen per window: the player over the window and a little past it, the window shaded,
+- [x] A screen per window: the player over the window and a little past it, the window shaded,
       the annotated event marked, class and split shown; **Verified** and **Wrong** buttons
       (with a short reason) set `verified`, `verified_by`, `verified_at`
-- [ ] **Write the criterion before checking:** a window is correct when it ends where the event
+- [x] **Write the criterion before checking:** a window is correct when it ends where the event
       visibly begins (within 1 s) and shows none of the event
-- [ ] A seeded random sample, stratified: **30 UCF-Crime** (across classes, both annotation
+- [x] A seeded random sample, stratified: **30 UCF-Crime** (across classes, both annotation
       sources) and **30 CCD** windows
-- [ ] `results.md`: correct out of checked per dataset and per source (official / UCA), with
+- [x] `results.md`: correct out of checked per dataset and per source (official / UCA), with
       every *Wrong* listed and its reason
 
 **Acceptance:** 60 windows checked by eye; the agreement rate recorded. If UCA-derived windows

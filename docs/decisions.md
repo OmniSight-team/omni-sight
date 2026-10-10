@@ -560,3 +560,49 @@ It is a change to this sprint's plan (OMNI-608's "what goes in").
 **What it costs:** the dashboard's "real footage volumes" are the sample's (60 clips), not
 5,065. The CCD retention on all 4,500 clips (K-4) is a property of Algorithm 1, not of the
 stack, so it moves to a Colab run of the same gate code.
+
+## D-27 · The hand-check criterion, written before any window was checked · 2026-10-10
+
+**Why:** OMNI-609 checks 60 derived lead-up windows by eye (Phase A: "check a sample by
+hand"). The criterion is fixed first, so the agreement rate cannot drift to fit what is seen.
+
+**The criterion** (the ticket's, adopted unchanged):
+
+> **A window is correct when it ends where the event visibly begins (within 1.5 s) and shows
+> none of the event.**
+
+- *Where the event visibly begins:* the first moment the annotated event (the clip's class:
+  the crash, the robbery, the fight ...) can be seen happening, judged by watching, not by
+  the annotation
+- *The act itself, not who will do it* (added 2026-10-10 during the check, at Arrest011,
+  before judging it): the event begins at the first moment of the act, not when the people
+  who will do it appear. Arrest: the first act of restraint, a physical one (grab, push
+  down) or holding the person at gunpoint (added at Arrest030), not police standing nearby;
+  restraint by guards or bystanders counts when they then hold the person for the police; robbery: the threat or the grab, not the robber walking in;
+  fighting: the first blow; road accident: the impact; burglary: the first act of breaking
+  in (forcing a door or window, breaking glass, climbing in), or, when the entry is out of
+  view, the first moment the intruder is inside or starts taking things (added at Burglary); shooting:
+  the first shot, pointing the gun being lead-up (added at Shooting039); robbery: the first
+  threat or grab, a gun pointed at the victim included (Robbery006); stealing: the first
+  act of taking (grabbing the item, breaking into or opening the vehicle, starting to carry or
+  drive it off), looking around being lead-up; shoplifting: the moment the item is hidden
+  (pocket, bag, clothes), not picking it up to look at it (added at Stealing). What comes before the act is lead-up,
+  which is what a window should contain
+- *Within 1.5 s:* the window's end may sit up to 1.5 s before or after that moment. The
+  ticket said 1 s; widened to 1.5 s by Ahmad on 2026-10-10, **after 2 of the 60 windows had
+  been checked** (Abuse004, Abuse028, both Verified under 1 s; a wider tolerance can only turn
+  a Wrong into a correct, so both verdicts stand). Why: judging the start of an event by eye to under a
+  second is not reliable, and 1.5 s is still well inside UCA's median 3.0 s distance from the
+  official times (D-21), so the check can still tell a good time from a poor one
+- *Shows none of the event:* if the event is visibly under way more than 1.5 s before the
+  window ends, the window is wrong, whatever the reason
+- **Wrong** is recorded with a short reason, one of: *ends too late* (the window contains the
+  event), *ends too early* (more than 1.5 s of quiet footage between the window's end and the
+  event), *wrong event* (the annotated moment is not the clip's class at all), or *cannot
+  tell* (the footage does not show it clearly), plus free text
+- **Which window:** one per sampled clip. On UCF-Crime the 30 s and 60 s windows of a clip end
+  at the same event start, so the 30 s one is checked; on CCD the clip's only window. The
+  verdict is stored on the checked window
+
+**The sample:** `datasets/hand_check/sample.csv` (D-26), drawn before this entry: 30 UCF-Crime
+(15 official, 15 UCA), 30 CCD.

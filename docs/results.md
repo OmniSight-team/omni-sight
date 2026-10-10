@@ -29,6 +29,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
 | Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
 | Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
+| Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
@@ -1460,3 +1461,44 @@ slice 7, on Colab (D-26).
 **Not covered:** VIRAT (not loaded, D-26); the full datasets (estimate above); a restart
 in the middle of a real load (the resume is covered by `test_dataset_load.py` only); load
 time with cameras capturing.
+
+## OMNI-609 · The hand check: 60 lead-up windows checked by eye · 2026-10-10
+
+**Conditions:** the 60 windows of `datasets/hand_check/sample.csv` (D-26: 15 UCF-Crime with
+official times, 15 with UCA times, every class in each; 30 CCD crash clips), one window per
+clip (UCF-Crime's 30 s one), watched on the check screen (`/windows`, the real stack) by
+Ahmad, one pass. Criterion D-27, written before checking: correct when the window ends where
+the event visibly begins and shows none of it. Tolerance 1.5 s (the ticket's 1 s widened
+after 2 windows, both Verified; a wider tolerance cannot turn a Verified into a Wrong).
+Per-class rules for "where the act begins" were added to D-27 as classes came up, each
+before the window was judged. Counted by `scripts/hand_check_report.py`; 95% Wilson intervals.
+
+| Event time from | Checked | Correct | Rate | 95% interval |
+|---|---|---|---|---|
+| UCF-Crime, official annotation | 15 | 13 | 87% | 62-96% |
+| UCF-Crime, UCA (D-21) | 15 | 10 | **67%** | 42-85% |
+| UCF-Crime, both | 30 | 23 | 77% | 59-88% |
+| CCD, `binlabels` | 30 | 30 | **100%** | 89-100% |
+
+**Every Wrong:**
+
+| Clip | Source | Window | Verdict and what was seen |
+|---|---|---|---|
+| Abuse035 | UCA | 0.0-0.3 s | ends too early: abuse starts ~0:02.3 |
+| Arrest011 | UCA | 21.9-51.9 s | ends too late: guards take him down and hold him; the window ends at the police cuffing |
+| Arrest030 | official | 154.5-184.5 s | ends too late: police hold them at gunpoint ~3:01.8 |
+| Burglary032 | official | 13.0-43.0 s | ends too late: thieves inside ~0:22.9 |
+| Robbery006 | UCA | 0.0-15.8 s | ends too late: thief threatens customer ~0:13 |
+| Shooting039 | UCA | 0.0-9.7 s | ends too early: gun pointed ~0:12.8, first shot ~0:23.9 |
+| Stealing043 | UCA | 20.6-50.6 s | ends too late: men take items from ~0:10 to ~1:56; the UCA time is mid-theft |
+
+**What it says:** CCD's frame labels are right on every clip checked. UCF-Crime windows are
+right about three times in four; **UCA-timed ones are wrong twice as often as official ones**
+(5 of 15 against 2 of 15), and 5 of the 7 Wrongs *end too late*: the event is already on
+screen inside the window, which would teach a predictor to recognise the event, not foresee
+it. Recorded as K-20 for slice 9.
+
+**Not covered:** one checker, one pass, no second opinion; 15 clips per UCF-Crime source is
+too few to tell the two rates apart with confidence (the intervals overlap); only the 30 s
+window of each UCF-Crime clip was checked (the 60 s one ends at the same time, so it shares
+the verdict); negative windows were not checked.

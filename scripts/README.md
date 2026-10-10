@@ -26,6 +26,9 @@ Not part of the running system.
   into `data/`, native paths kept, size checked against Drive; rerunnable.
 - `run_dataset_load.py` — loads the sample through `POST /datasets/{name}/load` as a throwaway admin,
   dataset by dataset, and prints the time and counts (OMNI-608).
+- `hand_check_report.py` — the hand check's result from the verdicts given on `/windows` (D-27):
+  correct out of checked per dataset and source, with a 95% Wilson interval, and every Wrong with its
+  reason (OMNI-609).
 - `ccd_pre_event.py` — CCD's footage before the first accident frame, all crash clips and per split,
   and the SM-3 target from rule D-23 (OMNI-606). Reads label files only.
 - `build_dataset_split.py` — fixes the train / validation / held-out split (D-22), writes

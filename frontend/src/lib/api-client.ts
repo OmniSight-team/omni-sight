@@ -484,3 +484,52 @@ export function uploadVideo(file: File, onProgress?: (percent: number) => void):
     xhr.send(formData);
   });
 }
+
+// --- Lead-up windows and the hand check (OMNI-609) ----------------------------------
+
+export type AnnotationSource = "ucf_crime_temporal" | "uca" | "ccd_binlabels";
+
+export interface EventWindow {
+  id: number;
+  dataset: "ucf_crime" | "ccd";
+  clip_key: string;
+  event_class: string;
+  annotation_source: AnnotationSource;
+  split: string;
+  window_start_s: number;
+  window_end_s: number;
+  length_s: number;
+  nominal_length_s: number | null;
+  shortened: boolean;
+  verified: boolean | null;
+  verify_reason: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+}
+
+export interface EventWindowDetail extends EventWindow {
+  event_start_s: number;
+  event_end_s: number | null;
+  video_id: number | null;
+  video_duration_s: number | null;
+  playback_url: string | null;
+}
+
+export async function listSampleWindows(): Promise<EventWindow[]> {
+  return request<EventWindow[]>("/windows");
+}
+
+export async function getWindow(id: number): Promise<EventWindowDetail> {
+  return request<EventWindowDetail>(`/windows/${id}`);
+}
+
+export async function setWindowVerdict(
+  id: number,
+  correct: boolean,
+  reason: string | null,
+): Promise<EventWindowDetail> {
+  return request<EventWindowDetail>(`/windows/${id}/verdict`, {
+    method: "POST",
+    body: JSON.stringify({ correct, reason }),
+  });
+}

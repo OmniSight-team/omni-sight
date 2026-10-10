@@ -540,3 +540,70 @@ Dataset footage enters the product only through the upload function and never ex
 full load was estimated (50 GB, 20-34 h) and then dropped by D-26: model measurements run
 on Colab, and the product holds the 60-clip hand-check sample, loaded in 36 min with no
 failure. K-4 moved to slice 7; K-18 fixed; K-19 opened.
+
+---
+
+## OMNI-609 · Window inspection view, and the hand check
+
+### Why this ticket exists
+
+Phase A: "check a sample by hand". A derived window is only trusted once someone has looked,
+and the slices that train on the windows need to know how far to trust them.
+
+### What was done
+
+2026-10-10.
+
+- **Criterion first: D-27**, the ticket's wording, written before the screen was used.
+  During the check it changed twice, both recorded in D-27 with when and why: the tolerance
+  went from 1 s to 1.5 s after 2 windows (both Verified, so neither verdict could change),
+  because Ahmad found sub-second judgement by eye unreliable; and per-class rules for "where
+  the act begins" were added as classes came up (arrest: first restraint, by guards or at
+  gunpoint; burglary: breaking in; robbery: the threat; shooting: the first shot, pointing
+  the gun being lead-up; stealing and shoplifting: the first act of taking), each written
+  before that window was judged
+- **The sample** was drawn in OMNI-608 (D-26), 60 clips; the check takes one window per clip
+  (UCF-Crime's 30 s one: the 60 s one ends at the same event start)
+- **API** (`services/query/app/windows.py`): `GET /windows` (the 60), `GET /windows/{id}`
+  (window, event and the clip's video), `POST /windows/{id}/verdict` (analyst or admin;
+  Wrong needs a reason; checking again replaces). Migration `7d1a3c5e9f20` adds
+  `event_windows.verify_reason`
+- **Screens** (`frontend/src/app/(app)/windows/`): the list with the tally per source and
+  "Check next"; the check page with the player, a timeline shading the window and marking the
+  event, "Play window" (to 4 s past the event start) and "Play the boundary", and the verdict
+  panel (reason list from D-27 plus free text). Not in the sidebar: the Datasets screen
+  (OMNI-612) links to it
+- **`scripts/hand_check_report.py`** counts the verdicts with Wilson intervals and lists every
+  Wrong
+- **The check:** Ahmad, one pass over all 60. I helped apply the criterion when he asked
+  (which moment counts as the start), without seeing the video myself
+- Docker Desktop was not running at the start (the laptop had restarted); started it. The
+  frontend dev server did not see the new route folder until restarted
+
+### Verification performed
+
+- `alembic upgrade / downgrade / upgrade`, `alembic check`: clean
+- `test_windows.py` (5): only the checked window of each sampled clip listed; detail carries
+  window, event and video; unsampled and 60 s windows 404; verdict stores who and when and can
+  be replaced; Wrong without a reason 422, operator 403, no token 401
+- On the live database: 60 windows (30 CCD, 15 official, 15 UCA), all with a video
+- Screens seen in Chrome (port 3000, a throwaway admin, deleted after, no verdict recorded);
+  `tsc` and `eslint` clean on the new files
+- The report: 60 of 60 checked; numbers in `results.md`
+- Full `uv run pytest`: first 440 passed, 2 failed, the same two ingestion log tests as in
+  OMNI-608. Not timing, as I had said there: OMNI-608's test `conftest.py` ran alembic with its
+  ini file, whose `fileConfig` disables loggers already created. Ran alembic without the ini
+  file: **442 passed, 1 skipped**. K-14's note corrected
+
+### Not verified
+
+- A second checker: one person's judgement, one pass
+- The 60 s windows and the negative windows (not checked by eye)
+- The screen's video playback through nginx in my own browser session (the automation could
+  not open the self-signed `https://localhost`); Ahmad used it there for all 60
+
+### Result
+
+UCF-Crime windows: 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. UCA-timed
+windows are wrong twice as often, mostly by containing the event: K-20, to be dealt with
+before slice 9 trains on them.

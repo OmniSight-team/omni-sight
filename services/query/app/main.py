@@ -17,6 +17,7 @@ from app.logging_conf import configure_logging
 from app.nav import router as nav_router
 from app.settings import settings
 from app.videos import router as videos_router
+from app.windows import router as windows_router
 
 configure_logging()
 logger = logging.getLogger("app.request")
@@ -54,6 +55,7 @@ app.include_router(cameras_router)
 app.include_router(datasets_router)
 app.include_router(nav_router)
 app.include_router(videos_router)
+app.include_router(windows_router)
 
 
 @app.middleware("http")

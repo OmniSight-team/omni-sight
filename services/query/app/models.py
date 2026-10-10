@@ -336,3 +336,5 @@ class EventWindow(Base):
     verified: Mapped[bool | None] = mapped_column(Boolean)
     verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Why the hand check marked it wrong (OMNI-609); NULL when verified or not checked.
+    verify_reason: Mapped[str | None] = mapped_column(String)

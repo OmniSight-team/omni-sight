@@ -30,7 +30,11 @@ def _prepare_test_database() -> None:
         if conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :d"), {"d": TEST_DB}) is None:
             conn.execute(text(f'CREATE DATABASE "{TEST_DB}"'))
     admin.dispose()
-    command.upgrade(Config(str(QUERY_DIR / "alembic.ini")), "head")
+    # No ini file: alembic's env.py then skips `fileConfig`, which would disable every logger
+    # already created in this test run (ingestion's `app.live_capture` tests read theirs).
+    config = Config()
+    config.set_main_option("script_location", str(QUERY_DIR / "alembic"))
+    command.upgrade(config, "head")
 
 
 _prepare_test_database()

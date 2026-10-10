@@ -17,6 +17,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
 | K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
+| K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
 
 ---
 
@@ -138,7 +139,25 @@ fraction of a second's worth at a moment the camera is being stopped anyway.
 `test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
 `test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
 summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
-No ingestion code changed in that ticket. Timing-dependent, like the first.
+**Corrected 2026-10-10 (OMNI-609): not timing.** They failed in every full run since OMNI-608
+and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with the ini file,
+and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
+them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
+K-14 test above is the intermittent one.
+
+## K-20 · UCA-timed lead-up windows often contain the event
+
+The hand check (OMNI-609, `results.md`) found 5 of 15 UCA-timed UCF-Crime windows wrong
+against 2 of 15 official ones; 5 of the 7 Wrongs *end too late* (the event is visible
+inside the window: Arrest011, Robbery006, Stealing043 among the UCA ones). The D-21 rule
+takes the earliest UCA sentence matching the class's words, and UCA's sentences often
+describe the end of an act (police cuffing) or its middle, not its start. UCA times 540 of
+the 680 positive UCF-Crime windows, so a forecaster trained on them as they are would partly
+learn to recognise events rather than foresee them. The sample is small (intervals overlap:
+UCA 42-85% correct, official 62-96%), so the size of the gap is not settled.
+**Fix candidates, for slice 9:** train on official-timed windows only, or weight them up;
+check more UCA windows by eye before trusting them (the sample code redraws with a new
+seed); or move UCA-derived window ends earlier by a margin and measure the effect.
 
 ## K-19 · A test run left a live worker capturing for a deleted camera
 
