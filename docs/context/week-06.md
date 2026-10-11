@@ -607,3 +607,93 @@ and the slices that train on the windows need to know how far to trust them.
 UCF-Crime windows: 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. UCA-timed
 windows are wrong twice as often, mostly by containing the event: K-20, to be dealt with
 before slice 9 trains on them.
+
+---
+
+## OMNI-610 · Aggregates that stay fast
+
+### Why this ticket exists
+
+FR-9's dashboard shows the state of the whole system, and `segments` holds a row per decoded
+frame of every file (D-5). Counting it on every page load would get slower as the archive
+grows, so the figures come from an hourly rollup kept exact in the same transaction as the
+rows.
+
+### What was done
+
+2026-10-11.
+
+- **Read first:** the consumer (`app/consumer.py`) is not the only writer of `segments`. A
+  failed or replaced extraction deletes a video's rows, a re-gate updates `admitted` and the
+  files in place, a deleted video cascades. A counter kept only in the consumer's code
+  would drift the first time any of those ran. So the rollup is kept by **statement-level
+  triggers on `segments`** (insert, update, delete, truncate), which run inside the
+  statement's own transaction: the consumer's insert updates the rollup in the same commit,
+  and so does every other change. Recorded as **D-28**
+- **Migration `9b4e6d2a7c31`:** `segment_hourly (hour, source_type, segments, admitted,
+  file_bytes)`, the four triggers (one aggregated upsert per hour and source per statement,
+  from its transition table; the hour in UTC whatever the session's time zone), and
+  `segments.file_bytes`. It also counts the rows already there
+- **Bytes written:** the consumer cannot see the frame volumes, so ingestion measures the
+  two JPEGs right after writing them (`process_frame`) and the size travels on the message
+  (`SegmentMessage.file_bytes`, default 0 so an old queued message still parses) and in
+  the re-gate response (`ExtractedSegment.file_bytes`, written by `run_gate`)
+- **`GET /dashboard/summary`** and **`GET /dashboard/activity?hours=24`** in
+  `services/query/app/dashboard.py`, every role (the dashboard is everyone's, `nav.py`).
+  Segments and frame bytes from the rollup; cameras and videos from their own small tables;
+  `cameras_online` counts `live` in the same function `GET /cameras/live` now calls
+  (`live_cameras`, pulled out of the route); `alerts_today` and each hour's `alerts` are
+  `null`; added to the ticket's shape: `retention_days` and `oldest_recording_at` (the
+  oldest video retention will delete, so dataset footage is left out). Activity returns
+  every hour, oldest first, ending with the current one; an hour with no rollup row is 0
+- **`scripts/backfill_dashboard_rollup.py`:** fills `file_bytes` on old rows from the disk,
+  rebuilds the rollup with `segments` locked against writes, and compares it with a direct
+  count; rerunnable. Runs inside `query` (it needs the volumes)
+- **`scripts/measure_dashboard.py`:** the exactness check on the real pipeline (upload,
+  extract, re-gate, delete one CCD clip) and the timings
+- **Found on the way:** the volumes hold 2.04 GB of frames and thumbnails, the rows account
+  for 0.99 GB. Three directories have no row: two deleted test cameras (one is K-19's stray
+  worker) and one deleted video. Not fixed here: **K-21**. Playback copies (22.7 MB) are not
+  counted either, also K-21
+- The first measurement run re-gated at `cell_threshold` 10, which admitted the same 40
+  frames, so the update path was not exercised; rerun at 60 (40 → 10), and the rollup's
+  admitted count added to the comparison
+
+### Verification performed
+
+- `test_dashboard.py` (11) on the test database: a stored segment is counted in the same
+  commit and a redelivery adds nothing; a live frame counted under `camera`; a stale message
+  changes nothing; a re-gate-style update moves admitted and bytes; deleting a video
+  (cascade) and deleting a failed extraction's rows take them out; after each, the rollup
+  per source equals a direct count over the whole table. Summary equals a direct count
+  (segments, videos, storage), counts only `live` cameras, `alerts_today` null; oldest
+  recording ignores datasets; activity has 24 hourly entries ending now with this hour's
+  rows; `hours` 0 and 169 rejected; 401 without a token
+- `test_extraction_pipeline.py`: an admitted frame's `file_bytes` equals its two files'
+  sizes, a discarded one's is 0
+- `alembic downgrade -1 / upgrade head / check` on the test database: clean
+- Full `uv run pytest`: 453 passed, 1 skipped
+- Real stack: migration applied, backfill equal to a direct count (146,807 rows, 31,715
+  admitted, 989,872,990 bytes); `measure_dashboard.py`: equal before, after upload and
+  extraction, after the re-gate and after the delete; all 40 admitted rows carried bytes.
+  Timings in `results.md`
+
+### Not verified
+
+- Millions of rows: after D-26 the archive is 146,807 rows, where a direct count is still
+  18.5 ms. The rollup reads one row per hour and source, so its cost does not grow with
+  `segments`, but that was not measured at scale
+- The trigger's cost on the consumer's throughput (one more upsert per stored frame) and on
+  a re-gate (the ORM updates row by row, so the update trigger runs per changed row; K-6's
+  1.4-2.0 s was not remeasured)
+- `cameras_online` with real cameras: none were registered (0 of 0); the counting is tested
+  with a stubbed state list, the state itself is `GET /cameras/live`'s own function
+- Two consumers writing the same hour and source at once (only one consumer writes each
+  source today)
+
+### Result
+
+The dashboard's counts come from a rollup kept by triggers in the same transaction as the
+rows, and equal a direct count after an insert, a re-gate and a delete on the real
+pipeline. Summary p50 41 ms / p95 72 ms, activity 15 / 36 ms, over 100 calls each on
+146,807 rows. K-21 opened for 1.05 GB of files with no row.

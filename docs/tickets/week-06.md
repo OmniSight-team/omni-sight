@@ -323,16 +323,16 @@ GET /dashboard/summary -> {cameras_online, cameras_total, videos, segments, aler
 GET /dashboard/activity?hours=24 -> [{hour, segments, alerts}]
 ```
 
-- [ ] An hourly rollup table (segments, admitted, bytes written, per source), **updated by the
+- [x] An hourly rollup table (segments, admitted, bytes written, per source), **updated by the
       consumer in the same transaction as the insert**, so the counts can never drift from the
       rows (NFR-5)
-- [ ] `summary` and `activity` read the rollup and indexes, never `count(*)` over `segments`
-- [ ] `cameras_online` from `GET /cameras/live` state (live = online)
-- [ ] `storage_gb`: video bytes plus frame and thumbnail bytes from the rollup; plus the
+- [x] `summary` and `activity` read the rollup and indexes, never `count(*)` over `segments`
+- [x] `cameras_online` from `GET /cameras/live` state (live = online)
+- [x] `storage_gb`: video bytes plus frame and thumbnail bytes from the rollup; plus the
       retention horizon (`VIDEO_RETENTION_DAYS`) and the oldest retained recording
-- [ ] `alerts_today` and the activity's `alerts`: `null` until slice 9, never a fake `0`
-- [ ] A backfill script for rows written before the rollup existed
-- [ ] Measure both endpoints with the datasets loaded: p50 / p95 over 100 calls, and the row
+- [x] `alerts_today` and the activity's `alerts`: `null` until slice 9, never a fake `0`
+- [x] A backfill script for rows written before the rollup existed
+- [x] Measure both endpoints with the datasets loaded: p50 / p95 over 100 calls, and the row
       count they stand on
 
 **Acceptance:** the summary's counts equal a direct count, and both endpoints are measured and

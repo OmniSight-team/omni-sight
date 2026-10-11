@@ -606,3 +606,39 @@ hand"). The criterion is fixed first, so the agreement rate cannot drift to fit 
 
 **The sample:** `datasets/hand_check/sample.csv` (D-26), drawn before this entry: 30 UCF-Crime
 (15 official, 15 UCA), 30 CCD.
+
+## D-28 · The dashboard's rollup is kept by triggers on `segments` · 2026-10-11
+
+**Why:** OMNI-610 asks for an hourly rollup "updated by the consumer in the same
+transaction as the insert, so the counts can never drift from the rows" (NFR-5). Inserting
+is not the only way `segments` changes: a failed or replaced extraction deletes a video's
+rows (`extraction.py`), a re-gate rewrites `admitted` and the files in place (OMNI-306), a
+deleted video takes its rows by cascade. Counting in the consumer's Python alone would drift
+the first time any of those ran.
+
+**What was built:**
+
+- `segment_hourly (hour, source_type, segments, admitted, file_bytes)`, one row per UTC hour
+  of the rows' `created_at` and per source (`upload`, `camera`; dataset footage is an upload)
+- Four statement-level triggers on `segments` (insert, update, delete, truncate). Each
+  statement adds one aggregated upsert per hour and source it touched, from its transition
+  table, so it runs inside the statement's own transaction: the consumer's insert, the
+  extraction's delete, the re-gate's update and the cascade each change the rollup in the
+  same commit as the rows, or not at all. Application code never writes the rollup
+- The rollup reflects the rows that exist: deleting a video takes its frames out of the hour
+  they were stored in. The activity chart is "what is held, by when it was stored", not a
+  log of everything ever stored
+- `segments.file_bytes`: the bytes of the frame and thumbnail JPEGs a row wrote, measured by
+  ingestion right after writing them and carried on the message (`SegmentMessage.file_bytes`,
+  default 0 so a message queued before it still parses). The consumer cannot see the frame
+  volumes, and walking the disk on every dashboard load is what the rollup is there to avoid
+- The migration counts the rows already in the table; `scripts/backfill_dashboard_rollup.py`
+  fills `file_bytes` on old rows from the disk and rebuilds the rollup, rerunnable
+
+**Not a Phase A deviation:** Phase A does not say how FR-9's figures are computed. It is a
+choice of mechanism inside the ticket: the update still happens in the consumer's
+transaction, through the database rather than the consumer's code.
+
+**What it costs:** every insert into `segments` runs one extra upsert. Not measured against
+the consumer's throughput (OMNI-610 context). `storage_gb` counts only files that have a row:
+files left on disk with no row are invisible to it (K-21).

@@ -37,6 +37,12 @@ Not part of the running system.
 - `build_dataset_manifest.py` — fills `dataset_manifest` from the three loaders in
   `omnisight_common.datasets` and checks the counts against `docs/dataset-layout.md`; exits non-zero on
   a mismatch (OMNI-604). Upserts; never touches `split` or `video_id`.
+- `backfill_dashboard_rollup.py` — fills `segments.file_bytes` on rows written before OMNI-610 from the
+  files on disk, rebuilds `segment_hourly` and checks it against a direct count (D-28). Runs inside `query`;
+  see its docstring. Rerunnable.
+- `measure_dashboard.py` — the dashboard endpoints on the running stack: their counts against a direct
+  count before and after an upload, extraction, re-gate and delete of one CCD clip, then p50 / p95 over
+  100 calls each (OMNI-610).
 - `measure_capture_latency.py` — capture-to-stored latency of a live camera, alone and with a
   file being extracted at the same time, plus the TC-1 checks (OMNI-316). Needs the stack up;
   see its docstring. Its results are recorded in `docs/results.md`.

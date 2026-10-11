@@ -91,6 +91,9 @@ class SegmentRecord:
     clip_start_s: float | None = None
     clip_end_s: float | None = None
     admission_reason: str | None = None
+    # The bytes of the frame and thumbnail JPEGs written for this frame; 0 when none
+    # were (OMNI-610: the dashboard's storage figure sums this instead of walking the disk).
+    file_bytes: int = 0
 
 
 class FrameGate:
@@ -325,12 +328,14 @@ def process_frame(
     decision = gate.evaluate(frame, source.timestamp_s)
 
     frame_path = thumb_path = None
+    file_bytes = 0
     if decision.admitted:
         name = f"{source.frame_index:06d}.jpg"
         frame_path = frames_dir / name
         thumb_path = thumbs_dir / name
         _write_jpeg(frame_path, frame, frame_quality)
         _write_jpeg(thumb_path, _thumbnail(frame, thumb_width), thumb_quality)
+        file_bytes = frame_path.stat().st_size + thumb_path.stat().st_size
 
     return SegmentRecord(
         video_id=source.video_id,
@@ -345,6 +350,7 @@ def process_frame(
         clip_start_s=decision.clip_start_s,
         clip_end_s=decision.clip_end_s,
         admission_reason=decision.admission_reason,
+        file_bytes=file_bytes,
     )
 
 

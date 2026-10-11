@@ -53,6 +53,9 @@ class SegmentMessage(BaseModel):
     clip_start_s: float | None = None
     clip_end_s: float | None = None
     admission_reason: AdmissionReason | None = None
+    # Bytes of the frame and thumbnail JPEGs ingestion wrote for this frame, 0 when it
+    # wrote none (OMNI-610). Defaults to 0 so a message queued before it existed parses.
+    file_bytes: int = 0
     # Which extraction of the video produced this frame. Lets the consumer
     # recognise a message left over from an extraction that has since failed or
     # been replaced, and drop it instead of writing an old run's frame into a

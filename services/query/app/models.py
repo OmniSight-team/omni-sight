@@ -206,9 +206,29 @@ class Segment(Base):
     admission_reason: Mapped[AdmissionReason | None] = mapped_column(
         _enum_column(AdmissionReason, "admission_reason")
     )
+    # The bytes of the frame and thumbnail JPEGs this frame wrote (OMNI-610); 0 when it
+    # wrote none. Measured by ingestion, which wrote them, so storage is a sum, not a disk walk.
+    file_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class SegmentHourly(Base):
+    """Segment counts per hour and source (OMNI-610, D-28), so the dashboard never counts
+    `segments`. Written only by the triggers on `segments` (migration 9b4e6d2a7c31), in the
+    same transaction as the rows they count; never by application code. The hour is the
+    rows' `created_at` truncated to the hour in UTC."""
+
+    __tablename__ = "segment_hourly"
+
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    source_type: Mapped[SegmentSourceType] = mapped_column(
+        _enum_column(SegmentSourceType, "segment_source_type"), primary_key=True
+    )
+    segments: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    admitted: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    file_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
 
 
 class CameraStats(Base):

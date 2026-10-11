@@ -31,6 +31,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
 | Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
+| FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1502,3 +1503,49 @@ it. Recorded as K-20 for slice 9.
 too few to tell the two rates apart with confidence (the intervals overlap); only the 30 s
 window of each UCF-Crime clip was checked (the 60 s one ends at the same time, so it shares
 the verdict); negative windows were not checked.
+
+## OMNI-610 · Dashboard aggregates: equal to a direct count, and their speed · 2026-10-11
+
+**Conditions:** the real stack (`docker compose up -d`) on the machine above, simulator
+running, no camera registered, after migration `9b4e6d2a7c31` and
+`scripts/backfill_dashboard_rollup.py`. The archive at its full size after D-26: 60 dataset
+videos, **146,807 segment rows** (31,715 admitted), 3 rollup rows. `scripts/measure_dashboard.py`, two
+runs (the first re-gated at `cell_threshold` 10, which changed no frame, so it was run again
+at 60), through nginx (`https://localhost/api`), client-side time per call; the second is shown.
+
+**Backfill:** `file_bytes` filled on 31,715 rows from the disk, 0 files missing; rollup
+146,807 / 31,715 / 989,872,990 bytes, a direct count the same. 37 s.
+
+**Exactness on the real pipeline** (summary and rollup against a direct count over
+`segments` and `videos`, after each step):
+
+| Step | Segments | Admitted | Videos | Storage (GB) | Equal |
+|---|---|---|---|---|---|
+| Before | 146,807 | 31,715 | 60 | 2.035 | yes |
+| CCD `000026.mp4` uploaded and extracted (ingestion → queue → consumer) | 146,857 | 31,755 | 61 | 2.039 | yes |
+| Re-gated at `cell_threshold` 60 (40 → 10 admitted) | 146,857 | 31,725 | 61 | 2.037 | yes |
+| Deleted | 146,807 | 31,715 | 60 | 2.035 | yes |
+
+All 40 admitted rows the consumer stored carried their file bytes.
+
+**Timing,** 100 calls each after 5 warm-up calls, one at a time:
+
+| Endpoint | p50 | p95 | max |
+|---|---|---|---|
+| `GET /dashboard/summary` | 41.4 ms | 71.6 ms | 81.5 ms |
+| `GET /dashboard/activity?hours=24` | 15.2 ms | 35.9 ms | 55.0 ms |
+
+For comparison, one direct `count(*)` over the 146,807 rows took 18.5 ms in the database
+alone. The summary's time includes asking ingestion for its workers (`cameras_online` is
+`GET /cameras/live`'s state). A first run gave 41.0 / 81.9 ms and 16.4 / 42.2 ms.
+
+**What it says:** the counts equal a direct count after an insert, a re-gate and a delete on
+the real pipeline. Both endpoints answer in tens of milliseconds and read 3 rollup rows,
+whatever the size of `segments`.
+
+**Not covered:** the archive is 146,807 rows, not the millions the ticket expected before
+D-26, so a direct count is still fast here; the rollup's advantage at millions of rows is by
+construction (it reads one row per hour and source), not measured. Two runs, one machine
+(preliminary). No camera registered, so `cameras_online` was 0 of 0. The cost of the trigger
+on the consumer's throughput was not measured. `storage_gb` does not count 1.05 GB of files
+with no row, nor playback copies (K-21).

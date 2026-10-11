@@ -180,6 +180,12 @@ def list_live_cameras(
 
     Ordered by group, then name, so a wall filtered to one group keeps its
     order."""
+    return live_cameras(db)
+
+
+def live_cameras(db: Session) -> list[CameraLiveOut]:
+    """Every camera's live state, as `GET /cameras/live` returns it. Also what the
+    dashboard counts as online (OMNI-610), so the two can never disagree."""
     try:
         workers = {w["camera_id"]: w for w in ingestion_list_workers()}
         reachable = True

@@ -58,6 +58,8 @@ class ExtractedSegment(BaseModel):
     # Why the frame was admitted (OMNI-305). None on a frame that was not
     # admitted at all.
     admission_reason: AdmissionReason | None = None
+    # Bytes of the frame and thumbnail JPEGs written (OMNI-610); 0 when none were.
+    file_bytes: int = 0
 
 
 class FileExtractResponse(BaseModel):

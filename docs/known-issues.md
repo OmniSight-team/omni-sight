@@ -18,6 +18,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
 | K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
 | K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
+| K-21 | About 1.05 GB of frame and thumbnail files on disk have no segment row, so the dashboard's storage does not count them; playback copies (22.7 MB) are not counted either | FR-9 (storage in use), K-8 | OMNI-610 | Slice 16 (retention) |
 
 ---
 
@@ -144,6 +145,20 @@ and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with
 and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
 them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
 K-14 test above is the intermittent one.
+
+## K-21 · Files on disk that no row accounts for
+
+2026-10-11, during OMNI-610. `storage_gb` sums the videos' `size_bytes` and the frame bytes
+of the rows in `segments` (D-28). On the dev stack the rows account for 0.99 GB of frames
+and thumbnails, the volumes hold 2.04 GB. The difference is three directories with no row:
+`camera-2035` (682 MB frames, 52 MB thumbnails, last written 2026-10-08) and `camera-2291`
+(294 MB, 22 MB, 2026-10-09: K-19's stray worker), both cameras deleted, and video `2001`
+(1.6 MB, 2026-09-24), deleted. Their rows went (hand cleanups of test runs, a stray
+worker's camera removed) but their files did not. Separately, the 30 playback copies
+(OMNI-308, 22.7 MB) have no size on the video row, so they are not counted either.
+**Fix candidates:** delete the three orphan directories now (by hand, once Ahmad agrees);
+have slice 16's retention job remove directories that no row points at; record a playback
+copy's size on the video row.
 
 ## K-20 · UCA-timed lead-up windows often contain the event
 
