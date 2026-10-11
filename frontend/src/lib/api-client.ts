@@ -533,3 +533,49 @@ export async function setWindowVerdict(
     body: JSON.stringify({ correct, reason }),
   });
 }
+
+// --- Operations Dashboard (OMNI-610 / OMNI-611) -------------------------------------
+
+export interface DashboardSummary {
+  // Cameras whose state is `live` (the same state as the wall), out of every camera.
+  cameras_online: number;
+  cameras_total: number;
+  videos: number;
+  segments: number;
+  // Null until alerts exist (slice 9): no alerts is not the same as zero alerts.
+  alerts_today: number | null;
+  // Video bytes plus frame and thumbnail bytes, in GB (10^9 bytes).
+  storage_gb: number;
+  retention_days: number;
+  // The oldest video retention will delete in time (dataset footage never expires).
+  oldest_recording_at: string | null;
+}
+
+export interface DashboardHour {
+  // The hour's start, UTC.
+  hour: string;
+  segments: number;
+  alerts: number | null;
+}
+
+export async function getDashboardSummary(): Promise<DashboardSummary> {
+  return request<DashboardSummary>("/dashboard/summary");
+}
+
+// One entry per hour, oldest first, ending with the current hour.
+export async function getDashboardActivity(hours = 24): Promise<DashboardHour[]> {
+  return request<DashboardHour[]>(`/dashboard/activity?hours=${hours}`);
+}
+
+export interface Dataset {
+  name: string;
+  domain: CameraDomain;
+  videos_loaded: number;
+  total: number;
+  failed: number;
+  status: "not_loaded" | "loading" | "partial" | "loaded";
+}
+
+export async function listDatasets(): Promise<Dataset[]> {
+  return request<Dataset[]>("/datasets");
+}

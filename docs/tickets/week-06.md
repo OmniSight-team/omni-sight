@@ -27,7 +27,7 @@ two stale docs, the NFR-4 grid speed-up, K-4 (camera motion, due this slice)
   code as `POST /videos/upload`; it is a loop, not a back door.
 
 ---
-
+ 
 ## Ticket order
 
 **Part A — carry-over from slice 5 (day 1)**
@@ -342,13 +342,13 @@ recorded with the archive at full size.
 
 ## OMNI-611 · Operations Dashboard
 
-- [ ] The landing page after sign-in: cameras online and offline, footage held, segments
+- [x] The landing page after sign-in: cameras online and offline, footage held, segments
       indexed, storage in use and days retained, activity over 24 hours (one chart, by hour)
-- [ ] A panel reserved for alerts needing attention: *"Alerts arrive in slice 9"*, not empty
+- [x] A panel reserved for alerts needing attention: *"Alerts arrive in slice 9"*, not empty
       space
-- [ ] **Every figure is a link** to the screen behind it (cameras → the wall, footage → the
+- [x] **Every figure is a link** to the screen behind it (cameras → the wall, footage → the
       archive, datasets → the datasets screen)
-- [ ] Static first; then refresh every 30 s, paused while the tab is hidden
+- [x] Static first; then refresh every 30 s, paused while the tab is hidden
 
 **Acceptance:** each number on the page matches the API and leads somewhere.
 

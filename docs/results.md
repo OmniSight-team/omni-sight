@@ -32,6 +32,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
+| FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1549,3 +1550,24 @@ construction (it reads one row per hour and source), not measured. Two runs, one
 (preliminary). No camera registered, so `cameras_online` was 0 of 0. The cost of the trigger
 on the consumer's throughput was not measured. `storage_gb` does not count 1.05 GB of files
 with no row, nor playback copies (K-21).
+
+## OMNI-611 · The Operations Dashboard against the API · 2026-10-11
+
+**Conditions:** the real stack, Chrome on `http://localhost:3000`, signed in as the admin,
+one pass. API values read through nginx by a throwaway admin at the same moments.
+
+| Figure | Page | API |
+|---|---|---|
+| Cameras online | 0 / 0 | `cameras_online` 0, `cameras_total` 0 |
+| Footage held | 60 → 61 → 60 | `videos` 60 → 61 → 60 |
+| Segments indexed | 146,807 → 146,857 → 146,807 | same |
+| Storage in use | 2.04 GB | `storage_gb` 2.035 → 2.036 → 2.035 |
+| Datasets | 60 / 60 | `GET /datasets`: 30 + 30 loaded of 30 + 30 |
+| Activity, current hour | 0 → 50 → 0 | `segments` of the last hour 0 → 50 → 0 |
+
+The arrows are one CCD clip uploaded and extracted, then deleted, while the page stayed
+open; the page followed within one 30 s refresh, without a reload. Refresh timing: summary
+requests 30.0 s apart; none in 70 s with the tab hidden (simulated); one at once on return.
+
+**Not covered:** an analyst's view; a real hidden tab; nginx (`https://localhost`); the
+datasets screen behind its link (OMNI-612).

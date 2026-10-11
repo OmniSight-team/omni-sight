@@ -697,3 +697,75 @@ The dashboard's counts come from a rollup kept by triggers in the same transacti
 rows, and equal a direct count after an insert, a re-gate and a delete on the real
 pipeline. Summary p50 41 ms / p95 72 ms, activity 15 / 36 ms, over 100 calls each on
 146,807 rows. K-21 opened for 1.05 GB of files with no row.
+
+---
+
+## OMNI-611 · Operations Dashboard
+
+### Why this ticket exists
+
+FR-9: the landing page after sign-in should show the state of the whole system at a glance,
+with every figure leading to the screen behind it. OMNI-610 gave it the numbers.
+
+### What was done
+
+2026-10-11.
+
+- **`frontend/src/app/(app)/page.tsx`** replaces the placeholder tiles (sign-in already lands
+  on `/`). Five figures, each a card that links:
+  - Cameras online `x / y` and how many are not live: the camera wall (`/live`)
+  - Footage held (videos): the archive (`/videos`)
+  - Segments indexed: the archive
+  - Storage in use (GB), days kept (`VIDEO_RETENTION_DAYS`) and the oldest recording due to
+    expire: the archive
+  - Datasets, clips loaded out of the sample, from `GET /datasets`: the datasets screen
+    (`/datasets`, built in OMNI-612; until then the link answers 404)
+- **Activity, last 24 hours:** one bar chart, segments stored per hour from
+  `GET /dashboard/activity`, local time on the axis (24 h clock), a tooltip per bar on hover
+  or keyboard focus (edge bars anchored inward so the tooltip stays in the card), "Nothing
+  stored in the last 24 hours" when empty, a screen-reader table of the same numbers, and a
+  link to the archive
+- **Alerts needing attention:** a panel saying "Alerts arrive in slice 9", nothing counted
+- **Refresh:** loaded once, then every 30 s while the tab is visible; hidden, it stops;
+  visible again, it refreshes at once. A failed refresh keeps the last figures and says so
+  next to the time they are from
+- **One conflict with the ticket, told to Ahmad first:** every role sees the dashboard, but
+  Live Monitoring is operators' and admins' (`nav.py`). For an analyst the cameras figure
+  is shown without a link ("Live Monitoring is for operators") instead of a link to a screen
+  that answers 403. Which screens a user may open comes from `GET /nav`, the same map as the
+  sidebar
+- Types for the three endpoints in `lib/api-client.ts`
+- Found on the way: the hour labels wrapped onto two lines and the edge tooltip was cut off
+  by the card; both fixed. The frontend container needed a restart after each change
+  (K-10). A Next-generated file (`.next/dev/types/validator.ts`) was left with trailing
+  bytes by one restart, so `tsc` reports it; `src/` has no errors
+
+### Verification performed
+
+- `tsc` (no errors in `src/`), `eslint` clean on the page (4 older warnings in
+  `api-client.ts`, lines not touched)
+- Chrome, port 3000, signed in as the admin (by Ahmad): every figure equal to the API
+  (0 / 0 cameras, 60 videos, 146,807 segments, 2.04 GB for 2.035, 60 / 60 clips)
+- A CCD clip uploaded and extracted through the API while the page was open: without a
+  reload the page went to 61 videos, 146,857 segments and a 50-segment bar at 19:00 (16:00
+  UTC), the API's numbers; deleted afterwards, the page back to 60 / 146,807
+- Links read from the page: `/live`, `/videos` (four), `/datasets`; clicked: cameras → the
+  wall, footage → the archive (the new clip at the top)
+- Refresh: summary requests at 16:08:32, 16:09:02, 16:09:32 (30 s apart); none in the 70 s
+  the tab was hidden (simulated: `visibilityState` overridden and `visibilitychange`
+  dispatched, as for the wall in OMNI-506); one at 16:10:58, the moment it was visible again
+
+### Not verified
+
+- The analyst's view in the browser (no analyst signed in); the unlinked cameras figure
+  follows from `GET /nav`, which leaves `/live` out for an analyst
+- A real hidden tab (the automation's own waits bring the tab forward, so the pause was
+  simulated)
+- `/datasets` itself (OMNI-612)
+- Through nginx at `https://localhost` (the automation cannot open the self-signed site)
+
+### Result
+
+The dashboard is the landing page: cameras, footage, segments, storage with retention,
+datasets and 24 hours of activity, each matching the API and each a link; alerts held for
+slice 9; refreshed every 30 s, paused while hidden.
