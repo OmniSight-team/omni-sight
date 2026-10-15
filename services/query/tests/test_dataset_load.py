@@ -16,7 +16,7 @@ from app import datasets as datasets_module
 from app import videos as videos_module
 from app.db import SessionLocal
 from app.main import app
-from app.models import DatasetManifest, User, Video
+from app.models import DatasetManifest, EventWindow, User, Video
 from app.security import hash_password
 from app.settings import settings
 from fastapi.testclient import TestClient
@@ -192,6 +192,38 @@ def test_a_finished_dataset_queues_nothing(mirror):
     resp = client.post(f"/datasets/{DATASET}/load", json={"limit": 50}, headers=_headers(Role.ADMIN))
     assert resp.json() == {"queued": 1}  # only the missing file is tried again
     _wait_idle()
+
+
+def test_status_counts_the_datasets_windows_and_their_verdicts(mirror):
+    """OMNI-612: windows derived over the whole dataset (not only the sample), and how
+    many the hand check looked at and found right."""
+    assert (_status()["windows_derived"], _status()["windows_checked"], _status()["windows_verified"]) == (0, 0, 0)
+    with SessionLocal() as session:
+        ids = dict(session.query(DatasetManifest.clip_key, DatasetManifest.id).filter_by(dataset=DATASET))
+        for key, verified in (("a.mp4", True), ("b.mp4", False), ("c.mp4", None), ("t.mp4", None)):
+            session.add(
+                EventWindow(
+                    manifest_id=ids[key], kind="positive", window_start_s=0.0, window_end_s=5.0, length_s=5.0,
+                    event_class="Normal", domain=Domain.TRAFFIC, split="held_out", verified=verified,
+                )
+            )
+        session.commit()
+    status = _status()
+    assert (status["windows_derived"], status["windows_checked"], status["windows_verified"]) == (4, 2, 1)
+
+
+def test_status_shows_the_running_loads_progress(mirror, monkeypatch):
+    gate = __import__("threading").Event()
+    real = datasets_module.load_clip
+    monkeypatch.setattr(datasets_module, "load_clip", lambda mid: gate.wait(5) and real(mid))
+    assert _status()["load_queued"] is None
+    client.post(f"/datasets/{DATASET}/load", json={"limit": 2}, headers=_headers(Role.ADMIN))
+    status = _status()
+    assert status["status"] == "loading" and status["load_queued"] == 2 and status["load_done"] == 0
+    gate.set()
+    _wait_idle()
+    status = _status()
+    assert status["load_queued"] is None and status["load_done"] is None and status["videos_loaded"] == 2
 
 
 def test_upload_route_still_sets_a_retention_date(mirror):

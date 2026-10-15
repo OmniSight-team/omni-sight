@@ -574,8 +574,20 @@ export interface Dataset {
   total: number;
   failed: number;
   status: "not_loaded" | "loading" | "partial" | "loaded";
+  // The running load on this dataset, if any: clips worked through out of those queued.
+  load_done: number | null;
+  load_queued: number | null;
+  // Lead-up windows over the whole dataset; checked and verified by the hand check.
+  windows_derived: number;
+  windows_checked: number;
+  windows_verified: number;
 }
 
 export async function listDatasets(): Promise<Dataset[]> {
   return request<Dataset[]>("/datasets");
+}
+
+// Admin only. Queues up to `limit` clips not loaded yet; poll listDatasets for progress.
+export async function loadDataset(name: string, limit: number): Promise<{ queued: number }> {
+  return request(`/datasets/${name}/load`, { method: "POST", body: JSON.stringify({ limit }) });
 }

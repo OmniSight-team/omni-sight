@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
 from app.deps import get_current_user, require_role
 from app.extraction import claim_extraction, run_extraction
-from app.models import DatasetManifest, User, Video
+from app.models import DatasetManifest, EventWindow, User, Video
 from app.settings import settings
 from app.videos import UploadRejected, _probe_and_finalize, store_video
 
@@ -55,6 +55,14 @@ class DatasetOut(BaseModel):
     # file was refused before a video existed (reason in the query log).
     failed: int
     status: str  # not_loaded / loading / partial / loaded
+    # The running load, if this dataset has one: clips worked through out of those queued.
+    load_done: int | None
+    load_queued: int | None
+    # OMNI-607's windows over the whole dataset (positive and negative), not only the
+    # sample; the hand check (OMNI-609) gives a verdict on the sampled ones.
+    windows_derived: int
+    windows_checked: int
+    windows_verified: int
 
 
 class LoadRequest(BaseModel):
@@ -195,8 +203,19 @@ def list_datasets(db: Session = Depends(get_db), _user: User = Depends(get_curre
             .join(Video, Video.id == DatasetManifest.video_id)
             .where(_in_subset(name))
         ).one()
+        derived, checked, verified = db.execute(
+            select(
+                func.count(),
+                func.count().filter(EventWindow.verified.is_not(None)),
+                func.count().filter(EventWindow.verified.is_(True)),
+            )
+            .select_from(EventWindow)
+            .join(DatasetManifest, DatasetManifest.id == EventWindow.manifest_id)
+            .where(DatasetManifest.dataset == name)
+        ).one()
         with _lock:
-            running = _job is not None and _job.dataset == name
+            job = _job if _job is not None and _job.dataset == name else None
+            running = job is not None
             failed += len(_refused.get(name, {}))
         if running:
             state = "loading"
@@ -204,7 +223,13 @@ def list_datasets(db: Session = Depends(get_db), _user: User = Depends(get_curre
             state = "not_loaded"
         else:
             state = "loaded" if loaded == total else "partial"
-        out.append(DatasetOut(name=name, domain=domain, videos_loaded=loaded, total=total, failed=failed, status=state))
+        out.append(
+            DatasetOut(
+                name=name, domain=domain, videos_loaded=loaded, total=total, failed=failed, status=state,
+                load_done=job.done if job else None, load_queued=len(job.manifest_ids) if job else None,
+                windows_derived=derived, windows_checked=checked, windows_verified=verified,
+            )
+        )
     return out
 
 

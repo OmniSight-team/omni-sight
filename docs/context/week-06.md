@@ -769,3 +769,67 @@ with every figure leading to the screen behind it. OMNI-610 gave it the numbers.
 The dashboard is the landing page: cameras, footage, segments, storage with retention,
 datasets and 24 hours of activity, each matching the API and each a link; alerts held for
 slice 9; refreshed every 30 s, paused while hidden.
+
+---
+
+## OMNI-612 · Datasets screen
+
+### Why this ticket exists
+
+FR-9: the dashboard's datasets figure needs a screen behind it, showing what each dataset
+holds in the product and how far its lead-up windows are derived and checked, with a way for
+an admin to load clips and watch it happen.
+
+### What was done
+
+2026-10-15.
+
+- **One conflict with the ticket, told to Ahmad first:** the acceptance says "load 10 more
+  CCD clips", but D-26 limits the product to the hand-check sample and all 30 sampled CCD
+  clips were loaded, so there was nothing more to load. Ahmad chose: delete 10 sampled CCD
+  clips and load them again from the screen. Nothing in the product changed for it; the
+  verdicts sit on the windows, so they survive
+- **`GET /datasets`** (`services/query/app/datasets.py`) gains `windows_derived` (every
+  window of the dataset, positive and negative, not only the sample), `windows_checked`
+  (a verdict given) and `windows_verified` (verdict correct), and the running load's
+  `load_done` / `load_queued` (null when none runs)
+- **`frontend/src/app/(app)/datasets/page.tsx`:** a card per dataset: domain, videos loaded
+  out of the sample's total (and failed, if any), status, windows derived, hand-checked,
+  verified correct. Admins get "Load up to N clips" (default 10); while any load runs the
+  button is disabled and the screen polls every 2 s with a progress bar (done of queued).
+  "Windows →" opens `/windows?dataset=<name>`
+- **`/windows` takes `?dataset=`** and lists only that dataset's sampled windows, with links
+  back to Datasets and to all datasets. Each row already opened OMNI-609's view.
+  `useSearchParams` sits under a `Suspense` boundary, as Next 16 requires for a production
+  build
+- Not in the sidebar: the nine screens come from the product document (`NAV_ROUTES`), and
+  Datasets is not one of them; the dashboard's figure links to it, as OMNI-611 planned
+- Docker Desktop's stack was down at the start; `docker compose up -d`
+
+### Verification performed
+
+- `test_dataset_load.py`: 8 passed (2 new): the window counts (4 derived, 2 checked, 1
+  verified, a window of an unsampled clip counted), and the progress (2 queued, 0 done while
+  the first clip is held; null again after)
+- `tsc` no errors; `eslint` clean on the new and changed files (4 older warnings in
+  `api-client.ts`)
+- Real stack: `GET /datasets` equal to the database (CCD 4,500 / 30 / 30, UCF-Crime 3,260 /
+  30 / 23); 10 sampled CCD clips deleted through `delete_video` (CCD 20 / 30, dashboard 50
+  videos, 146,307 segments); Ahmad clicked Load (10) on the screen: 30 / 30 in 28 s, the
+  dashboard back to 60 / 146,807 with a 500-segment bar this hour; the 30 CCD verdicts kept.
+  Links followed in Chrome. Numbers in `results.md`
+- Full `uv run pytest`: 455 passed, 1 skipped. No stray ingestion worker after (K-19)
+
+### Not verified
+
+- The progress bar on screen mid-load: the load finished before I looked; the 2 s polls are
+  in the query log
+- An operator's or analyst's view (no Load control; `POST` answers 403, tested in OMNI-608)
+- Through nginx at `https://localhost`
+
+### Result
+
+The Datasets screen shows each dataset's clips, status, windows derived, checked and verified,
+lets an admin load clips with progress, and links to each dataset's windows and from there to
+each window's check. Read under D-26, a 10-clip CCD load from the screen moved the screen's
+count and the dashboard on the real stack.

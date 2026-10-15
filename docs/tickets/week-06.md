@@ -356,9 +356,9 @@ recorded with the archive at full size.
 
 ## OMNI-612 · Datasets screen
 
-- [ ] Per dataset: domain, videos loaded out of total, status, windows derived and verified
-- [ ] A Load control (admin only) with a limit, and progress while it runs
-- [ ] A link from each dataset to its windows, and from each window to OMNI-609's view
+- [x] Per dataset: domain, videos loaded out of total, status, windows derived and verified
+- [x] A Load control (admin only) with a limit, and progress while it runs
+- [x] A link from each dataset to its windows, and from each window to OMNI-609's view
 
 **Acceptance:** load 10 more CCD clips from the screen and watch the count and the dashboard
 move.

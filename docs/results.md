@@ -33,6 +33,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
+| FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1571,3 +1572,33 @@ requests 30.0 s apart; none in 70 s with the tab hidden (simulated); one at once
 
 **Not covered:** an analyst's view; a real hidden tab; nginx (`https://localhost`); the
 datasets screen behind its link (OMNI-612).
+
+## OMNI-612 · The Datasets screen: a load from the screen moves the counts · 2026-10-15
+
+**Conditions:** the real stack, Chrome on `http://localhost:3000`, signed in as the admin by
+Ahmad, one pass. Under D-26 the product holds only the hand-check sample and its 30 CCD
+clips were all loaded, so "10 more" was read as: the 10 last sampled CCD clips by key
+(`Crash-1500/000982` to `001459`) deleted with the archive's own delete function, then loaded
+from the screen (Ahmad clicked Load, limit 10).
+
+| Figure | Before the delete | After the delete | After the load |
+|---|---|---|---|
+| Datasets screen, CCD videos loaded | 30 / 30, Loaded | 20 / 30, Partly loaded | 30 / 30, Loaded |
+| Dashboard, footage held | 60 | 50 | 60 |
+| Dashboard, segments indexed | 146,807 | 146,307 | 146,807 |
+| Dashboard, storage (`storage_gb`) | 2.035 | 2.003 | 2.035 (page 2.04 GB) |
+| Dashboard, current hour's bar | 0 | 0 | 500 |
+
+- The load: `POST /datasets/ccd/load` 202, then 10 clips stored and extracted in 28 s
+  (created 08:59:11 to 08:59:36 UTC, about 2.8 s per clip); the screen polled `GET /datasets`
+  every 2 s while it ran and stopped after. All 10 back as `source = dataset`, no retention date
+- Window counts on the screen equal to the database: CCD 4,500 derived, 30 checked, 30
+  verified; UCF-Crime 3,260, 30, 23 (OMNI-609's result). The 30 CCD verdicts survived the
+  delete and reload (they sit on the windows, not the videos)
+- Links followed: dashboard → Datasets → CCD's windows (`/windows?dataset=ccd`, 30 rows, all
+  CCD) → a reloaded clip's window, whose player points at the new video's playback file
+
+**Not covered:** the progress bar seen mid-load (the load ended before my screenshot; the
+2 s polls are in the query log); an analyst's or operator's view (no Load control); a load
+that fails or is refused, seen on screen; nginx
+(`https://localhost`).

@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { ApiError, type EventWindow, listSampleWindows } from "@/lib/api-client";
 import { DATASET_LABELS, SOURCE_LABELS } from "@/lib/windows";
 
 // The hand-check sample (OMNI-609, D-26/D-27): one lead-up window per sampled clip,
-// with the verdict given so far. Each row opens the window's check screen.
+// with the verdict given so far. Each row opens the window's check screen. `?dataset=ccd`
+// shows one dataset's windows (the Datasets screen links here, OMNI-612).
 
 function Verdict({ window }: { window: EventWindow }) {
   if (window.verified === null) {
@@ -64,8 +66,14 @@ function Tally({ windows }: { windows: EventWindow[] }) {
   );
 }
 
-export default function SampleWindowsPage() {
-  const [windows, setWindows] = useState<EventWindow[] | null>(null);
+function isDataset(value: string | null): value is EventWindow["dataset"] {
+  return value !== null && value in DATASET_LABELS;
+}
+
+function SampleWindows() {
+  const param = useSearchParams().get("dataset");
+  const dataset = isDataset(param) ? param : null;
+  const [allWindows, setWindows] = useState<EventWindow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,13 +82,33 @@ export default function SampleWindowsPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "could not load the windows"));
   }, []);
 
+  const windows = useMemo(
+    () => (allWindows && dataset ? allWindows.filter((w) => w.dataset === dataset) : allWindows),
+    [allWindows, dataset],
+  );
+
   const firstUnchecked = windows?.find((w) => w.verified === null);
 
   return (
     <main className="space-y-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Lead-up windows: hand check</h1>
+          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+            Lead-up windows: hand check{dataset && `, ${DATASET_LABELS[dataset]}`}
+          </h1>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            <Link href="/datasets" className="text-indigo-600 hover:underline dark:text-indigo-400">
+              Datasets
+            </Link>
+            {dataset && (
+              <>
+                {" · "}
+                <Link href="/windows" className="text-indigo-600 hover:underline dark:text-indigo-400">
+                  all datasets
+                </Link>
+              </>
+            )}
+          </p>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Correct when the window ends where the event visibly begins (within 1.5 s) and shows none of the event.
           </p>
@@ -141,5 +169,13 @@ export default function SampleWindowsPage() {
         </>
       )}
     </main>
+  );
+}
+
+export default function SampleWindowsPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>}>
+      <SampleWindows />
+    </Suspense>
   );
 }
