@@ -353,7 +353,7 @@ recorded with the archive at full size.
 **Acceptance:** each number on the page matches the API and leads somewhere.
 
 ---
-
+ 
 ## OMNI-612 · Datasets screen
 
 - [x] Per dataset: domain, videos loaded out of total, status, windows derived and verified
@@ -394,12 +394,12 @@ recorded, whichever way they go.
 
 ## OMNI-614 · Diagram, docs, merge
 
-- [ ] `docs/architecture/slice-06-dashboard-datasets.md`: loaders → manifest → split → windows →
+- [x] `docs/architecture/slice-06-dashboard-datasets.md`: loaders → manifest → split → windows →
       export, and dataset footage through the normal upload path
-- [ ] `docs/context/week-06.md`, one section per ticket
-- [ ] `results.md` scoreboard: NFR-5 (live), SM-3 target, the split, windows, hand check,
+- [x] `docs/context/week-06.md`, one section per ticket
+- [x] `results.md` scoreboard: NFR-5 (live), SM-3 target, the split, windows, hand check,
       dashboard; `decisions.md` and `known-issues.md` current
-- [ ] `uv run pytest` green
+- [x] `uv run pytest` green
 - [ ] Everything committed on `slice-06-dashboard-datasets` (by you)
 - [ ] **You merge into `master`** (`git switch master`,
       `git merge --no-ff slice-06-dashboard-datasets`), then `uv run pytest` green on `master`

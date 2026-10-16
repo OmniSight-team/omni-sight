@@ -7,7 +7,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | # | Decision | Date | Status |
 |---|---|---|---|
 | D-1 | CCD replaces DoTA as the traffic dataset | 2026-09-20 | Done |
-| D-2 | SM-3 measured as mean time-to-accident, target set from CCD in slice 6 | 2026-09-20 | Target pending (slice 6) |
+| D-2 | SM-3 measured as mean time-to-accident, target set from CCD in slice 6 | 2026-09-20 | Done (target 1.80 s, D-23) |
 | D-3 | Files: every decoded frame is gated, no sampling step | 2026-09-23 | Done |
 | D-4 | **Deviation:** blur before differencing | 2026-09-23 | Done |
 | D-5 | **Addition:** a row for every frame of a file, image files only for admitted frames; live cameras store admitted frames only | 2026-09-23, 09-30 | Done |
@@ -26,6 +26,14 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-18 | Each camera's worker in a process of its own; one thread per decoder and per OpenCV call | 2026-10-03 | Done |
 | D-19 | **NFR-4 revised:** 3 live feeds per machine of this class, sustained over 10 minutes (was 10) | 2026-10-03 | Done |
 | D-20 | The live worker's buffer holds about 2 s of frames (`LIVE_QUEUE_SIZE` 10 → 60) | 2026-10-03 | Done |
+| D-21 | UCF-Crime training event times come from UCA, picked by a written rule | 2026-10-07 | Done |
+| D-22 | The train / validation / held-out split, fixed once | 2026-10-08 | Done |
+| D-23 | The SM-3 target rule, written before CCD's footage was measured | 2026-10-08 | Done (mTTA ≥ 1.80 s) |
+| D-24 | How lead-up windows are cut, and when an event gets none | 2026-10-09 | Done |
+| D-25 | Dataset footage enters through the upload function | 2026-10-09 | Done |
+| D-26 | Model measurements on Colab; the product holds only the hand-check sample | 2026-10-09 | Done |
+| D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
+| D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
 
 ---
 

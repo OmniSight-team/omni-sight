@@ -907,3 +907,47 @@ load: 4 feeds over 10 minutes drop nothing at 90% of a core in ingestion (149% b
 feeds hold for 3 minutes. The sustained number does not move: 4 feeds over 10 minutes fail on
 one feed being not live for 2 seconds. NFR-4 stays at 3 per machine (D-19); every software
 candidate in K-2 has now been tried.
+
+---
+
+## OMNI-614 · Diagram, docs, merge
+
+### Why this ticket exists
+
+The slice closes with its pipeline drawn, its docs current and the branch merged into
+`master` by Ahmad.
+
+### What was done
+
+2026-10-16.
+
+- **`docs/architecture/slice-06-dashboard-datasets.md`:** Drive and the mirror → the three
+  loaders → manifest → split → windows → the committed CSVs (and Colab from them), the
+  hand-check sample → `POST /datasets/{name}/load` → `store_video()`, the upload's own
+  function → extraction; the Datasets, Windows and dashboard screens on their endpoints, the
+  dashboard on the rollup. Mermaid checked: it renders
+- **`docs/context/week-06.md`:** a section for every ticket, OMNI-600 to OMNI-614
+- **`results.md` scoreboard:** checked, nothing missing. NFR-5 rechecked for live (OMNI-601),
+  the SM-3 target, the split, the windows, the hand check, the dataset footage, the dashboard
+  aggregates, dashboard and Datasets screen rows were all there; NFR-4's row updated in
+  OMNI-613
+- **`decisions.md`:** the index stopped at D-20; D-21 to D-28 added. D-2's status read
+  "target pending (slice 6)" and is now done, with D-23's 1.80 s
+- **`known-issues.md`:** current. Nothing due in slice 6 is left open: K-4 was moved to slice 7
+  on 2026-10-09, K-11 fixed in OMNI-601; K-2 got OMNI-613's note
+
+### Verification performed
+
+- `uv run pytest`: 470 passed, 1 skipped, at the end of OMNI-613; only docs changed since
+- The diagram validated as a Mermaid flowchart
+
+### Not verified
+
+- The definition of done on a fresh `docker compose up -d`: not run in this ticket
+- `datasets/splits/` and `datasets/windows/` on Drive for Colab: not copied yet (OMNI-607's
+  note); Ahmad's step
+- The commit, the merge into `master`, `pytest` on `master` and the tracker: Ahmad's steps
+
+### Result
+
+Slice 6's pipeline is drawn and the docs are current. Commit, merge and tracker are with Ahmad.
