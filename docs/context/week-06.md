@@ -988,7 +988,14 @@ done, asked for by Ahmad. Numbers in `results.md` (Slice 6 definition of done).
 
 - A wiped stack (`down -v`) and the full 60-clip reload
 - The check screen's "Play window" button (the video element was played directly)
-- `datasets/splits/` and `datasets/windows/` on Drive for Colab (Ahmad's step)
+
+### The CSVs on Drive
+
+After the check, with Ahmad's go-ahead: Drive for desktop was installed but not running;
+started, it mounted `G:`. `datasets/splits/`, `datasets/windows/` and `datasets/hand_check/` copied to
+`MyDrive/omnisight/datasets/` (the folder did not exist, nothing overwritten). SHA-256 of all 8 copies
+equal to the repo's (the split and window hashes are those in `results.md`), and the Drive API lists all
+8 with the same sizes. Not yet read from a Colab session.
 
 ### Result
 

@@ -419,7 +419,7 @@ The plan's proof, on a fresh `docker compose up -d`:
 - [x] `results.md` has: the split (with hashes), windows per dataset, the hand-check rate, the
       CCD pre-event distribution and the SM-3 target, NFR-5 rechecked for live, the dashboard
       endpoints' timings
-- [ ] `datasets/splits/` and `datasets/windows/` committed and copied to Drive for Colab
+- [x] `datasets/splits/` and `datasets/windows/` committed and copied to Drive for Colab
 - [x] Merged into `master`
 
 ---
