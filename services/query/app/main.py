@@ -9,13 +9,16 @@ from fastapi.responses import JSONResponse
 from app.admin import router as admin_router
 from app.auth import router as auth_router
 from app.cameras import router as cameras_router
+from app.dashboard import router as dashboard_router
 from app.capture_resume import start_background as start_capture_resume
+from app.datasets import router as datasets_router
 from app.deps import RENEWED_TOKEN_HEADER
 from app.extraction import mark_interrupted_extractions
 from app.logging_conf import configure_logging
 from app.nav import router as nav_router
 from app.settings import settings
 from app.videos import router as videos_router
+from app.windows import router as windows_router
 
 configure_logging()
 logger = logging.getLogger("app.request")
@@ -50,8 +53,11 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(cameras_router)
+app.include_router(dashboard_router)
+app.include_router(datasets_router)
 app.include_router(nav_router)
 app.include_router(videos_router)
+app.include_router(windows_router)
 
 
 @app.middleware("http")

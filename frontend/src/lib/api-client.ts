@@ -484,3 +484,110 @@ export function uploadVideo(file: File, onProgress?: (percent: number) => void):
     xhr.send(formData);
   });
 }
+
+// --- Lead-up windows and the hand check (OMNI-609) ----------------------------------
+
+export type AnnotationSource = "ucf_crime_temporal" | "uca" | "ccd_binlabels";
+
+export interface EventWindow {
+  id: number;
+  dataset: "ucf_crime" | "ccd";
+  clip_key: string;
+  event_class: string;
+  annotation_source: AnnotationSource;
+  split: string;
+  window_start_s: number;
+  window_end_s: number;
+  length_s: number;
+  nominal_length_s: number | null;
+  shortened: boolean;
+  verified: boolean | null;
+  verify_reason: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+}
+
+export interface EventWindowDetail extends EventWindow {
+  event_start_s: number;
+  event_end_s: number | null;
+  video_id: number | null;
+  video_duration_s: number | null;
+  playback_url: string | null;
+}
+
+export async function listSampleWindows(): Promise<EventWindow[]> {
+  return request<EventWindow[]>("/windows");
+}
+
+export async function getWindow(id: number): Promise<EventWindowDetail> {
+  return request<EventWindowDetail>(`/windows/${id}`);
+}
+
+export async function setWindowVerdict(
+  id: number,
+  correct: boolean,
+  reason: string | null,
+): Promise<EventWindowDetail> {
+  return request<EventWindowDetail>(`/windows/${id}/verdict`, {
+    method: "POST",
+    body: JSON.stringify({ correct, reason }),
+  });
+}
+
+// --- Operations Dashboard (OMNI-610 / OMNI-611) -------------------------------------
+
+export interface DashboardSummary {
+  // Cameras whose state is `live` (the same state as the wall), out of every camera.
+  cameras_online: number;
+  cameras_total: number;
+  videos: number;
+  segments: number;
+  // Null until alerts exist (slice 9): no alerts is not the same as zero alerts.
+  alerts_today: number | null;
+  // Video bytes plus frame and thumbnail bytes, in GB (10^9 bytes).
+  storage_gb: number;
+  retention_days: number;
+  // The oldest video retention will delete in time (dataset footage never expires).
+  oldest_recording_at: string | null;
+}
+
+export interface DashboardHour {
+  // The hour's start, UTC.
+  hour: string;
+  segments: number;
+  alerts: number | null;
+}
+
+export async function getDashboardSummary(): Promise<DashboardSummary> {
+  return request<DashboardSummary>("/dashboard/summary");
+}
+
+// One entry per hour, oldest first, ending with the current hour.
+export async function getDashboardActivity(hours = 24): Promise<DashboardHour[]> {
+  return request<DashboardHour[]>(`/dashboard/activity?hours=${hours}`);
+}
+
+export interface Dataset {
+  name: string;
+  domain: CameraDomain;
+  videos_loaded: number;
+  total: number;
+  failed: number;
+  status: "not_loaded" | "loading" | "partial" | "loaded";
+  // The running load on this dataset, if any: clips worked through out of those queued.
+  load_done: number | null;
+  load_queued: number | null;
+  // Lead-up windows over the whole dataset; checked and verified by the hand check.
+  windows_derived: number;
+  windows_checked: number;
+  windows_verified: number;
+}
+
+export async function listDatasets(): Promise<Dataset[]> {
+  return request<Dataset[]>("/datasets");
+}
+
+// Admin only. Queues up to `limit` clips not loaded yet; poll listDatasets for progress.
+export async function loadDataset(name: string, limit: number): Promise<{ queued: number }> {
+  return request(`/datasets/${name}/load`, { method: "POST", body: JSON.stringify({ limit }) });
+}

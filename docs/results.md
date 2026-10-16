@@ -11,21 +11,29 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-10 | Every protected route: 200 with the right role, 403 with the wrong role, 401 with no, expired or tampered token | 15 of 15 cases on 4 routes | **Pass** | 2026-09-05 | TC-10 |
 | NFR-9 | Token expires after 15 min idle; account locks after 5 failed logins | 2 of 2 | **Pass** | 2026-09-05 | NFR-9 |
 | NFR-7 | 100% of endpoints reject a request without a valid token | API routes: 100% (TC-10). `/thumbs/` and `/media/`: 0% | **Fail** on the two static routes | 2026-09-24 | OMNI-307/308 |
-| NFR-5 | Data lost on failure or crash = 0 | 0 lost in 9 failure cases: restart, down/up, query killed mid-upload, consumer killed, broker recreated, ingestion restarted and killed, consumer stopped and killed mid-capture | **Pass** in the cases tested | 2026-09-12 to 09-26 | NFR-5, OMNI-311, OMNI-319 |
-| FR-1a | Accept live camera feeds and uploaded files | Files: one clip per dataset `ready`, metadata equal to `ffprobe`. Live: ~4.1 frames/s stored, recovers by itself after the source is killed | **Pass** | 2026-09-21, 09-26 | OMNI-300, OMNI-312, OMNI-313 |
+| NFR-5 | Data lost on failure or crash = 0 | 0 lost in 9 failure cases: restart, down/up, query killed mid-upload, consumer killed, broker recreated, ingestion restarted and killed, consumer stopped and killed mid-capture. Rechecked for live on the slice 5 pipeline (admitted frames only, own queue): ingestion restarted and killed, `consumer-live` stopped and killed, 0 lost, 2 runs, 32 of 32 checks each | **Pass** in the cases tested | 2026-09-12 to 10-07 | NFR-5, OMNI-311, OMNI-319, OMNI-601 |
+| FR-1a | Accept live camera feeds and uploaded files | Files: one clip per dataset `ready`, metadata equal to `ffprobe`. Live: every frame gated (15.0/s), admitted frames stored, 3.05-3.30/s on `cam05` (OMNI-501); recovers by itself after the source is killed | **Pass** | 2026-09-21, 09-26, 09-30 | OMNI-300, OMNI-312, OMNI-313, OMNI-501 |
 | FR-1b | Keep the most informative frames by detecting movement | Fixed cameras keep 4.7-19.8%; daylight dash-cam keeps 57%. Live: every frame gated (15.0/s), 20-22% kept on `cam05`, counters balance | **Pass** on fixed cameras, **weak** on moving cameras | 2026-09-26, 09-30 | OMNI-304, OMNI-305, OMNI-318, OMNI-501 |
 | FR-3 | Store each segment with time, source and image | Files: a row for every decoded frame. Live: a row for every admitted frame. Image files equal admitted rows in every run | **Pass** | 2026-09-23 to 09-30 | OMNI-304, OMNI-316, OMNI-501 |
 | NFR-1, first half | Capture to stored under 5 s (the searchable half comes in slice 7) | Every frame gated, live on its own queue: live alone max 106-472 ms; with a 1,930-frame file extracting max **147-373 ms** (was 6.14 s on one shared queue) | **Pass**, alone and with a long file extracting (preliminary: one camera, two runs) | 2026-10-01 | OMNI-316, OMNI-502 |
 | FR-9, the wall's preview (no Phase A target) | 16 tiles polling one camera once a second, cheap; unchanged frames cost a 304 | Live feed: 960 of 960 polls 200, 387 KiB/s, query +15-17% of a core. Frozen feed: 432 of 480 polls 304, 45 KiB/s. Stopped: 404 at once | **Measured**; 304s only on a frozen feed (K-12) | 2026-10-01 | OMNI-503 |
 | FR-9, feed health (no Phase A target) | See at once which feeds are healthy; capture resumes after a restart with nobody pressing Start | Simulator paused: `frozen` 3.1-3.2 s after the last frame, `offline` at 30.6-30.8 s (not ~10 s: late frames at each read timeout, K-13), `live` again 15.6 s after unpausing. Ingestion restarted or killed: never `live` without a worker, capture back in 12.3-13.6 s | **Pass**, with K-13 open | 2026-10-02 | OMNI-504 |
 | FR-9, rewind (no Phase A target) | Rewind a feed a few minutes | After 5 min of capture on `cam05`: 957 frames in the 5-minute buffer, oldest first, none outside the window, full frames token-checked | **Pass** (one run) | 2026-10-02 | OMNI-505 |
-| FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating, mostly 304s on still scenes | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; paging, group filter, no polling while hidden (simulated) | **Pass** apart from "mostly 304s" (K-12) | 2026-10-02 | OMNI-506 |
+| FR-9, the wall (no Phase A target) | Ten cameras, nine at once, each updating; 304s when a feed is frozen or lost, a new frame on every poll of a live feed by design (D-14; reworded, K-12) | Chrome: 9 tiles in the window, each changing 27-30 times in 30 s; 498 of 499 preview requests 200, ~100 KiB/s; frozen feed 432 of 480 polls 304 (OMNI-503); paging, group filter, no polling while hidden (simulated) | **Pass** | 2026-10-02 | OMNI-503, OMNI-506 |
 | FR-9, tile states (no Phase A target) | Frozen, offline, stopped each labelled, the last frame dimmed with its age, never black; a frozen picture never looks live | Simulator paused: all nine tiles Frozen then Offline, no Live in between, Live again after unpausing; a stopped camera Stopped in 2.7 s | **Pass**; offline late and ages too young (K-13) | 2026-10-02 | OMNI-507 |
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
 | FR-9, layouts and pins (no Phase A target) | Choose 4x4, pin a camera top-left, reload: both kept | Kept after a reload; the pin held when a camera was added and removed; blocked or broken storage falls back to 3x3 with no pins | **Pass** (one pass) | 2026-10-04 | OMNI-512 |
 | TC-1 | Live camera and uploaded file together: both decode, only motion (or heartbeat) forwarded, the camera live on the wall throughout | 2 runs, 15 of 15 checks each: file 1,930 of 1,930, 356 admitted, 0 violations; live counters exact, every stored row admitted; camera live at every sample | **Pass, complete** | 2026-09-26, 2026-10-03 | OMNI-316, OMNI-511 |
-| NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
-| SM-3 | Revised to mean time-to-accident on CCD; target set in slice 6 | - | **Not measured yet** | - | `decisions.md` |
+| NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min, before and after the one-operation grid (after: 0 dropped, one feed 2 s not live). 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03, 2026-10-16 | OMNI-509, OMNI-510a, NFR-4 revision, OMNI-613 |
+| SM-3 | **mTTA ≥ 1.80 s** on CCD's held-out crash clips (D-2, rule D-23: half the held-out median pre-event footage, 3.60 s) | - | **Not measured yet** (no model before slice 10) | 2026-10-08 (target) | OMNI-606 |
+| UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
+| Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
+| Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
+| Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
+| Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
+| FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
+| FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
+| FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
@@ -1115,3 +1123,543 @@ machine, one pass of each browser step).
 
 **Not covered:** sixteen cameras; a real camera; a second browser; NFR-4 itself (measured in
 the NFR-4 revision entry, not rerun here).
+
+---
+
+## OMNI-601 · NFR-5 rechecked for live cameras on the slice 5 pipeline · 2026-10-07
+
+**Conditions:** the stack as it stands at the start of slice 6 (`master` at `24882ba`),
+already running; the machine as stated at the top. `scripts/verify_definition_of_done.py
+--only F`, two runs: `--camera cam02` and `--camera cam05` (simulator feeds). Each case uses a
+new camera, captures 14 s, applies the failure, waits for the queues to drain, lets capture
+go on 6 s, stops it, waits again, then compares.
+
+**The rule (K-11):** a live camera stores admitted frames only (OMNI-501), so gaps in a
+session's frame indexes are normal and are not read. Loss is a row whose file is missing, or
+fewer stored rows than the worker reported admitted: per session against the highest
+`camera_stats` report seen while it ran, and per camera against the lifetime counters. The
+check waits for the file queue, `omnisight.segments.live` and the camera queue (stats). The
+self-test flags a missing row, a missing file and a short count, and does not flag gaps.
+
+| Case | Run | Sessions (rows / reported admitted) | Camera total (rows / admitted) | Rows without file | Files without row | Lost |
+|---|---|---|---|---|---|---|
+| `restart ingestion` | cam02 | 14/14, 8/8 | 22 / 22 | 0 | 0 | 0 |
+| | cam05 | 14/14, 9/9 | 23 / 23 | 0 | 0 | 0 |
+| `kill ingestion` (SIGKILL), then `up -d` | cam02 | 14/14, 8/8 | 22 / 22 | 0 | 0 | 0 |
+| | cam05 | 14/13, 22/22 | 36 / 35 | 0 | 0 | 0 |
+| `consumer-live` stopped 15 s | cam02 | 44/44 | 44 / 44 | 0 | 0 | 0 |
+| | cam05 | 55/55 | 55 / 55 | 0 | 0 | 0 |
+| `consumer-live` killed (SIGKILL) 15 s | cam02 | 44/44 | 44 / 44 | 0 | 0 | 0 |
+| | cam05 | 55/55 | 55 / 55 | 0 | 0 | 0 |
+
+- **Both ingestion cases:** capture resumed by itself in a new session (OMNI-504) and went on
+  producing; every row stored before the failure was still there
+- **The kill on `cam05`:** 14 rows against a last report of 13: one frame admitted, published
+  and stored after the worker's last report and before the kill. Expected; a kill sends no
+  final report
+- **Consumer cases:** the live queue held 14-26 messages while `consumer-live` was down or
+  dead; all were stored once it started. 0 frames dropped by the worker (`dropped` 0 in every
+  case)
+- Both runs: **32 of 32 checks**
+
+**Result: 0 frames lost in all four cases, two runs, by the new rule.** Preliminary: one
+machine, two runs, one camera per case.
+
+**Not covered:** many cameras at once during a failure; a failure longer than 15 s (the
+backlog limit, `live_max_backlog` 2,000, was not reached); the broker recreated or killed
+with live capture running (OMNI-311 covered it for files only); few frames per case: the gate
+kept about 3-4% of frames on these feeds during the runs, so 22-55 admitted frames per case.
+
+## OMNI-603 · UCF-Crime event times from UCA, and their agreement with the official ones · 2026-10-07
+
+**Conditions:** `uv run python scripts/uca_event_times.py`, on the local annotation mirror:
+UCA at commit `e478cb5b` (json files), the official `Anomaly_Train.txt` (1,610),
+`Anomaly_Test.txt` (290) and `Temporal_Anomaly_Annotation_for_Testing_Videos.txt`. Matching is
+by video name against the official lists, which were checked against the full set on Drive on
+2026-09-21; the videos themselves were not read. The picking rule (D-21) was written before
+the agreement was computed and not changed after. One run (deterministic).
+
+**Match:** 1,854 UCA videos, all in the official lists. Training anomalies:
+
+| Class | Videos | In UCA | Timed by the rule |
+|---|---|---|---|
+| Abuse | 48 | 48 | 38 |
+| Arrest | 45 | 45 | 30 |
+| Arson | 41 | 41 | 39 |
+| Assault | 47 | 45 | 42 |
+| Burglary | 87 | 87 | 43 |
+| Explosion | 29 | 29 | 19 |
+| Fighting | 45 | 45 | 38 |
+| RoadAccidents | 127 | 125 | 113 |
+| Robbery | 145 | 144 | 109 |
+| Shooting | 27 | 27 | 20 |
+| Shoplifting | 29 | 29 | 17 |
+| Stealing | 95 | 95 | 55 |
+| Vandalism | 45 | 44 | 31 |
+| **Total** | **810** | **804** | **594 (73%)** |
+
+**Agreement:** the 140 official test anomalies are all in UCA; the rule times 110 (30 no
+match). Start picked from UCA against the official first interval's start (frame / 30):
+
+| Measure | Value |
+|---|---|
+| \|difference\| mean / median | **11.3 s / 3.0 s** |
+| p75 / p90 / max | 6.6 s / 25.8 s / 322.4 s |
+| Signed (UCA - official) mean / median | -3.4 s / -0.8 s |
+| Within 1 s / 2 s / 5 s / 10 s | 37 (34%) / 48 (44%) / 73 (66%) / 94 (85%) of 110 |
+| UCA start inside an official interval | 39 of 110 (35%) |
+
+Per class, median |difference|: Abuse 2.8 s (2), Arrest 16.5 s (3), Arson 3.6 s (8), Assault
+0.7 s (3), Burglary 6.3 s (7), Explosion 0.7 s (13), Fighting 1.6 s (5), RoadAccidents 1.8 s
+(23), Robbery 2.1 s (5), Shooting 3.0 s (16), Shoplifting 6.0 s (19), Stealing 35.6 s (2),
+Vandalism 2.2 s (4). Small groups; read as indications.
+
+**Not covered:** the test-set agreement measures the rule on 110 videos whose class mix
+differs from training (Robbery 5 here, 109 timed in training); whether 30 fps holds for every
+video (OMNI-607 probes each); whether either annotation is right (OMNI-609, by eye); the 30
+test anomalies the rule could not time (they keep their official times).
+
+## OMNI-605 · The fixed split: counts per split per class, seed and hashes · 2026-10-08
+
+**Conditions:** `uv run python scripts/build_dataset_split.py`, the rule in D-22, seed 605,
+on the manifest from OMNI-604 (loaders on the local mirror with Drive's `video_files.txt`).
+Run twice: identical files. Deterministic; one machine.
+
+**UCF-Crime** (1,900):
+
+| Class | Train | Validation | Held-out |
+|---|---|---|---|
+| Abuse | 40 | 8 | 2 |
+| Arrest | 39 | 6 | 5 |
+| Arson | 35 | 6 | 9 |
+| Assault | 40 | 7 | 3 |
+| Burglary | 74 | 13 | 13 |
+| Explosion | 24 | 5 | 21 |
+| Fighting | 38 | 7 | 5 |
+| RoadAccidents | 108 | 19 | 23 |
+| Robbery | 124 | 21 | 5 |
+| Shooting | 23 | 4 | 23 |
+| Shoplifting | 24 | 5 | 21 |
+| Stealing | 81 | 14 | 5 |
+| Vandalism | 38 | 7 | 5 |
+| Normal | 680 | 120 | 150 |
+| **Total** | **1,368** | **242** | **290** |
+
+Anomalies with an event time: train 505 (UCA), validation 89 (UCA), held-out 140 (official).
+Untimed: train 183, validation 33.
+
+**CCD** (4,500):
+
+| Class | Train | Validation | Held-out |
+|---|---|---|---|
+| Crash | 1,032 (90 source videos) | 225 (23) | 243 (20) |
+| Normal | 2,100 | 450 | 450 |
+| **Total** | **3,132** | **675** | **693** |
+
+No source video on two sides (test). **VIRAT:** 275, all `evaluation`.
+
+**Files** (`datasets/splits/`, LF, sorted by `clip_key`, columns `clip_key,event_class,split`):
+
+| File | SHA-256 |
+|---|---|
+| `ucf_crime.csv` | `9d167d543433756afa846ee5f65f448a069fcf16334581b1575e05029a224a78` |
+| `ccd.csv` | `a555c747da58e32a0964278295bc993b4b1d115cb07afa89af9199282c7673c4` |
+| `virat.csv` | `a031e637e3e02b0281dd72c6c518af2cd780363684868d2be3546ac29ac5bddd` |
+
+**Not covered:** balance on anything but class (scene, camera, time of day); CCD normals
+cannot be grouped by source video (no field for it); held-out classes are as small as the
+official test set makes them (Abuse 2, Assault 3).
+
+## OMNI-606 · CCD pre-event footage, and the SM-3 target · 2026-10-08
+
+**Conditions:** `uv run python scripts/ccd_pre_event.py`. All 1,500 crash clips from
+`Crash-1500.txt` (pre-event footage = first `1` in `binlabels` / 10 fps), split from the
+committed `datasets/splits/ccd.csv` (D-22). Rule D-23 written before running. Labels only:
+the videos were not read, so the 10 fps and 50 frames rest on the sampled clips
+(`dataset-layout.md`). Deterministic; one run.
+
+**Seconds before the first accident frame:**
+
+| Crash clips | n | Mean | Median | p10 | p25 | p75 | p90 | Min | Max | Under 1 s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| All | 1,500 | 3.72 | 3.60 | 3.00 | 3.20 | 4.20 | 4.60 | 3.00 | 4.90 | 0 |
+| Train | 1,032 | 3.73 | 3.60 | 3.00 | 3.20 | 4.20 | 4.60 | 3.00 | 4.90 | 0 |
+| Validation | 225 | 3.71 | 3.60 | 3.00 | 3.20 | 4.10 | 4.60 | 3.00 | 4.90 | 0 |
+| **Held-out** | **243** | **3.68** | **3.60** | 3.00 | 3.20 | 4.10 | 4.50 | 3.00 | 4.90 | 0 |
+
+Percentiles: linear interpolation between order statistics.
+
+**Histogram** (0.5 s bins):
+
+| Pre-event footage | All | Train | Validation | Held-out |
+|---|---|---|---|---|
+| 3.0-3.5 s | 606 | 408 | 95 | 103 |
+| 3.5-4.0 s | 376 | 261 | 54 | 61 |
+| 4.0-4.5 s | 290 | 199 | 44 | 47 |
+| 4.5-5.0 s | 228 | 164 | 32 | 32 |
+
+**SM-3 target (D-23):** half of 3.60 s = **mTTA ≥ 1.80 s**. Ceiling: 3.68 s (held-out mean,
+a warning at every clip's first frame).
+
+**Not covered:** the real lead-up before each crash (CCD clips start where the dataset cut
+them, so footage is never under 3.0 s or over 4.9 s); frame rates of the 1,490 crash clips
+not in the local mirror.
+
+## OMNI-607 · The lead-up windows: counts, shortened and skipped, and hashes · 2026-10-09
+
+**Conditions:** `uv run python scripts/build_event_windows.py`, rules D-24, seed 607, on the
+OMNI-604 manifest and the committed split (D-22). Every video's fps and duration from
+`ffprobe` on Drive (`scripts/probe_dataset_videos.py`, Colab, 2026-10-09): 1,950 UCF-Crime
+and 4,500 CCD files, 0 probe errors; the 35 local mirror clips probed locally gave
+identical rows. Run twice: identical files, no new rows. Deterministic; one machine.
+
+**UCF-Crime positive windows** (one per timed event and L; the same per L, 680 each):
+
+| Class | Train | Validation | Held-out |
+|---|---|---|---|
+| Abuse | 26 | 6 | 2 |
+| Arrest | 25 | 4 | 5 |
+| Arson | 32 | 6 | 9 |
+| Assault | 36 | 6 | 3 |
+| Burglary | 37 | 6 | 13 |
+| Explosion | 14 | 2 | 21 |
+| Fighting | 29 | 6 | 5 |
+| RoadAccidents | 74 | 13 | 23 |
+| Robbery | 89 | 13 | 5 |
+| Shooting | 17 | 2 | 23 |
+| Shoplifting | 14 | 3 | 21 |
+| Stealing | 45 | 8 | 5 |
+| Vandalism | 22 | 5 | 5 |
+| **Total, per L** | **485** | **86** | **140** |
+
+Accounting for the 950 anomalies, per L: 680 windows (140 official times, 540 UCA)
++ 54 events at 0 s + 216 untimed = 950. Plus 16 second intervals skipped (held-out).
+
+**UCF-Crime negative windows:** 950 per L (train 680, validation 120, held-out 150), one per
+normal video.
+
+**How much footage the windows really have** (length in seconds):
+
+| Windows | n | Shortened | p25 | Median | p75 | Under 5 s | Under 10 s |
+|---|---|---|---|---|---|---|---|
+| Positive, L = 30 s | 680 | **454** (67%) | 5.8 | 15.8 | 30.0 | 155 | 256 |
+| Positive, L = 60 s | 680 | **571** (84%) | 5.8 | 15.8 | 38.8 | 155 | 256 |
+| Negative, L = 30 s | 950 | 172 | 30.0 | 30.0 | 30.0 | 0 | 14 |
+| Negative, L = 60 s | 950 | 402 | 37.0 | 60.0 | 60.0 | 0 | 14 |
+
+Shortest positive: 0.033 s (one frame). Shortened positives by source, L = 30 s: official
+81 of 140 (median length 20.7 s), UCA 373 of 540 (median 15.0 s); L = 60 s: 109 and 462.
+**Most UCF-Crime events start less than 30 s into their video**, so a full 30 s lead-up exists
+for a third of them and a full 60 s for a sixth.
+
+**Skipped** (`ucf_crime_skipped.csv`, 572 rows):
+
+| Reason | Per L | Note |
+|---|---|---|
+| Event starts at 0 s | 54 | all UCA times (train 45, validation 9); none official |
+| No event time | 216 | D-21: 6 not in UCA, 210 no matching segment |
+| Second interval | 16 | held-out test videos |
+| Event after the probed end | 0 | |
+
+**CCD:** 1,500 positive windows `[0, accident_start)` (train 1,032, validation 225, held-out
+243), 3.0-4.9 s, median 3.6 s, none shortened or skipped; 3,000 negatives (2,100 / 450 / 450),
+lengths drawn from the same split's crash windows. All 4,500 clips at 10 fps; 4,498 run
+5.000 s, 2 run 4.900 s.
+
+**Frame rates:** 11 UCF-Crime videos are not at 30 fps: `Arrest050` (29.97) and 10 training
+normals in `Training-Normal-Videos-Part-2` (25: `Normal_Videos586, 600, 635, 644, 645, 648,
+649, 650, 651, 653`). None has an official frame-number time (Arrest050 is timed by UCA in
+seconds; normals have no event), so no window is affected by the 30 fps conversion.
+
+**`event_windows`:** 7,760 rows (UCF-Crime 3,260, CCD 4,500), equal to the CSVs. In SQL:
+0 positive windows ending anywhere but their event start, 0 windows whose split differs from
+the manifest, 0 negatives on a non-normal clip, 0 verified yet.
+
+**Files** (`datasets/windows/`, LF, sorted by clip, kind, length):
+
+| File | Rows | SHA-256 |
+|---|---|---|
+| `ucf_crime.csv` | 3,260 | `9115e1afc9d68ce4cebdd61d910619bf4a511df333f60795deb4429b7a2fd500` |
+| `ucf_crime_skipped.csv` | 572 | `d8c85c4d43a91e5a3b74ed0aa261db9756c6fc4deeabc75ef71bd2361a462a5e` |
+| `ccd.csv` | 4,500 | `6e892642198d80e447d91ba30b6dd3c6aa3aaaebf72da4ee7760d57e9adfa044` |
+| `ccd_skipped.csv` | 0 | `c0776c437b989dcea1504d875a69a305718ebafc3c6a3064123382ce4c4a8284` |
+
+**Not covered:** whether any window is right by eye (OMNI-609); whether the 54 UCA events
+at 0 s really start at 0 s or the D-21 rule picked a scene-setting segment; whether the
+shortened windows carry enough lead-up to learn from (slice 9 and on); the CSVs not yet read
+on Colab.
+
+## OMNI-608 · Estimate before loading the datasets into the product · 2026-10-09
+
+**Conditions:** the clips to load listed from the manifest (`scripts/plan_dataset_load.py`:
+CCD all, VIRAT the 275 with events, UCF-Crime the 290 held-out), then size and `ffprobe`
+(header: fps, `nb_frames`, duration) of each file on Drive (`scripts/estimate_dataset_load.py`,
+Colab). 5,065 files, 0 errors, every file reported its frame count. Load time extrapolated
+from OMNI-311's publish cost (12-15 ms per frame), not measured.
+
+| Subset | Videos | Size | Frames | Footage | Frame rates | Over 500 MB | Over 60k frames |
+|---|---|---|---|---|---|---|---|
+| CCD | 4,500 | 7.34 GB | 224,998 | 6.25 h | all 10 | 0 | 0 |
+| VIRAT (with events) | 275 | 34.67 GB | 793,686 | 7.82 h | 23.97 (153), 29.97 (89), 30 (31), 2 others | 17 (largest 1,608 MB) | 0 (largest 29,580) |
+| UCF-Crime held-out | 290 | 7.99 GB | 1,111,808 | 10.30 h | all 30 | 2 (906, 589 MB) | 2 (107,994 and 107,997) |
+| **Total** | **5,065** | **50.0 GB** | **2,130,492** | 24.4 h | | 19 | 2 |
+
+**Load time, first estimate:** publishing 2.13M frames at 12-15 ms = 7.1-8.9 h, plus a
+playback copy for every CCD clip (all 4,500 are MPEG-4 Part 2, not H.264), roughly 1-2 h:
+about 8-11 h. **Too low**, see the measurement below.
+
+**Disk:** 50 GB in the local mirror plus 50 GB copied into `video_storage` by the upload
+path, plus admitted-frame JPEGs, roughly 10-20 GB (extrapolated from 24.2 KB per admitted
+frame at 640x360, OMNI-312; not measured on these resolutions). About 120 GB; 428 GB free.
+
+**Measured before the full load** (the real stack, through `POST /videos/upload` and
+`/extract`, the Drive copy running at the same time; one or two runs each, preliminary):
+
+| Clip | Resolution | Conditions | Extraction, end to end |
+|---|---|---|---|
+| 3 CCD clips via `POST /datasets/ccd/load` | 1280x720, 50 frames | simulator on | 6.9 s per clip (playback copy 2.5-3.5 s, publish 2.2-3.1 s) |
+| VIRAT_S_010208_07 | 1280x720, 461 frames | simulator on + a stray live worker (K-19) / simulator on / simulator off (x2) | 55.2 / 39.1 / 34.3, 34.2 ms per frame |
+| Normal_Videos170 (UCF-Crime) | 320x240, 1,086 frames | same three conditions | 32.4 / 42.3 / 22.9, 19.4 ms per frame |
+
+The 12-15 ms per frame from OMNI-311 was publish only, on 640x360; end to end at these
+resolutions it is 2-4 times that. **Revised projection, simulator stopped:** CCD 6.3-8.6 h,
+VIRAT about 7.5 h, UCF-Crime 5.9-7.1 h, **about 20-23 h** with `mediamtx` stopped (the ten
+simulator feeds cost 40-75% of a core), 27-34 h with it running.
+
+**Outcome: the full load was not run (D-26).** A copy from Drive was started (1,354 CCD
+clips copied, then deleted) and stopped before any clip was loaded. Model measurements move
+to Colab; the product loads only the 60-clip hand-check sample (next entry).
+
+**Limits the full load would have hit:** 19 files over the 500 MB upload limit; 2 videos
+whose publish (22-27 min) exceeds the 900 s extract timeout. Raised, then reverted with
+D-26 (D-25).
+
+## OMNI-608 · The hand-check sample loaded into the product · 2026-10-09
+
+**Conditions:** the real stack (`docker compose up -d`, simulator running, no cameras),
+the 60 clips of `datasets/hand_check/sample.csv` (D-26) copied from Drive
+(`scripts/copy_dataset_subsets.py`, 32 copied and 28 already local, sizes equal to Drive,
+2 min 21 s), then loaded through `POST /datasets/{name}/load` via nginx
+(`scripts/run_dataset_load.py`), which runs each clip through `store_video` (the upload
+path), then extraction. One run.
+
+| Dataset | Clips | Ready | Failed | Load time | Size | Footage | Frames gated | Kept |
+|---|---|---|---|---|---|---|---|---|
+| CCD | 30 | 30 | 0 | 2 min 4 s | 17.4 MB | 2.5 min | 1,500 | 1,014 (67.6%) |
+| UCF-Crime | 30 | 30 | 0 | 33 min 46 s | 1,028 MB | 1.35 h | 145,307 | 30,701 (21.1%) |
+
+All 60: `source = dataset`, `retention_until` NULL, `ready` with a finished extraction,
+`dataset_manifest.video_id` set, no `error`. Every CCD clip got a playback copy (MPEG-4
+Part 2 originals); no UCF-Crime clip needed one (H.264). `GET /datasets`: both `loaded`,
+30 of 30, 0 failed. No stray live worker in ingestion afterwards (K-19).
+
+**Storage** (Docker volumes, after minus before): `video_storage` +1.07 GB (originals plus
+CCD playback copies), `frame_storage` +0.59 GB, `thumb_storage` +0.40 GB: 0.99 GB for 31,715
+kept frames, **about 31 KB per kept frame** (frame plus thumbnail).
+
+**CCD kept 67.6%** on these 30 crash clips (57% on 10 in OMNI-318): the dash-cam moves, so
+most frames look like motion (K-4). Preliminary, 30 clips; the full-set number moves to
+slice 7, on Colab (D-26).
+
+**Not covered:** VIRAT (not loaded, D-26); the full datasets (estimate above); a restart
+in the middle of a real load (the resume is covered by `test_dataset_load.py` only); load
+time with cameras capturing.
+
+## OMNI-609 · The hand check: 60 lead-up windows checked by eye · 2026-10-10
+
+**Conditions:** the 60 windows of `datasets/hand_check/sample.csv` (D-26: 15 UCF-Crime with
+official times, 15 with UCA times, every class in each; 30 CCD crash clips), one window per
+clip (UCF-Crime's 30 s one), watched on the check screen (`/windows`, the real stack) by
+Ahmad, one pass. Criterion D-27, written before checking: correct when the window ends where
+the event visibly begins and shows none of it. Tolerance 1.5 s (the ticket's 1 s widened
+after 2 windows, both Verified; a wider tolerance cannot turn a Verified into a Wrong).
+Per-class rules for "where the act begins" were added to D-27 as classes came up, each
+before the window was judged. Counted by `scripts/hand_check_report.py`; 95% Wilson intervals.
+
+| Event time from | Checked | Correct | Rate | 95% interval |
+|---|---|---|---|---|
+| UCF-Crime, official annotation | 15 | 13 | 87% | 62-96% |
+| UCF-Crime, UCA (D-21) | 15 | 10 | **67%** | 42-85% |
+| UCF-Crime, both | 30 | 23 | 77% | 59-88% |
+| CCD, `binlabels` | 30 | 30 | **100%** | 89-100% |
+
+**Every Wrong:**
+
+| Clip | Source | Window | Verdict and what was seen |
+|---|---|---|---|
+| Abuse035 | UCA | 0.0-0.3 s | ends too early: abuse starts ~0:02.3 |
+| Arrest011 | UCA | 21.9-51.9 s | ends too late: guards take him down and hold him; the window ends at the police cuffing |
+| Arrest030 | official | 154.5-184.5 s | ends too late: police hold them at gunpoint ~3:01.8 |
+| Burglary032 | official | 13.0-43.0 s | ends too late: thieves inside ~0:22.9 |
+| Robbery006 | UCA | 0.0-15.8 s | ends too late: thief threatens customer ~0:13 |
+| Shooting039 | UCA | 0.0-9.7 s | ends too early: gun pointed ~0:12.8, first shot ~0:23.9 |
+| Stealing043 | UCA | 20.6-50.6 s | ends too late: men take items from ~0:10 to ~1:56; the UCA time is mid-theft |
+
+**What it says:** CCD's frame labels are right on every clip checked. UCF-Crime windows are
+right about three times in four; **UCA-timed ones are wrong twice as often as official ones**
+(5 of 15 against 2 of 15), and 5 of the 7 Wrongs *end too late*: the event is already on
+screen inside the window, which would teach a predictor to recognise the event, not foresee
+it. Recorded as K-20 for slice 9.
+
+**Not covered:** one checker, one pass, no second opinion; 15 clips per UCF-Crime source is
+too few to tell the two rates apart with confidence (the intervals overlap); only the 30 s
+window of each UCF-Crime clip was checked (the 60 s one ends at the same time, so it shares
+the verdict); negative windows were not checked.
+
+## OMNI-610 · Dashboard aggregates: equal to a direct count, and their speed · 2026-10-11
+
+**Conditions:** the real stack (`docker compose up -d`) on the machine above, simulator
+running, no camera registered, after migration `9b4e6d2a7c31` and
+`scripts/backfill_dashboard_rollup.py`. The archive at its full size after D-26: 60 dataset
+videos, **146,807 segment rows** (31,715 admitted), 3 rollup rows. `scripts/measure_dashboard.py`, two
+runs (the first re-gated at `cell_threshold` 10, which changed no frame, so it was run again
+at 60), through nginx (`https://localhost/api`), client-side time per call; the second is shown.
+
+**Backfill:** `file_bytes` filled on 31,715 rows from the disk, 0 files missing; rollup
+146,807 / 31,715 / 989,872,990 bytes, a direct count the same. 37 s.
+
+**Exactness on the real pipeline** (summary and rollup against a direct count over
+`segments` and `videos`, after each step):
+
+| Step | Segments | Admitted | Videos | Storage (GB) | Equal |
+|---|---|---|---|---|---|
+| Before | 146,807 | 31,715 | 60 | 2.035 | yes |
+| CCD `000026.mp4` uploaded and extracted (ingestion → queue → consumer) | 146,857 | 31,755 | 61 | 2.039 | yes |
+| Re-gated at `cell_threshold` 60 (40 → 10 admitted) | 146,857 | 31,725 | 61 | 2.037 | yes |
+| Deleted | 146,807 | 31,715 | 60 | 2.035 | yes |
+
+All 40 admitted rows the consumer stored carried their file bytes.
+
+**Timing,** 100 calls each after 5 warm-up calls, one at a time:
+
+| Endpoint | p50 | p95 | max |
+|---|---|---|---|
+| `GET /dashboard/summary` | 41.4 ms | 71.6 ms | 81.5 ms |
+| `GET /dashboard/activity?hours=24` | 15.2 ms | 35.9 ms | 55.0 ms |
+
+For comparison, one direct `count(*)` over the 146,807 rows took 18.5 ms in the database
+alone. The summary's time includes asking ingestion for its workers (`cameras_online` is
+`GET /cameras/live`'s state). A first run gave 41.0 / 81.9 ms and 16.4 / 42.2 ms.
+
+**What it says:** the counts equal a direct count after an insert, a re-gate and a delete on
+the real pipeline. Both endpoints answer in tens of milliseconds and read 3 rollup rows,
+whatever the size of `segments`.
+
+**Not covered:** the archive is 146,807 rows, not the millions the ticket expected before
+D-26, so a direct count is still fast here; the rollup's advantage at millions of rows is by
+construction (it reads one row per hour and source), not measured. Two runs, one machine
+(preliminary). No camera registered, so `cameras_online` was 0 of 0. The cost of the trigger
+on the consumer's throughput was not measured. `storage_gb` does not count 1.05 GB of files
+with no row, nor playback copies (K-21).
+
+## OMNI-611 · The Operations Dashboard against the API · 2026-10-11
+
+**Conditions:** the real stack, Chrome on `http://localhost:3000`, signed in as the admin,
+one pass. API values read through nginx by a throwaway admin at the same moments.
+
+| Figure | Page | API |
+|---|---|---|
+| Cameras online | 0 / 0 | `cameras_online` 0, `cameras_total` 0 |
+| Footage held | 60 → 61 → 60 | `videos` 60 → 61 → 60 |
+| Segments indexed | 146,807 → 146,857 → 146,807 | same |
+| Storage in use | 2.04 GB | `storage_gb` 2.035 → 2.036 → 2.035 |
+| Datasets | 60 / 60 | `GET /datasets`: 30 + 30 loaded of 30 + 30 |
+| Activity, current hour | 0 → 50 → 0 | `segments` of the last hour 0 → 50 → 0 |
+
+The arrows are one CCD clip uploaded and extracted, then deleted, while the page stayed
+open; the page followed within one 30 s refresh, without a reload. Refresh timing: summary
+requests 30.0 s apart; none in 70 s with the tab hidden (simulated); one at once on return.
+
+**Not covered:** an analyst's view; a real hidden tab; nginx (`https://localhost`); the
+datasets screen behind its link (OMNI-612).
+
+## OMNI-612 · The Datasets screen: a load from the screen moves the counts · 2026-10-15
+
+**Conditions:** the real stack, Chrome on `http://localhost:3000`, signed in as the admin by
+Ahmad, one pass. Under D-26 the product holds only the hand-check sample and its 30 CCD
+clips were all loaded, so "10 more" was read as: the 10 last sampled CCD clips by key
+(`Crash-1500/000982` to `001459`) deleted with the archive's own delete function, then loaded
+from the screen (Ahmad clicked Load, limit 10).
+
+| Figure | Before the delete | After the delete | After the load |
+|---|---|---|---|
+| Datasets screen, CCD videos loaded | 30 / 30, Loaded | 20 / 30, Partly loaded | 30 / 30, Loaded |
+| Dashboard, footage held | 60 | 50 | 60 |
+| Dashboard, segments indexed | 146,807 | 146,307 | 146,807 |
+| Dashboard, storage (`storage_gb`) | 2.035 | 2.003 | 2.035 (page 2.04 GB) |
+| Dashboard, current hour's bar | 0 | 0 | 500 |
+
+- The load: `POST /datasets/ccd/load` 202, then 10 clips stored and extracted in 28 s
+  (created 08:59:11 to 08:59:36 UTC, about 2.8 s per clip); the screen polled `GET /datasets`
+  every 2 s while it ran and stopped after. All 10 back as `source = dataset`, no retention date
+- Window counts on the screen equal to the database: CCD 4,500 derived, 30 checked, 30
+  verified; UCF-Crime 3,260, 30, 23 (OMNI-609's result). The 30 CCD verdicts survived the
+  delete and reload (they sit on the windows, not the videos)
+- Links followed: dashboard → Datasets → CCD's windows (`/windows?dataset=ccd`, 30 rows, all
+  CCD) → a reloaded clip's window, whose player points at the new video's playback file
+
+**Not covered:** the progress bar seen mid-load (the load ended before my screenshot; the
+2 s polls are in the query log); an analyst's or operator's view (no Load control); a load
+that fails or is refused, seen on screen; nginx
+(`https://localhost`).
+
+
+## OMNI-613 · The motion grid in one array operation: frame cost and NFR-4 again (preliminary) · 2026-10-16
+
+**The change:** Algorithm 1's lines 4-5 compute the 8x8 grid's 64 cell means in one array
+operation (`_cell_means` in `services/ingestion/app/pipeline.py`: a reshape and an integer sum
+when the frame divides the grid evenly, an integral image otherwise) instead of 64
+`np.array_split` slices and 64 `.mean()` calls. The same cells, the same arithmetic (exact
+integer sum over pixel count); every frame still gated, Algorithm 1 unchanged.
+
+**Scores identical:** `test_motion_gate.py`, the first 300 frames of each of the ten simulator
+clips (VIRAT 1280x720, UCF-Crime 320x240) through the gate with the defaults (G 8, τ 25, k 3,
+Δ 0.5 s, blur 21), once each way: the same score and the same admission on every frame; 100
+random frames at five sizes, three of them uneven, with the cell means bit-for-bit equal.
+
+**Frame cost** (`scripts/frame_cost.py`, in the ingestion container, no camera capturing, 900
+frames, before and after alternated, 3 runs each; "before" is HEAD's `pipeline.py` copied
+into the container beside the new one):
+
+| Clip | Gate + files, before | Gate + files, after | Total a frame, before | Total, after | Of a core, before → after |
+|---|---|---|---|---|---|
+| `real01` VIRAT, 1280x720, 23.97 fps | 9.32 / 17.78 / 9.13 ms | 7.46 / 6.96 / 7.43 ms | 11.97 / 23.17 / 11.72 ms | 10.59 / 9.80 / 10.46 ms | 0.28-0.29 → 0.24-0.25 |
+| `real04` UCF-Crime, 320x240, 30 fps | 3.56 / 3.42 / 3.37 ms | 2.03 / 1.99 / 2.28 ms | 4.51 / 4.36 / 4.25 ms | 3.49 / 3.41 / 3.84 ms | 0.13-0.14 → 0.10-0.12 |
+
+The gate's own step is about 1.8 ms cheaper a frame in HD (20%) and 1.4 ms in SD (40%). Run 2's
+HD "before" (17.78 ms) is an outlier: every step was slower in it, decode too. SD decode read
+0.79-0.86 ms before and 1.31-1.43 ms after in every pair, though the change does not touch
+decoding; not explained. These numbers are lower than OMNI-509's (15.2 / 4.2 ms in all), taken
+on another day; only the before/after pairs here are compared.
+
+**NFR-4 ladder** (`scripts/measure_nfr4.py`, the definition of sustained unchanged from
+OMNI-509; the realistic mix `--paths 4,1,5,6,2,7,8,3,9,10`; D-18 and D-20 as before; the wall
+open at 4x4 in Chrome, visible at every recorded sample, with an in-page recorder of
+visibility, layout, tile badges and preview requests; one run per row):
+
+| Feeds | Window | Dropped per feed | Worst latency | Not live (API, per feed) | Ingestion / all containers | Sustained | Before (D-19 ladder) |
+|---|---|---|---|---|---|---|---|
+| 4 | 180 s | 0 | 1.11 s | none | 98% / 252% | yes | yes, 155% / 344% |
+| 5 | 180 s | 0 | 0.47 s | none | 149% / 303% | **yes** | no |
+| 6 | 180 s | 0-4 (`cam05`) | 1.15 s | `cam05` 2 samples | 192% / 387% | no | no, 0-256 dropped, 7.62 s |
+| 5 | **600 s** | 0 | 0.38 s | `cam01` 2, `cam05` 4, `cam02` 3 of 603 | 145% / 301% | **no** | not run |
+| 4 | **600 s** | **0** | 0.82 s | `cam01` 2 of 601 | 90% / 229% | **no** | no, 0/0/8/0 dropped, 1-4 samples every feed, 149% / 331% |
+
+The wall in the same windows: one preview request a second per tile (2,400 in the 4-feed 10-minute
+run, 2,379 200 and 21 304, p50 38 ms, p95 85 ms); tiles not `Live` on screen: 5 feeds over 3
+minutes `cam02` Frozen 2 s; 6 feeds `cam05` 2 s; 5 feeds over 10 minutes `cam05` 6 s and
+`cam01` 2 s; 4 feeds over 10 minutes `cam05` 2 s. The first 4-feed run's first ~40 s of the
+window has no tile or layout record (the recorder was being fixed); visibility was recorded
+throughout. A first 4-feed 10-minute run was killed by the host at about 300 s for low memory,
+before its verdict; its leftovers were removed by hand and it was rerun (the row above).
+Live queue 0 (peak 1) and file queue 0 in every run; no run dropped a frame except 6 feeds.
+
+**Result:** the grid costs less, and the machine has more headroom at the same load (4 feeds:
+ingestion 90-98% instead of 149-155%; no frame dropped over 10 minutes where 8 were before; 5
+feeds now hold for 3 minutes). **The sustained number does not change:** 4 feeds over 10
+minutes fail on one criterion, one feed not `live` for 2 seconds. NFR-4 stays at 3 (D-19).
+
+**Not covered:** 3 feeds over 10 minutes rerun with the change (D-19's 3 was measured before
+it, with more work a frame); more than one run per row; why a feed briefly reads not live with
+the machine at 229% of 800% (the D-17 steadiness rule under hiccups, not measured); another
+machine.

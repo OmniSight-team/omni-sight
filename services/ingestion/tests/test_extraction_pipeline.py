@@ -137,10 +137,15 @@ def test_only_admitted_frames_get_a_jpeg_written_the_rest_get_no_path_and_no_fil
         assert record.frame_path is not None and record.thumb_path is not None
         assert Path(record.frame_path).is_file()
         assert Path(record.thumb_path).is_file()
+        # OMNI-610: the bytes the two files take, for the dashboard's storage figure.
+        assert record.file_bytes == (
+            Path(record.frame_path).stat().st_size + Path(record.thumb_path).stat().st_size
+        )
 
     for record in discarded:
         assert record.frame_path is None
         assert record.thumb_path is None
+        assert record.file_bytes == 0
 
     # exactly one file per admitted frame — nothing extra left on disk
     assert len(list((tmp_path / "frames" / "7").iterdir())) == 15

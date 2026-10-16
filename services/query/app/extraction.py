@@ -11,6 +11,7 @@ and a failed video's partial segments are removed.
 import logging
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 from omnisight_common import (
@@ -109,6 +110,25 @@ def _fail(video_id: int, reason: str) -> None:
         db.query(Segment).filter_by(video_id=video_id).delete(synchronize_session=False)
         db.commit()
     remove_segment_files(video_id, paths)
+
+
+def claim_extraction(db: Session, video_id: int) -> str | None:
+    """Move a `ready` or `failed` video to `extracting` and name the run, in
+    one UPDATE, so two callers at once cannot both start an extraction. From
+    this moment a queued segment from any earlier run no longer matches the
+    video, so the consumer drops it (OMNI-311). Returns the run's id, or None
+    if the video was not in a state to claim."""
+    extraction_id = uuid.uuid4().hex
+    claimed = (
+        db.query(Video)
+        .filter(Video.id == video_id, Video.status.in_([VideoStatus.READY, VideoStatus.FAILED]))
+        .update(
+            {"status": VideoStatus.EXTRACTING, "error": None, "extraction_id": extraction_id},
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    return extraction_id if claimed else None
 
 
 def run_extraction(video_id: int, extraction_id: str) -> None:
@@ -271,6 +291,7 @@ def run_gate(
             )
             row.frame_path = segment["frame_path"]
             row.thumb_path = segment["thumb_path"]
+            row.file_bytes = segment.get("file_bytes", 0)
             if segment["admitted"]:
                 admitted += 1
 

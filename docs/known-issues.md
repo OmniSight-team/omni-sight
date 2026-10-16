@@ -6,18 +6,19 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | # | Issue | Affects | Found | Must be dealt with by |
 |---|---|---|---|---|
 | K-3 | `/thumbs/` and `/media/` served without a token | NFR-7 | OMNI-307/308 | Before the demo |
-| K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 6 |
+| K-4 | Gate cannot tell camera motion from scene motion | FR-1b, SM-2/SM-3 on CCD | OMNI-318 | Slice 7 (moved 2026-10-09: when kept frames are encoded) |
 | K-6 | Re-gate takes 1.4-2.0 s, grows with length | OMNI-310 target | OMNI-310 | When long recordings are used |
 | K-7 | Publishing costs 12-15 ms per frame | Upload throughput, K-1 | OMNI-311 | With K-1 |
 | K-8 | Storage grows about 7.7 GB per camera per day, nothing prunes | Disk | OMNI-312 | Slice 16 (retention) |
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
-| K-11 | The restart loss check reads index gaps as lost frames; live rows now have gaps by design | NFR-5 (the mid-capture check) | OMNI-501 | Slice 5 definition of done |
-| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" cannot hold as written | OMNI-506 acceptance, wall bandwidth | OMNI-503 | **Ahmad's decision**: reword OMNI-506's acceptance or change the design (OMNI-506 done with it open) |
 | K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | Before the demo (moved 2026-10-04: not dealt with in slice 5) |
 | K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
+| K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
+| K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
+| K-21 | About 1.05 GB of frame and thumbnail files on disk have no segment row, so the dashboard's storage does not count them; playback copies (22.7 MB) are not counted either | FR-9 (storage in use), K-8 | OMNI-610 | Slice 16 (retention) |
 
 ---
 
@@ -34,6 +35,10 @@ On daylight dash-cam footage (CCD crash) the gate keeps 57%; four clips keep eve
 frame. Raising the threshold cuts fixed-camera activity too, so it is not a fix. A design
 question for Algorithm 1 (e.g. compensating for global motion) before CCD is loaded at
 scale.
+**2026-10-09 (OMNI-608):** 67.6% kept on the 30 CCD clips of the hand-check sample (1,014 of
+1,500). CCD is no longer loaded at scale (D-26); the full 4,500-clip number is measured on
+Colab with the same gate code, in slice 7, where each kept frame starts costing an
+embedding. Algorithm 1 stays as written.
 
 ## K-6 · Re-gate latency
 
@@ -93,31 +98,6 @@ Not measured per day.
   swap their container addresses, and nginx then answers 502 for everything until it is
   restarted too (`docker compose restart nginx`; seen 2026-10-02, OMNI-507)
 
-## K-11 · The restart loss check no longer fits live rows
-
-`scripts/verify_definition_of_done.py` (OMNI-319) decides that a frame was lost across a
-restart from three things: a row without a file, a file without a row, and **a gap in a
-session's frame indexes**. Since OMNI-501 a live camera stores admitted frames only while the
-index still counts every gated frame, so gaps are normal and the third check will report
-loss where there is none. Read from the code, not run. The first two checks still hold.
-Since OMNI-502 it also waits for the wrong queue to empty: it reads the file queue
-(`segment_queue`), and live frames are on `omnisight.segments.live`.
-**Fix candidate:** drop the gap check for live sessions and rely on files against rows, or
-compare the stored rows with the `admitted` counter.
-
-## K-12 · Preview polls on a live feed are never 304
-
-The preview's ETag is its write time (OMNI-503 as specified), and a live worker rewrites it
-every 0.5 s whether the scene moved or not. A tile polling once a second therefore always
-finds a new file: 960 of 960 polls were 200 on `cam05`, about 387 KiB/s for 16 tiles; 304s
-only came while the simulator was paused (432 of 480). OMNI-506's acceptance ("the network
-tab shows mostly 304s on still scenes") cannot be met this way; OMNI-504 and OMNI-507 need
-the ETag to change with every new frame, so they agree with what was built.
-**Options:** reword OMNI-506's acceptance to 304s on frozen or lost feeds (no code change;
-the bandwidth is 24.5 KiB per tile per second on `cam05`); or rewrite the preview only when
-the picture changed, with liveness taken from somewhere else. The first is the
-recommendation.
-
 ---
 
 ## K-13 · A stalled stream delivers late bursts of old frames
@@ -156,6 +136,56 @@ leaves it pending; if the worker is stopped before the read loop counts it, `gra
 one below what the stream delivered, which is what the test compares. The frame is a
 fraction of a second's worth at a moment the camera is being stopped anyway.
 **Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
+**2026-10-09 (OMNI-608):** two other tests in the same file failed once in a full run,
+`test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
+`test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
+summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
+**Corrected 2026-10-10 (OMNI-609): not timing.** They failed in every full run since OMNI-608
+and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with the ini file,
+and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
+them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
+K-14 test above is the intermittent one.
+
+## K-21 · Files on disk that no row accounts for
+
+2026-10-11, during OMNI-610. `storage_gb` sums the videos' `size_bytes` and the frame bytes
+of the rows in `segments` (D-28). On the dev stack the rows account for 0.99 GB of frames
+and thumbnails, the volumes hold 2.04 GB. The difference is three directories with no row:
+`camera-2035` (682 MB frames, 52 MB thumbnails, last written 2026-10-08) and `camera-2291`
+(294 MB, 22 MB, 2026-10-09: K-19's stray worker), both cameras deleted, and video `2001`
+(1.6 MB, 2026-09-24), deleted. Their rows went (hand cleanups of test runs, a stray
+worker's camera removed) but their files did not. Separately, the 30 playback copies
+(OMNI-308, 22.7 MB) have no size on the video row, so they are not counted either.
+**Fix candidates:** delete the three orphan directories now (by hand, once Ahmad agrees);
+have slice 16's retention job remove directories that no row points at; record a playback
+copy's size on the video row.
+
+## K-20 · UCA-timed lead-up windows often contain the event
+
+The hand check (OMNI-609, `results.md`) found 5 of 15 UCA-timed UCF-Crime windows wrong
+against 2 of 15 official ones; 5 of the 7 Wrongs *end too late* (the event is visible
+inside the window: Arrest011, Robbery006, Stealing043 among the UCA ones). The D-21 rule
+takes the earliest UCA sentence matching the class's words, and UCA's sentences often
+describe the end of an act (police cuffing) or its middle, not its start. UCA times 540 of
+the 680 positive UCF-Crime windows, so a forecaster trained on them as they are would partly
+learn to recognise events rather than foresee them. The sample is small (intervals overlap:
+UCA 42-85% correct, official 62-96%), so the size of the gap is not settled.
+**Fix candidates, for slice 9:** train on official-timed windows only, or weight them up;
+check more UCA windows by eye before trusting them (the sample code redraws with a new
+seed); or move UCA-derived window ends earlier by a margin and measure the effect.
+
+## K-19 · A test run left a live worker capturing for a deleted camera
+
+2026-10-09, during OMNI-608: ingestion's `GET /workers` listed a running worker for camera
+2291, started at 12:05 (when the query suite had just run against the dev database), with
+38,228 frames grabbed; the `cameras` table was empty. It used about 73% of a core in
+ingestion and kept the simulator busy, and it slowed the dataset load's extraction (VIRAT
+55 ms per frame with it, 39 without). Stopped by hand with `POST /workers/stop`. Likely
+source: a query test that reaches the real ingestion (the resume tests in
+`test_live_state.py` start workers through `CaptureResumer`); not confirmed. The query tests
+now use their own database (K-18), but they still share the one ingestion service.
+**Fix candidates:** stop every worker a test started in its teardown; or have the resumer
+stop workers whose camera no longer exists.
 
 ## K-17 · The wall's layout went back to 3x3 by itself
 
@@ -199,6 +229,24 @@ the resume started all ten at once both times, 0 failed attempts, all `live` aga
 | K-5 | After an ingestion restart, workers do not resume and the camera still reads `connected` | FR-1a | OMNI-312, OMNI-319 | OMNI-504, 2026-10-02 |
 | K-15 | The simulator's frame size was written as 320x240; the clips are 640x360 | Stated conditions | 2026-10-02 | OMNI-509, 2026-10-03 |
 | K-2 | 10 concurrent feeds not sustained | NFR-4 | OMNI-317 | Resolved by revising NFR-4 to 3 per machine (D-19), 2026-10-03 |
+| K-11 | The restart loss check read index gaps as lost frames, and waited for the wrong queue | NFR-5 (the mid-capture check) | OMNI-501 | OMNI-601, 2026-10-07 |
+| K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" could not hold | OMNI-506 acceptance | OMNI-503 | Fixed (reworded): OMNI-602, 2026-10-07 |
+| K-18 | `uv run pytest` deleted every video in the dev database | Loaded datasets (OMNI-608) | OMNI-608 | OMNI-608, 2026-10-09 |
+
+### K-18 · The test suite deleted every video in the dev database · fixed 2026-10-09
+
+Five query test files clean up with `session.query(Video).delete()` (or a camera delete
+that cascades): `test_video_upload.py`, `test_video_probe.py`, `test_video_retention.py`,
+`test_video_playback.py`, `test_camera_crud.py`. They run against the database in `.env`,
+the same one the stack uses. Until slice 6 that held only throwaway uploads; once
+OMNI-608 loads 5,065 dataset videos (hours of extraction), one `uv run pytest` deletes
+their rows and segments (cascade) and unlinks `dataset_manifest.video_id` (SET NULL),
+leaving the files orphaned in the volumes. Found reading the tests, not by losing data.
+**Fix candidates:** run the suite against its own database (`POSTGRES_DB=omnisight_test`,
+created and migrated once); or have each test delete only the rows it created.
+**Fixed 2026-10-09 (OMNI-608, D-25):** `services/query/tests/conftest.py` points the tests at
+`omnisight_test` before the app is imported, creates it if missing and migrates it to head.
+Full query suite: 260 passed; the dev database kept its 3 users and 6,675 manifest rows.
 
 ### K-1 · Live latency breaks 5 s while a long file is extracted · fixed 2026-10-01
 
@@ -271,3 +319,34 @@ consumer commits (unmeasured); a separate live queue (K-1); services off the one
 (D-20), this machine sustains 3 realistic feeds over 10 minutes with the wall open; 4 hold for
 3 minutes, not 10. NFR-4 now reads 3 live feeds per machine of this class (D-19). The
 vectorised grid was not tried; it could raise the number, and stays a candidate.
+
+**2026-10-16 (OMNI-613):** the vectorised grid tried: identical scores, the gate 1.4-1.8 ms a
+frame cheaper, 4 feeds over 10 minutes with no frame dropped, but one feed 2 s not `live`, so
+still 3 sustained (`results.md`, OMNI-613). No software candidate is left untried.
+
+### K-11 · The restart loss check no longer fitted live rows · fixed 2026-10-07
+
+**Was:** `scripts/verify_definition_of_done.py` (OMNI-319) counted a gap in a session's frame
+indexes as a lost frame. Since OMNI-501 a live camera stores admitted frames only, so gaps are
+normal; and it waited for the file queue while live frames are on `omnisight.segments.live`
+(OMNI-502).
+**Fix (OMNI-601):** for live sessions the gap check is gone. Loss is a row without its file,
+or fewer stored rows than the worker reported admitted, per session (the highest
+`camera_stats` report seen while it ran) and per camera (the lifetime counters). It waits for
+the file, live and camera queues to drain. The consumer cases now stop and kill
+`consumer-live`. A self-test feeds the detector a missing row, a missing file and a short
+count (each flagged) and a capture with gaps (not flagged).
+**Result:** two runs (`cam02`, `cam05`), 32 of 32 checks each, 0 frames lost in all four
+cases (`results.md`, OMNI-601).
+
+### K-12 · Preview polls on a live feed are never 304 · fixed (reworded) 2026-10-07
+
+**Was:** the preview's ETag is its write time (OMNI-503 as specified) and a live worker
+rewrites it every 0.5 s, so every poll of a live feed was a 200 (960 of 960 on `cam05`,
+about 387 KiB/s for 16 tiles); 304s came only while the simulator was paused (432 of 480).
+OMNI-506's acceptance asked for "mostly 304s on still scenes".
+**Fix (OMNI-602, Ahmad's decision):** no code change. OMNI-506's acceptance reworded to
+"304s when a feed is frozen or lost; a live feed gets a new frame on every poll by design
+(D-14)". OMNI-504 and OMNI-507 need the ETag to change with every new frame.
+**Result:** the wall's scoreboard row reads **Pass**; the bandwidth stays as measured
+(24.5 KiB per tile per second on `cam05`).

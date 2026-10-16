@@ -26,6 +26,19 @@ Paths below are relative to the Drive root `MyDrive/omnisight/data/`. The local
 mirror under `phase-b/data/` uses **the same relative paths**, so a loader works
 unchanged against either.
 
+**The loaders** (OMNI-604) are `omnisight_common.datasets.{ucf_crime,ccd,virat}`; each
+emits one manifest entry per clip, written to the `dataset_manifest` table by
+`scripts/build_dataset_manifest.py`. They read the annotation files plus
+**`<dataset>/video_files.txt`**, one relative path per video file, made from the full
+copy on Drive by `scripts/list_dataset_videos.py` (2026-10-08: UCF-Crime 1,950, CCD
+4,500, VIRAT 329). The listing is not part of any download; it is what lets the
+manifest cover every clip while the mirror holds 38.
+
+**`<dataset>/video_probe.csv`** (UCF-Crime and CCD, OMNI-607): every listed video's fps,
+frame count and duration, read by `ffprobe` from the file on Drive by
+`scripts/probe_dataset_videos.py`. Lead-up windows are cut against these, never against an
+assumed rate or length.
+
 ## At a glance
 
 | Dataset | Domain | Role | Videos | Status |
@@ -71,7 +84,11 @@ ucf_crime/
     ├── Action_Regnition_splits/
     ├── Anomaly_Train.txt
     ├── Temporal_Anomaly_Annotation_for_Testing_Videos.txt
-    └── ReadMe-Anomaly-Detection.txt
+    ├── ReadMe-Anomaly-Detection.txt
+    └── uca/                      UCA, added 2026-10-07 (OMNI-603); not part of the UCF-Crime download
+        ├── SOURCE_COMMIT
+        ├── txt/   UCFCrime_{Train,Val,Test}.txt
+        └── json/  UCFCrime_{Train,Val,Test}.json, revised_en_UCFCrime_Train.json (0 bytes)
 ```
 
 **950 anomaly videos across 13 classes, 950 normal, plus 50 event-recognition
@@ -87,6 +104,37 @@ extras — 1,950 total.** Counts verified after extraction on 2026-09-21.
 
 1,610 train + 290 test = **1,900**, the complete anomaly-detection set. Every entry
 in all three files was checked against disk on 2026-09-21: none missing.
+
+**UCA (UCF-Crime Annotation)** — event times for the training videos (OMNI-603, D-21).
+Yuan et al., CVPR 2024, `github.com/Xuange923/Surveillance-Video-Understanding`, folder
+`UCF Annotation`, commit `e478cb5b` (2024-04-30, written to `uca/SOURCE_COMMIT`), Apache-2.0,
+academic and research use. Downloaded 2026-10-07; every size equals the repository's.
+
+| File | Bytes | Videos | Segments |
+|---|---|---|---|
+| `uca/json/UCFCrime_Train.json` | 3,091,246 | 1,165 | |
+| `uca/json/UCFCrime_Val.json` | 678,678 | 379 | |
+| `uca/json/UCFCrime_Test.json` | 842,652 | 310 | |
+| `uca/txt/UCFCrime_Train.txt` | 2,164,341 | same videos as the json | one line per segment |
+| `uca/txt/UCFCrime_Val.txt` | 454,914 | | |
+| `uca/txt/UCFCrime_Test.txt` | 586,652 | | |
+| `uca/json/revised_en_UCFCrime_Train.json` | **0** | empty in the repository | |
+
+1,854 videos in all (950 anomaly-class names minus 6, plus 910 normal), none in two UCA
+splits, **every one of them in the official lists**. UCA's own Train / Val / Test is **not**
+the official split (86 official test anomalies sit in UCA's Train) and is not used; the
+official split is. json: `{name: {duration, timestamps: [[start_s, end_s], ...], sentences:
+[...]}}`, times in seconds at 0.1 s. txt: `name mm:ss.s mm:ss.s ##sentence`. The
+gender-neutral `txt_mask/` variant was not downloaded.
+
+**Coverage:** 804 of the 810 official training anomaly videos are in UCA (missing:
+`Assault045`, `Assault046`, `RoadAccidents063`, `RoadAccidents144`, `Robbery139`,
+`Vandalism037`); all 140 official test anomalies are.
+
+**UCA describes every event in a video, not only the crime** (people walking in, cars
+passing). The crime's segment is picked by a rule (D-21, `scripts/uca_event_times.py`):
+the earliest-starting segment whose sentence matches one of the class's word patterns; no
+match, no time. **594 of the 810 training anomalies get a time** this way.
 
 **Temporal annotation format** — one line per test video, space-separated:
 
@@ -113,7 +161,7 @@ belong to a different task in the original paper.
   `Class/filename.mp4`, which does not include the `Part-N` level the files
   actually sit under
 - **Timing:** for test videos, look the filename up in the temporal annotation
-  file. Training videos have none
+  file. Training videos have none in the download; UCA gives 594 of 810 a time (D-21)
 
 ### Traps
 
@@ -129,7 +177,8 @@ belong to a different task in the original paper.
   The opposite of CCD: plenty of footage before each event. Sampling interval
   choices matter far more here
 - **Training labels are video-level only** — "a robbery happens somewhere in this
-  video". Only the test set is timed. The lead-up windows the forecasting model
+  video". Only the test set is timed (UCA adds times for most training videos, D-21).
+  **UCA's own Train / Val / Test is not the official split** — use the official lists. The lead-up windows the forecasting model
   trains on are *derived* in slice 6, by working backward from annotated events
   and hand-checking a sample. They are not in the download
 - **The normal footage is split three ways** — `Testing_Normal_Videos_Anomaly/`
@@ -281,15 +330,16 @@ name, different folder.
 
 ## Local mirror
 
-Docker reads local disk, not Drive. `phase-b/data/` holds a **small subset** of
-each dataset, in exactly the relative paths above, for development and for the
-OMNI-318 gating check:
+Docker reads local disk, not Drive. `phase-b/data/` holds a **small subset** of each
+dataset, in exactly the relative paths above, for development, for the OMNI-318 gating
+check, and since OMNI-608 the hand-check sample loaded into the product (copied by
+`scripts/copy_dataset_subsets.py`):
 
 | Dataset | Subset |
 |---|---|
-| UCF-Crime | ~10 anomaly clips across several classes, ~5 from `Testing_Normal_Videos_Anomaly/`, plus the annotations folder |
-| CCD | 10 from `Crash-1500/`, 10 from `Normal/`, plus `Crash-1500.txt` |
-| VIRAT | 3 videos from different scenes, plus their three annotation files each |
+| UCF-Crime | ~10 anomaly clips across several classes, ~5 from `Testing_Normal_Videos_Anomaly/`, the **30 sampled clips** (OMNI-608), plus the annotations folder (with UCA), `video_files.txt` and `video_probe.csv` |
+| CCD | 10 from `Crash-1500/`, 10 from `Normal/`, the **30 sampled crash clips** (OMNI-608), plus `Crash-1500.txt`, `video_files.txt` and `video_probe.csv` |
+| VIRAT | 3 videos from different scenes, plus the **full** `annotations/` (987 names: 865 files, 122 empty directories, added 2026-10-08) and `video_files.txt` |
 
 The full sets stay on Drive, where Colab reads them for encoding and training. The
 local subset is also what the ten MediaMTX simulator feeds loop.
@@ -299,8 +349,16 @@ the `.gitkeep` placeholders.
 
 ## Getting footage into the running system
 
-This layout describes how files sit on disk for the slice 6 loaders. It says
-nothing about how a clip enters the running product — that is always the normal
-`POST /videos/upload` path, the same as a hand-uploaded file. There is no special
-dataset endpoint, and there should not be one: the whole point of slice 6 is that
-dataset footage goes through the same pipeline as everything else.
+This layout describes how files sit on disk for the loaders. A clip enters the running
+product only through the upload path: `POST /datasets/{name}/load` (admin, OMNI-608)
+reads each clip from the mirror (mounted read-only into `query` at `/datasets`) and hands
+it to `store_video()`, **the same function `POST /videos/upload` runs** (same sniff, same
+storage, same probe), then extracts it like any video, one clip at a time. It is a loop
+over the manifest, not a separate pipeline. Two things differ: `source = dataset`, and no
+retention date, because research data is never deleted (D-25).
+
+What goes in (D-26): only the **60 clips of the hand-check sample**
+(`datasets/hand_check/sample.csv`: 30 UCF-Crime, 30 CCD), which the window view plays.
+Real users never see dataset footage; training and every model measurement run on Colab,
+from Drive. `GET /datasets` reports each one's progress; `dataset_manifest.video_id` links
+a clip to its video.

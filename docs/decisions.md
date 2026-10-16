@@ -7,7 +7,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | # | Decision | Date | Status |
 |---|---|---|---|
 | D-1 | CCD replaces DoTA as the traffic dataset | 2026-09-20 | Done |
-| D-2 | SM-3 measured as mean time-to-accident, target set from CCD in slice 6 | 2026-09-20 | Target pending (slice 6) |
+| D-2 | SM-3 measured as mean time-to-accident, target set from CCD in slice 6 | 2026-09-20 | Done (target 1.80 s, D-23) |
 | D-3 | Files: every decoded frame is gated, no sampling step | 2026-09-23 | Done |
 | D-4 | **Deviation:** blur before differencing | 2026-09-23 | Done |
 | D-5 | **Addition:** a row for every frame of a file, image files only for admitted frames; live cameras store admitted frames only | 2026-09-23, 09-30 | Done |
@@ -26,6 +26,14 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-18 | Each camera's worker in a process of its own; one thread per decoder and per OpenCV call | 2026-10-03 | Done |
 | D-19 | **NFR-4 revised:** 3 live feeds per machine of this class, sustained over 10 minutes (was 10) | 2026-10-03 | Done |
 | D-20 | The live worker's buffer holds about 2 s of frames (`LIVE_QUEUE_SIZE` 10 → 60) | 2026-10-03 | Done |
+| D-21 | UCF-Crime training event times come from UCA, picked by a written rule | 2026-10-07 | Done |
+| D-22 | The train / validation / held-out split, fixed once | 2026-10-08 | Done |
+| D-23 | The SM-3 target rule, written before CCD's footage was measured | 2026-10-08 | Done (mTTA ≥ 1.80 s) |
+| D-24 | How lead-up windows are cut, and when an event gets none | 2026-10-09 | Done |
+| D-25 | Dataset footage enters through the upload function | 2026-10-09 | Done |
+| D-26 | Model measurements on Colab; the product holds only the hand-check sample | 2026-10-09 | Done |
+| D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
+| D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
 
 ---
 
@@ -340,6 +348,14 @@ feed, from hiccups on a machine at 331%); 3 mixed feeds sustained over 10 minute
 worst 166 ms, always `live`). The 10-minute run decides. Phase A's 10, the measurements and
 this revision all go in the Phase B book.
 
+**2026-10-16 (OMNI-613): the one-operation grid tried; the number stays 3.** The cell means
+computed in one array operation (identical scores, Algorithm 1 unchanged) make the gate's step
+1.4-1.8 ms a frame cheaper. With the wall open, 5 feeds now hold for 3 minutes (they did not),
+and 4 feeds over 10 minutes drop nothing at 229% (8 dropped at 331% before), but one feed read
+not `live` for 2 seconds, so 4 is still not sustained under the unchanged definition; 5 over
+10 minutes fails the same way. `results.md`, OMNI-613. Every software candidate in K-2 has now
+been tried; what is left is hardware.
+
 ## D-20 · The live worker's buffer holds about 2 s of frames · 2026-10-03
 
 **Why:** the bounded queue between a camera's capture and its gate (OMNI-314) held 10 frames,
@@ -352,3 +368,293 @@ minutes at 150-422% CPU.
 hiccup is absorbed instead of dropped. **Cost:** memory, at most about 166 MB per 1280x720
 camera while its queue is full. **Evidence:** 4 mixed feeds, 3 minutes, wall hidden: 406
 frames dropped with 10, 0 with 60.
+
+## D-21 · UCF-Crime training event times come from UCA, picked by a written rule · 2026-10-07
+
+**Why:** lead-up windows are derived by working backward from each event (Phase A §3.4,
+§3.6), and UCF-Crime times its anomalies for the 290 test videos only. The 810 training
+anomalies have a class and no time.
+
+**Obtained:** UCA (Yuan et al., CVPR 2024) from the project's GitHub repository, commit
+`e478cb5b`, Apache-2.0, academic use. Unlike DoTA (D-1) it downloads: every file, every size
+equal to the repository's (`dataset-layout.md`). Its 1,854 video names all match the official
+lists; 804 of the 810 training anomalies are covered.
+
+**Where every UCF-Crime event time comes from:**
+
+| Videos | Source | Timed |
+|---|---|---|
+| 140 official test anomalies | `Temporal_Anomaly_Annotation_for_Testing_Videos.txt` (frame numbers at 30 fps) | 140 |
+| 810 official training anomalies | UCA, by the rule below | **594** |
+| of which not in UCA | - | 6, no time |
+| of which in UCA, no segment matches | - | 210, no time |
+| 950 normal videos | no event | - |
+
+**The rule** (the semi-automatic step Phase A names), written into
+`scripts/uca_event_times.py` from training-video descriptions only, **before** the agreement
+below was computed, and not changed after: each class has a list of word patterns naming
+its act ("collided", "crash" for RoadAccidents; "shot", "gun" for Shooting; ...). The event is
+the UCA segment with the earliest start whose sentence matches; start and end are that
+segment's. **No match, no time:** the video gets no window. The 216 untimed training videos
+are listed by the script. Inspected samples miss for wording the rule does not list
+("a burst of flames" for an explosion, a fight in a robbery) or because no sentence describes
+the act; no bug was found. Widening the patterns could time more, but the agreement would
+then have to be measured again on data already seen, so it was left as written.
+
+**Agreement** (`results.md`, OMNI-603): on the 140 official test anomalies, the rule times
+110; its start against the official start: **median 3.0 s, mean 11.3 s** apart, 34% within
+1 s, 66% within 5 s, 85% within 10 s; UCA tends to start earlier (median -0.8 s).
+
+**What this means for the windows:** a UCA-derived window ends about 3 s from where the
+official annotation would put the event (median), with a tail of large misses. Training
+windows (UCA) and held-out windows (official) are therefore not equally exact. OMNI-609's
+hand check samples both sources and compares them; if UCA windows are wrong noticeably more
+often, it goes in `known-issues.md` before slice 9.
+
+**Not used:** UCA's own Train / Val / Test split (it is not the official one; OMNI-605 fixes
+the split from the official lists); its descriptions of non-crime events.
+
+## D-22 · The train / validation / held-out split, fixed once · 2026-10-08
+
+**Why:** every measurement from slice 9 on compares models on the same clips. Phase A asks
+for "held-out clips" (SM-2) and "a held-out validation split" to set alert thresholds
+(§3.5.4.2) but gives no fractions, so they are chosen here, before any window is used.
+
+**The rule** (`omnisight_common.datasets.split`, seed **605**, inputs sorted before every
+shuffle):
+
+| Dataset | Held-out | Validation | Train |
+|---|---|---|---|
+| UCF-Crime | the official 290 test videos, exactly | 15% of the official training list, per class, and within a class per timed / untimed | the rest |
+| CCD | 15% of crash clips, by whole source video; 15% of normal clips | the same | the rest |
+| VIRAT | evaluation only (SM-1); no training split | - | - |
+
+**Why 15%:** UCF-Crime's official test set is 290 of 1,900, 15%; validation and CCD's two
+held-back parts use the same share, so the parts are comparable in size across the two
+training datasets. Not tuned against anything.
+
+**Choices inside the rule:**
+- UCF-Crime validation is also stratified by timed / untimed, so validation keeps the same
+  share of videos that get lead-up windows as train (the ticket asked for class only)
+- CCD crash clips are assigned by `youtube_id`, whole groups at a time, in shuffled order,
+  to held-out until it reaches 15%, then validation, then train. A group is never split,
+  so held-out overshoots by part of one group: 243 crash clips instead of 225. CCD normals
+  (BDD100K) have no source-video field and are split per clip
+- Split names: `train`, `validation`, `held_out`, `evaluation`
+
+**The split never moves:** the committed `datasets/splits/*.csv` are the split.
+`scripts/build_dataset_split.py` rebuilds it and stops, writing nothing, if a rebuilt file
+differs from the committed one; a test checks the rebuild byte for byte. `.gitattributes`
+keeps `datasets/` byte-exact (no line-ending conversion) so the hashes hold on every
+checkout. Counts and hashes: `results.md`, OMNI-605.
+
+## D-23 · The SM-3 target rule, written before CCD's footage was measured · 2026-10-08
+
+**Why:** D-2 sets SM-3's target from CCD's pre-event footage, before any model is trained,
+so it cannot be chosen to flatter a result. The rule comes first, then the numbers.
+
+**The rule** (OMNI-606's recommendation, adopted unchanged):
+
+> **SM-3 target = mean time-to-accident (mTTA) of at least half the median pre-event
+> footage in CCD's held-out crash clips.**
+
+- *Pre-event footage* of a crash clip = seconds from the clip's first frame to its first
+  accident frame = index of the first `1` in `binlabels` / 10 fps (`event_start_s` in the
+  manifest)
+- *Held-out crash clips* = the 243 crash clips with `split = held_out` (D-22)
+- Warning at the very first frame is the ceiling any model can reach; half of the median
+  means warning, on average, within the first half of the typical lead-up
+- The value is used as computed, not rounded to a friendlier number
+
+**Disclosed:** OMNI-604's sanity check printed the median start over all 1,500 crash clips
+(3.6 s) before this entry was written. The rule is the one written in the ticket file when
+the sprint was planned, before that; it is not changed here.
+
+**Applied** (`scripts/ccd_pre_event.py`, `results.md` OMNI-606): held-out median pre-event
+footage **3.60 s**, so **SM-3 target: mTTA ≥ 1.80 s**. The ceiling (warning at the first
+frame) is the held-out mean, 3.68 s.
+
+**What the distribution says:** every CCD crash clip has between 3.0 and 4.9 s before the
+accident (none under 1 s); the accident always falls in the last 2 s of the 5 s clip. That
+is how CCD was cut, not how long real lead-ups are, so the target measures early warning
+within CCD's window, not the 15 s Phase A asked for (D-2).
+
+## D-24 · How lead-up windows are cut, and when an event gets none · 2026-10-09
+
+**Why:** Phase A derives lead-up windows "by working backward from each known event"
+(§3.4, §3.6) and runs the predictor on "30s and 60s" windows (TC-5), but does not say what
+happens at the edges: an event near the start of its video, a video with two events, a
+dataset whose clips are 5 s long, or where negative windows come from. The rules are fixed
+here, in `omnisight_common.datasets.windows`, before the windows are used.
+
+**The rules** (seed **607**, inputs sorted before any random draw):
+
+| Case | Rule |
+|---|---|
+| Positive, UCF-Crime | `[event_start - L, event_start)` for L = 30 s and 60 s. Half-open: a window never contains any part of the event |
+| Less than L before the event | the window starts at 0 instead, keeps its nominal L, and is flagged `shortened` |
+| Second interval (16 UCF-Crime test videos) | no window: its lead-up runs through the first event. Skipped and counted, per L |
+| Event at 0 s | no window (no footage before it). Skipped and counted |
+| Event after the probed end of its video | no window. Skipped and counted |
+| Anomaly with no time (216 UCF-Crime training videos, D-21) | no window. Recorded as skipped, per L, so every anomaly is accounted for |
+| Positive, CCD | one window `[0, accident_start)`, as long as the footage is (3.0-4.9 s, D-23). Its nominal length is empty: no 30 s or 60 s window exists on CCD and none is made |
+| Negative, UCF-Crime | one window per normal video and L, start drawn uniformly from `[0, duration - L]` (floored to the millisecond); a video shorter than L gives `[0, duration)`, flagged `shortened` |
+| Negative, CCD | one window per normal clip; its length drawn from the crash windows of the **same split**, so negatives have the positives' length distribution; position drawn as above |
+| Split | every window takes its clip's split from `datasets/splits/` (D-22) |
+
+**Duration and fps from each video's own probe, never assumed.** The full videos are on
+Drive; `scripts/probe_dataset_videos.py` runs `ffprobe` on every UCF-Crime and CCD file in
+Colab and writes `video_probe.csv` (fps, frame count, duration). The derivation stops if any
+video has no probe. UCF-Crime's official frame numbers stay converted at 30 fps (its readme);
+every video not at 30 fps (CCD: 10 fps) is listed in `results.md`, not silently re-timed.
+
+**Shortened windows are kept, not dropped.** A positive window of 1 s before an event is
+still lead-up footage; dropping it would remove most UCF-Crime events whose annotated start
+sits in the first seconds. The flag and the real `length_s` travel with every window, so
+training can filter by length without the windows being re-derived.
+
+**Fixed once, like the split:** `scripts/build_event_windows.py` exports
+`datasets/windows/{dataset}.csv` and `{dataset}_skipped.csv` and refuses to overwrite an
+existing file with different content; `event_windows` rows are inserted, never replaced, so
+OMNI-609's hand-check verdicts survive a rerun. Counts and hashes: `results.md`, OMNI-607.
+
+**Disclosed:** before this entry was written, the build script was smoke-tested once with
+stand-in durations (UCA's, 600 s otherwise) to check that it runs end to end; that output
+was deleted. The rules above were in the code before that run and were not changed after it.
+
+## D-25 · Dataset footage enters through the upload function · 2026-10-09
+
+**Why:** the sprint rule is that dataset footage is ordinary footage: no back door into the
+product.
+
+**How:**
+- `POST /videos/upload`'s body became `store_video()` (sniff, stream to storage, row,
+  probe), unchanged in behaviour; `POST /datasets/{name}/load` calls the same function for
+  each clip, read from the mirror mounted read-only into `query` at `/datasets`, then
+  extracts it like any video, one clip at a time. Only two things differ: `source =
+  dataset`, and `retention_until` is NULL, never a date. `scripts/backfill_retention.py`
+  now skips dataset rows, which it would otherwise have given a date
+- Resumable without a queue of its own: a clip is done when its video is `ready` with a
+  finished extraction; each call takes the clips not done yet. The manifest link is written
+  in the video row's own transaction, so a restart never stores a clip twice
+- Which clips: D-26
+
+**Tests on their own database** (K-18): the query tests now run on `omnisight_test`,
+created and migrated by their `conftest.py`, so `uv run pytest` can never delete footage
+loaded into the stack.
+
+**Considered and reverted the same day:** for the full load the ticket first planned
+(5,065 clips), the upload limit was raised to 2,048 MB (19 files over 500 MB) and the
+extract timeout to 2,400 s (two hour-long videos). D-26 dropped the full load, so both are
+back to 500 MB and 900 s: no change to the product without a reason that still holds.
+
+## D-26 · Model measurements on Colab; the product holds only the hand-check sample · 2026-10-09
+
+**Why:** OMNI-608 planned to load CCD (4,500), VIRAT (275) and UCF-Crime held-out (290)
+into the product, so models could later be measured inside it. Measured first (`results.md`,
+OMNI-608): 50 GB, 2.13M frames, **about 20-23 h of extraction on this machine** with the
+simulator stopped, 27-34 h with it running. But real users never see dataset footage: they
+connect cameras and upload files. The system is aimed at organisations that already run
+GPUs, and the model measurements (SM-1 to SM-4: embeddings, search quality, forecasting)
+need one; this laptop has none. Running them through a CPU-only local stack would measure
+the laptop, not the method.
+
+**Decision (Ahmad, 2026-10-09):**
+- **Model measurements run on Colab** (GPU), from Drive, with the same code
+  (`services/common`) and the committed split, windows and sample files. The "real running
+  stack" rule in `CLAUDE.md` applies to system measurements (latency, throughput, data loss,
+  storage, the dashboard), not to model accuracy
+- **The product holds only what it needs to show:** the 60 clips of OMNI-609's hand-check
+  sample (30 UCF-Crime: 15 official, 15 UCA, every class; 30 CCD), drawn once with seed 609
+  into `datasets/hand_check/sample.csv`, loaded through D-25's path. The window view plays
+  them
+- VIRAT is not loaded; SM-1's search evaluation runs on Colab
+
+**Not a Phase A deviation:** Phase A does not say where the success metrics are computed.
+It is a change to this sprint's plan (OMNI-608's "what goes in").
+
+**What it costs:** the dashboard's "real footage volumes" are the sample's (60 clips), not
+5,065. The CCD retention on all 4,500 clips (K-4) is a property of Algorithm 1, not of the
+stack, so it moves to a Colab run of the same gate code.
+
+## D-27 · The hand-check criterion, written before any window was checked · 2026-10-10
+
+**Why:** OMNI-609 checks 60 derived lead-up windows by eye (Phase A: "check a sample by
+hand"). The criterion is fixed first, so the agreement rate cannot drift to fit what is seen.
+
+**The criterion** (the ticket's, adopted unchanged):
+
+> **A window is correct when it ends where the event visibly begins (within 1.5 s) and shows
+> none of the event.**
+
+- *Where the event visibly begins:* the first moment the annotated event (the clip's class:
+  the crash, the robbery, the fight ...) can be seen happening, judged by watching, not by
+  the annotation
+- *The act itself, not who will do it* (added 2026-10-10 during the check, at Arrest011,
+  before judging it): the event begins at the first moment of the act, not when the people
+  who will do it appear. Arrest: the first act of restraint, a physical one (grab, push
+  down) or holding the person at gunpoint (added at Arrest030), not police standing nearby;
+  restraint by guards or bystanders counts when they then hold the person for the police; robbery: the threat or the grab, not the robber walking in;
+  fighting: the first blow; road accident: the impact; burglary: the first act of breaking
+  in (forcing a door or window, breaking glass, climbing in), or, when the entry is out of
+  view, the first moment the intruder is inside or starts taking things (added at Burglary); shooting:
+  the first shot, pointing the gun being lead-up (added at Shooting039); robbery: the first
+  threat or grab, a gun pointed at the victim included (Robbery006); stealing: the first
+  act of taking (grabbing the item, breaking into or opening the vehicle, starting to carry or
+  drive it off), looking around being lead-up; shoplifting: the moment the item is hidden
+  (pocket, bag, clothes), not picking it up to look at it (added at Stealing). What comes before the act is lead-up,
+  which is what a window should contain
+- *Within 1.5 s:* the window's end may sit up to 1.5 s before or after that moment. The
+  ticket said 1 s; widened to 1.5 s by Ahmad on 2026-10-10, **after 2 of the 60 windows had
+  been checked** (Abuse004, Abuse028, both Verified under 1 s; a wider tolerance can only turn
+  a Wrong into a correct, so both verdicts stand). Why: judging the start of an event by eye to under a
+  second is not reliable, and 1.5 s is still well inside UCA's median 3.0 s distance from the
+  official times (D-21), so the check can still tell a good time from a poor one
+- *Shows none of the event:* if the event is visibly under way more than 1.5 s before the
+  window ends, the window is wrong, whatever the reason
+- **Wrong** is recorded with a short reason, one of: *ends too late* (the window contains the
+  event), *ends too early* (more than 1.5 s of quiet footage between the window's end and the
+  event), *wrong event* (the annotated moment is not the clip's class at all), or *cannot
+  tell* (the footage does not show it clearly), plus free text
+- **Which window:** one per sampled clip. On UCF-Crime the 30 s and 60 s windows of a clip end
+  at the same event start, so the 30 s one is checked; on CCD the clip's only window. The
+  verdict is stored on the checked window
+
+**The sample:** `datasets/hand_check/sample.csv` (D-26), drawn before this entry: 30 UCF-Crime
+(15 official, 15 UCA), 30 CCD.
+
+## D-28 · The dashboard's rollup is kept by triggers on `segments` · 2026-10-11
+
+**Why:** OMNI-610 asks for an hourly rollup "updated by the consumer in the same
+transaction as the insert, so the counts can never drift from the rows" (NFR-5). Inserting
+is not the only way `segments` changes: a failed or replaced extraction deletes a video's
+rows (`extraction.py`), a re-gate rewrites `admitted` and the files in place (OMNI-306), a
+deleted video takes its rows by cascade. Counting in the consumer's Python alone would drift
+the first time any of those ran.
+
+**What was built:**
+
+- `segment_hourly (hour, source_type, segments, admitted, file_bytes)`, one row per UTC hour
+  of the rows' `created_at` and per source (`upload`, `camera`; dataset footage is an upload)
+- Four statement-level triggers on `segments` (insert, update, delete, truncate). Each
+  statement adds one aggregated upsert per hour and source it touched, from its transition
+  table, so it runs inside the statement's own transaction: the consumer's insert, the
+  extraction's delete, the re-gate's update and the cascade each change the rollup in the
+  same commit as the rows, or not at all. Application code never writes the rollup
+- The rollup reflects the rows that exist: deleting a video takes its frames out of the hour
+  they were stored in. The activity chart is "what is held, by when it was stored", not a
+  log of everything ever stored
+- `segments.file_bytes`: the bytes of the frame and thumbnail JPEGs a row wrote, measured by
+  ingestion right after writing them and carried on the message (`SegmentMessage.file_bytes`,
+  default 0 so a message queued before it still parses). The consumer cannot see the frame
+  volumes, and walking the disk on every dashboard load is what the rollup is there to avoid
+- The migration counts the rows already in the table; `scripts/backfill_dashboard_rollup.py`
+  fills `file_bytes` on old rows from the disk and rebuilds the rollup, rerunnable
+
+**Not a Phase A deviation:** Phase A does not say how FR-9's figures are computed. It is a
+choice of mechanism inside the ticket: the update still happens in the consumer's
+transaction, through the database rather than the consumer's code.
+
+**What it costs:** every insert into `segments` runs one extra upsert. Not measured against
+the consumer's throughput (OMNI-610 context). `storage_gb` counts only files that have a row:
+files left on disk with no row are invisible to it (K-21).

@@ -9,6 +9,7 @@ from omnisight_common import (
     VideoSource,
     VideoStatus,
 )
+from omnisight_common.datasets import AnnotationSource
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -20,10 +21,12 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    UniqueConstraint,
     false,
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -203,9 +206,29 @@ class Segment(Base):
     admission_reason: Mapped[AdmissionReason | None] = mapped_column(
         _enum_column(AdmissionReason, "admission_reason")
     )
+    # The bytes of the frame and thumbnail JPEGs this frame wrote (OMNI-610); 0 when it
+    # wrote none. Measured by ingestion, which wrote them, so storage is a sum, not a disk walk.
+    file_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class SegmentHourly(Base):
+    """Segment counts per hour and source (OMNI-610, D-28), so the dashboard never counts
+    `segments`. Written only by the triggers on `segments` (migration 9b4e6d2a7c31), in the
+    same transaction as the rows they count; never by application code. The hour is the
+    rows' `created_at` truncated to the hour in UTC."""
+
+    __tablename__ = "segment_hourly"
+
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    source_type: Mapped[SegmentSourceType] = mapped_column(
+        _enum_column(SegmentSourceType, "segment_source_type"), primary_key=True
+    )
+    segments: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    admitted: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    file_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
 
 
 class CameraStats(Base):
@@ -264,3 +287,74 @@ class CameraStats(Base):
     # Frames processed per second, as the worker last reported it, and when.
     fps_effective: Mapped[float | None] = mapped_column(Float)
     reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DatasetManifest(Base):
+    """One row per clip of every dataset, from its annotation files (OMNI-604), whether
+    or not the clip is loaded into the product. Written by
+    `scripts/build_dataset_manifest.py`; `split` is set once by OMNI-605 and `video_id`
+    when the clip is uploaded (OMNI-608)."""
+
+    __tablename__ = "dataset_manifest"
+    __table_args__ = (UniqueConstraint("dataset", "clip_key", name="uq_dataset_manifest_clip"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dataset: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # The dataset's own identity: the filename for UCF-Crime, `subset/id` for CCD, the
+    # base name for VIRAT.
+    clip_key: Mapped[str] = mapped_column(String, nullable=False)
+    domain: Mapped[Domain] = mapped_column(_enum_column(Domain, "domain"), nullable=False)
+    event_class: Mapped[str | None] = mapped_column(String)
+    event_start_s: Mapped[float | None] = mapped_column(Float)
+    event_end_s: Mapped[float | None] = mapped_column(Float)
+    annotation_source: Mapped[AnnotationSource] = mapped_column(
+        _enum_column(AnnotationSource, "annotation_source"), nullable=False
+    )
+    split: Mapped[str | None] = mapped_column(String)
+    video_id: Mapped[int | None] = mapped_column(ForeignKey("videos.id", ondelete="SET NULL"))
+    # Where the video sits, relative to the dataset's folder on Drive and in the mirror.
+    video_relpath: Mapped[str] = mapped_column(String, nullable=False)
+    # What only one dataset has: UCF-Crime's official list and second interval, CCD's
+    # source video and conditions, VIRAT's scene and event counts.
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+class EventWindow(Base):
+    """A lead-up window derived from a manifest clip (OMNI-607, D-24): positive windows end
+    where an event starts, negative ones sit in normal videos. Written by
+    `scripts/build_event_windows.py` from the committed `datasets/windows/*.csv`; the hand
+    check (OMNI-609) sets `verified`, `verified_by` and `verified_at`."""
+
+    __tablename__ = "event_windows"
+    __table_args__ = (
+        # One window per clip, kind and length. CCD's length is NULL (as long as the footage),
+        # so NULLs must count as equal.
+        UniqueConstraint(
+            "manifest_id", "kind", "nominal_length_s", name="uq_event_windows_window", postgresql_nulls_not_distinct=True
+        ),
+        CheckConstraint("window_start_s >= 0 AND window_end_s > window_start_s", name="ck_event_windows_bounds"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    manifest_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_manifest.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # positive / negative
+    # L (30 or 60 s on UCF-Crime); NULL on CCD, where a window is as long as the footage.
+    nominal_length_s: Mapped[float | None] = mapped_column(Float)
+    window_start_s: Mapped[float] = mapped_column(Float, nullable=False)
+    window_end_s: Mapped[float] = mapped_column(Float, nullable=False)
+    length_s: Mapped[float] = mapped_column(Float, nullable=False)
+    # Less footage than L before the event: the window starts at 0 instead.
+    shortened: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    event_class: Mapped[str] = mapped_column(String, nullable=False)
+    domain: Mapped[Domain] = mapped_column(_enum_column(Domain, "domain"), nullable=False)
+    split: Mapped[str] = mapped_column(String, nullable=False)
+    # True: derived automatically from an annotation, not drawn by hand.
+    derived: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # NULL until the hand check looks at it; then whether the window is right.
+    verified: Mapped[bool | None] = mapped_column(Boolean)
+    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Why the hand check marked it wrong (OMNI-609); NULL when verified or not checked.
+    verify_reason: Mapped[str | None] = mapped_column(String)

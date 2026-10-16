@@ -1,0 +1,573 @@
+clip_key,event_class,split,interval,nominal_length_s,reason
+Abuse002_x264.mp4,Abuse,train,1,30,no event time
+Abuse002_x264.mp4,Abuse,train,1,60,no event time
+Abuse003_x264.mp4,Abuse,train,1,30,event starts at 0 s: no footage before it
+Abuse003_x264.mp4,Abuse,train,1,60,event starts at 0 s: no footage before it
+Abuse008_x264.mp4,Abuse,train,1,30,event starts at 0 s: no footage before it
+Abuse008_x264.mp4,Abuse,train,1,60,event starts at 0 s: no footage before it
+Abuse013_x264.mp4,Abuse,train,1,30,event starts at 0 s: no footage before it
+Abuse013_x264.mp4,Abuse,train,1,60,event starts at 0 s: no footage before it
+Abuse014_x264.mp4,Abuse,train,1,30,no event time
+Abuse014_x264.mp4,Abuse,train,1,60,no event time
+Abuse022_x264.mp4,Abuse,train,1,30,event starts at 0 s: no footage before it
+Abuse022_x264.mp4,Abuse,train,1,60,event starts at 0 s: no footage before it
+Abuse025_x264.mp4,Abuse,train,1,30,no event time
+Abuse025_x264.mp4,Abuse,train,1,60,no event time
+Abuse026_x264.mp4,Abuse,train,1,30,event starts at 0 s: no footage before it
+Abuse026_x264.mp4,Abuse,train,1,60,event starts at 0 s: no footage before it
+Abuse029_x264.mp4,Abuse,train,1,30,no event time
+Abuse029_x264.mp4,Abuse,train,1,60,no event time
+Abuse031_x264.mp4,Abuse,train,1,30,no event time
+Abuse031_x264.mp4,Abuse,train,1,60,no event time
+Abuse034_x264.mp4,Abuse,train,1,30,no event time
+Abuse034_x264.mp4,Abuse,train,1,60,no event time
+Abuse036_x264.mp4,Abuse,validation,1,30,no event time
+Abuse036_x264.mp4,Abuse,validation,1,60,no event time
+Abuse037_x264.mp4,Abuse,train,1,30,no event time
+Abuse037_x264.mp4,Abuse,train,1,60,no event time
+Abuse041_x264.mp4,Abuse,validation,1,30,no event time
+Abuse041_x264.mp4,Abuse,validation,1,60,no event time
+Abuse045_x264.mp4,Abuse,train,1,30,event starts at 0 s: no footage before it
+Abuse045_x264.mp4,Abuse,train,1,60,event starts at 0 s: no footage before it
+Abuse049_x264.mp4,Abuse,train,1,30,no event time
+Abuse049_x264.mp4,Abuse,train,1,60,no event time
+Arrest008_x264.mp4,Arrest,train,1,30,no event time
+Arrest008_x264.mp4,Arrest,train,1,60,no event time
+Arrest009_x264.mp4,Arrest,train,1,30,no event time
+Arrest009_x264.mp4,Arrest,train,1,60,no event time
+Arrest013_x264.mp4,Arrest,validation,1,30,no event time
+Arrest013_x264.mp4,Arrest,validation,1,60,no event time
+Arrest014_x264.mp4,Arrest,train,1,30,no event time
+Arrest014_x264.mp4,Arrest,train,1,60,no event time
+Arrest015_x264.mp4,Arrest,train,1,30,no event time
+Arrest015_x264.mp4,Arrest,train,1,60,no event time
+Arrest016_x264.mp4,Arrest,train,1,30,no event time
+Arrest016_x264.mp4,Arrest,train,1,60,no event time
+Arrest017_x264.mp4,Arrest,train,1,30,no event time
+Arrest017_x264.mp4,Arrest,train,1,60,no event time
+Arrest018_x264.mp4,Arrest,train,1,30,no event time
+Arrest018_x264.mp4,Arrest,train,1,60,no event time
+Arrest019_x264.mp4,Arrest,train,1,30,no event time
+Arrest019_x264.mp4,Arrest,train,1,60,no event time
+Arrest020_x264.mp4,Arrest,train,1,30,no event time
+Arrest020_x264.mp4,Arrest,train,1,60,no event time
+Arrest027_x264.mp4,Arrest,train,1,30,no event time
+Arrest027_x264.mp4,Arrest,train,1,60,no event time
+Arrest032_x264.mp4,Arrest,train,1,30,event starts at 0 s: no footage before it
+Arrest032_x264.mp4,Arrest,train,1,60,event starts at 0 s: no footage before it
+Arrest040_x264.mp4,Arrest,train,1,30,no event time
+Arrest040_x264.mp4,Arrest,train,1,60,no event time
+Arrest041_x264.mp4,Arrest,train,1,30,no event time
+Arrest041_x264.mp4,Arrest,train,1,60,no event time
+Arrest044_x264.mp4,Arrest,train,1,30,no event time
+Arrest044_x264.mp4,Arrest,train,1,60,no event time
+Arrest050_x264.mp4,Arrest,validation,1,30,no event time
+Arrest050_x264.mp4,Arrest,validation,1,60,no event time
+Arson005_x264.mp4,Arson,train,1,30,event starts at 0 s: no footage before it
+Arson005_x264.mp4,Arson,train,1,60,event starts at 0 s: no footage before it
+Arson011_x264.mp4,Arson,held_out,2,30,second interval: its lead-up overlaps the first event
+Arson011_x264.mp4,Arson,held_out,2,60,second interval: its lead-up overlaps the first event
+Arson017_x264.mp4,Arson,train,1,30,no event time
+Arson017_x264.mp4,Arson,train,1,60,no event time
+Arson038_x264.mp4,Arson,train,1,30,no event time
+Arson038_x264.mp4,Arson,train,1,60,no event time
+Assault010_x264.mp4,Assault,held_out,2,30,second interval: its lead-up overlaps the first event
+Assault010_x264.mp4,Assault,held_out,2,60,second interval: its lead-up overlaps the first event
+Assault015_x264.mp4,Assault,train,1,30,no event time
+Assault015_x264.mp4,Assault,train,1,60,no event time
+Assault030_x264.mp4,Assault,train,1,30,no event time
+Assault030_x264.mp4,Assault,train,1,60,no event time
+Assault032_x264.mp4,Assault,train,1,30,no event time
+Assault032_x264.mp4,Assault,train,1,60,no event time
+Assault045_x264.mp4,Assault,train,1,30,no event time
+Assault045_x264.mp4,Assault,train,1,60,no event time
+Assault046_x264.mp4,Assault,validation,1,30,no event time
+Assault046_x264.mp4,Assault,validation,1,60,no event time
+Burglary002_x264.mp4,Burglary,validation,1,30,no event time
+Burglary002_x264.mp4,Burglary,validation,1,60,no event time
+Burglary003_x264.mp4,Burglary,train,1,30,no event time
+Burglary003_x264.mp4,Burglary,train,1,60,no event time
+Burglary013_x264.mp4,Burglary,train,1,30,no event time
+Burglary013_x264.mp4,Burglary,train,1,60,no event time
+Burglary014_x264.mp4,Burglary,train,1,30,no event time
+Burglary014_x264.mp4,Burglary,train,1,60,no event time
+Burglary015_x264.mp4,Burglary,train,1,30,no event time
+Burglary015_x264.mp4,Burglary,train,1,60,no event time
+Burglary016_x264.mp4,Burglary,train,1,30,no event time
+Burglary016_x264.mp4,Burglary,train,1,60,no event time
+Burglary021_x264.mp4,Burglary,held_out,2,30,second interval: its lead-up overlaps the first event
+Burglary021_x264.mp4,Burglary,held_out,2,60,second interval: its lead-up overlaps the first event
+Burglary023_x264.mp4,Burglary,train,1,30,no event time
+Burglary023_x264.mp4,Burglary,train,1,60,no event time
+Burglary025_x264.mp4,Burglary,train,1,30,no event time
+Burglary025_x264.mp4,Burglary,train,1,60,no event time
+Burglary028_x264.mp4,Burglary,validation,1,30,no event time
+Burglary028_x264.mp4,Burglary,validation,1,60,no event time
+Burglary029_x264.mp4,Burglary,train,1,30,no event time
+Burglary029_x264.mp4,Burglary,train,1,60,no event time
+Burglary030_x264.mp4,Burglary,train,1,30,no event time
+Burglary030_x264.mp4,Burglary,train,1,60,no event time
+Burglary034_x264.mp4,Burglary,train,1,30,no event time
+Burglary034_x264.mp4,Burglary,train,1,60,no event time
+Burglary036_x264.mp4,Burglary,validation,1,30,no event time
+Burglary036_x264.mp4,Burglary,validation,1,60,no event time
+Burglary037_x264.mp4,Burglary,held_out,2,30,second interval: its lead-up overlaps the first event
+Burglary037_x264.mp4,Burglary,held_out,2,60,second interval: its lead-up overlaps the first event
+Burglary039_x264.mp4,Burglary,train,1,30,no event time
+Burglary039_x264.mp4,Burglary,train,1,60,no event time
+Burglary042_x264.mp4,Burglary,train,1,30,no event time
+Burglary042_x264.mp4,Burglary,train,1,60,no event time
+Burglary048_x264.mp4,Burglary,train,1,30,no event time
+Burglary048_x264.mp4,Burglary,train,1,60,no event time
+Burglary050_x264.mp4,Burglary,validation,1,30,no event time
+Burglary050_x264.mp4,Burglary,validation,1,60,no event time
+Burglary051_x264.mp4,Burglary,train,1,30,no event time
+Burglary051_x264.mp4,Burglary,train,1,60,no event time
+Burglary053_x264.mp4,Burglary,validation,1,30,no event time
+Burglary053_x264.mp4,Burglary,validation,1,60,no event time
+Burglary054_x264.mp4,Burglary,train,1,30,no event time
+Burglary054_x264.mp4,Burglary,train,1,60,no event time
+Burglary055_x264.mp4,Burglary,train,1,30,no event time
+Burglary055_x264.mp4,Burglary,train,1,60,no event time
+Burglary056_x264.mp4,Burglary,validation,1,30,no event time
+Burglary056_x264.mp4,Burglary,validation,1,60,no event time
+Burglary059_x264.mp4,Burglary,train,1,30,no event time
+Burglary059_x264.mp4,Burglary,train,1,60,no event time
+Burglary062_x264.mp4,Burglary,train,1,30,no event time
+Burglary062_x264.mp4,Burglary,train,1,60,no event time
+Burglary063_x264.mp4,Burglary,train,1,30,no event time
+Burglary063_x264.mp4,Burglary,train,1,60,no event time
+Burglary065_x264.mp4,Burglary,train,1,30,no event time
+Burglary065_x264.mp4,Burglary,train,1,60,no event time
+Burglary067_x264.mp4,Burglary,train,1,30,no event time
+Burglary067_x264.mp4,Burglary,train,1,60,no event time
+Burglary069_x264.mp4,Burglary,train,1,30,no event time
+Burglary069_x264.mp4,Burglary,train,1,60,no event time
+Burglary071_x264.mp4,Burglary,train,1,30,no event time
+Burglary071_x264.mp4,Burglary,train,1,60,no event time
+Burglary074_x264.mp4,Burglary,train,1,30,no event time
+Burglary074_x264.mp4,Burglary,train,1,60,no event time
+Burglary078_x264.mp4,Burglary,train,1,30,no event time
+Burglary078_x264.mp4,Burglary,train,1,60,no event time
+Burglary080_x264.mp4,Burglary,train,1,30,no event time
+Burglary080_x264.mp4,Burglary,train,1,60,no event time
+Burglary082_x264.mp4,Burglary,train,1,30,no event time
+Burglary082_x264.mp4,Burglary,train,1,60,no event time
+Burglary083_x264.mp4,Burglary,train,1,30,no event time
+Burglary083_x264.mp4,Burglary,train,1,60,no event time
+Burglary085_x264.mp4,Burglary,train,1,30,no event time
+Burglary085_x264.mp4,Burglary,train,1,60,no event time
+Burglary086_x264.mp4,Burglary,train,1,30,no event time
+Burglary086_x264.mp4,Burglary,train,1,60,no event time
+Burglary087_x264.mp4,Burglary,train,1,30,no event time
+Burglary087_x264.mp4,Burglary,train,1,60,no event time
+Burglary093_x264.mp4,Burglary,train,1,30,no event time
+Burglary093_x264.mp4,Burglary,train,1,60,no event time
+Burglary094_x264.mp4,Burglary,train,1,30,no event time
+Burglary094_x264.mp4,Burglary,train,1,60,no event time
+Burglary095_x264.mp4,Burglary,train,1,30,no event time
+Burglary095_x264.mp4,Burglary,train,1,60,no event time
+Burglary096_x264.mp4,Burglary,validation,1,30,no event time
+Burglary096_x264.mp4,Burglary,validation,1,60,no event time
+Burglary097_x264.mp4,Burglary,train,1,30,no event time
+Burglary097_x264.mp4,Burglary,train,1,60,no event time
+Burglary099_x264.mp4,Burglary,train,1,30,no event time
+Burglary099_x264.mp4,Burglary,train,1,60,no event time
+Burglary100_x264.mp4,Burglary,train,1,30,no event time
+Burglary100_x264.mp4,Burglary,train,1,60,no event time
+Explosion001_x264.mp4,Explosion,train,1,30,no event time
+Explosion001_x264.mp4,Explosion,train,1,60,no event time
+Explosion005_x264.mp4,Explosion,train,1,30,no event time
+Explosion005_x264.mp4,Explosion,train,1,60,no event time
+Explosion009_x264.mp4,Explosion,train,1,30,no event time
+Explosion009_x264.mp4,Explosion,train,1,60,no event time
+Explosion012_x264.mp4,Explosion,train,1,30,event starts at 0 s: no footage before it
+Explosion012_x264.mp4,Explosion,train,1,60,event starts at 0 s: no footage before it
+Explosion015_x264.mp4,Explosion,validation,1,30,no event time
+Explosion015_x264.mp4,Explosion,validation,1,60,no event time
+Explosion018_x264.mp4,Explosion,train,1,30,no event time
+Explosion018_x264.mp4,Explosion,train,1,60,no event time
+Explosion019_x264.mp4,Explosion,validation,1,30,event starts at 0 s: no footage before it
+Explosion019_x264.mp4,Explosion,validation,1,60,event starts at 0 s: no footage before it
+Explosion023_x264.mp4,Explosion,train,1,30,no event time
+Explosion023_x264.mp4,Explosion,train,1,60,no event time
+Explosion024_x264.mp4,Explosion,validation,1,30,no event time
+Explosion024_x264.mp4,Explosion,validation,1,60,no event time
+Explosion026_x264.mp4,Explosion,train,1,30,no event time
+Explosion026_x264.mp4,Explosion,train,1,60,no event time
+Explosion030_x264.mp4,Explosion,train,1,30,no event time
+Explosion030_x264.mp4,Explosion,train,1,60,no event time
+Explosion033_x264.mp4,Explosion,held_out,2,30,second interval: its lead-up overlaps the first event
+Explosion033_x264.mp4,Explosion,held_out,2,60,second interval: its lead-up overlaps the first event
+Explosion034_x264.mp4,Explosion,train,1,30,event starts at 0 s: no footage before it
+Explosion034_x264.mp4,Explosion,train,1,60,event starts at 0 s: no footage before it
+Explosion046_x264.mp4,Explosion,train,1,30,no event time
+Explosion046_x264.mp4,Explosion,train,1,60,no event time
+Fighting002_x264.mp4,Fighting,validation,1,30,no event time
+Fighting002_x264.mp4,Fighting,validation,1,60,no event time
+Fighting005_x264.mp4,Fighting,train,1,30,no event time
+Fighting005_x264.mp4,Fighting,train,1,60,no event time
+Fighting010_x264.mp4,Fighting,train,1,30,no event time
+Fighting010_x264.mp4,Fighting,train,1,60,no event time
+Fighting012_x264.mp4,Fighting,train,1,30,event starts at 0 s: no footage before it
+Fighting012_x264.mp4,Fighting,train,1,60,event starts at 0 s: no footage before it
+Fighting013_x264.mp4,Fighting,train,1,30,event starts at 0 s: no footage before it
+Fighting013_x264.mp4,Fighting,train,1,60,event starts at 0 s: no footage before it
+Fighting016_x264.mp4,Fighting,train,1,30,no event time
+Fighting016_x264.mp4,Fighting,train,1,60,no event time
+Fighting023_x264.mp4,Fighting,train,1,30,no event time
+Fighting023_x264.mp4,Fighting,train,1,60,no event time
+Fighting025_x264.mp4,Fighting,train,1,30,no event time
+Fighting025_x264.mp4,Fighting,train,1,60,no event time
+Fighting036_x264.mp4,Fighting,train,1,30,event starts at 0 s: no footage before it
+Fighting036_x264.mp4,Fighting,train,1,60,event starts at 0 s: no footage before it
+Fighting046_x264.mp4,Fighting,train,1,30,no event time
+Fighting046_x264.mp4,Fighting,train,1,60,no event time
+RoadAccidents003_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents003_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents005_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents005_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents029_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents029_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents031_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents031_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents034_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents034_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents035_x264.mp4,RoadAccidents,validation,1,30,event starts at 0 s: no footage before it
+RoadAccidents035_x264.mp4,RoadAccidents,validation,1,60,event starts at 0 s: no footage before it
+RoadAccidents036_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents036_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents038_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents038_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents039_x264.mp4,RoadAccidents,validation,1,30,event starts at 0 s: no footage before it
+RoadAccidents039_x264.mp4,RoadAccidents,validation,1,60,event starts at 0 s: no footage before it
+RoadAccidents041_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents041_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents049_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents049_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents052_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents052_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents055_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents055_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents062_x264.mp4,RoadAccidents,validation,1,30,event starts at 0 s: no footage before it
+RoadAccidents062_x264.mp4,RoadAccidents,validation,1,60,event starts at 0 s: no footage before it
+RoadAccidents063_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents063_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents065_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents065_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents066_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents066_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents069_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents069_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents071_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents071_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents075_x264.mp4,RoadAccidents,validation,1,30,event starts at 0 s: no footage before it
+RoadAccidents075_x264.mp4,RoadAccidents,validation,1,60,event starts at 0 s: no footage before it
+RoadAccidents080_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents080_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents087_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents087_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents090_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents090_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents092_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents092_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents097_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents097_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents101_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents101_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents102_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents102_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents103_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents103_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents104_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents104_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents105_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents105_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents109_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents109_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents111_x264.mp4,RoadAccidents,validation,1,30,no event time
+RoadAccidents111_x264.mp4,RoadAccidents,validation,1,60,no event time
+RoadAccidents112_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents112_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents117_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents117_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents134_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents134_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents144_x264.mp4,RoadAccidents,validation,1,30,no event time
+RoadAccidents144_x264.mp4,RoadAccidents,validation,1,60,no event time
+RoadAccidents146_x264.mp4,RoadAccidents,train,1,30,no event time
+RoadAccidents146_x264.mp4,RoadAccidents,train,1,60,no event time
+RoadAccidents149_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents149_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents150_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents150_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+RoadAccidents151_x264.mp4,RoadAccidents,train,1,30,event starts at 0 s: no footage before it
+RoadAccidents151_x264.mp4,RoadAccidents,train,1,60,event starts at 0 s: no footage before it
+Robbery008_x264.mp4,Robbery,train,1,30,no event time
+Robbery008_x264.mp4,Robbery,train,1,60,no event time
+Robbery009_x264.mp4,Robbery,train,1,30,no event time
+Robbery009_x264.mp4,Robbery,train,1,60,no event time
+Robbery023_x264.mp4,Robbery,train,1,30,no event time
+Robbery023_x264.mp4,Robbery,train,1,60,no event time
+Robbery030_x264.mp4,Robbery,validation,1,30,no event time
+Robbery030_x264.mp4,Robbery,validation,1,60,no event time
+Robbery039_x264.mp4,Robbery,train,1,30,no event time
+Robbery039_x264.mp4,Robbery,train,1,60,no event time
+Robbery040_x264.mp4,Robbery,train,1,30,no event time
+Robbery040_x264.mp4,Robbery,train,1,60,no event time
+Robbery042_x264.mp4,Robbery,validation,1,30,no event time
+Robbery042_x264.mp4,Robbery,validation,1,60,no event time
+Robbery054_x264.mp4,Robbery,train,1,30,no event time
+Robbery054_x264.mp4,Robbery,train,1,60,no event time
+Robbery062_x264.mp4,Robbery,train,1,30,event starts at 0 s: no footage before it
+Robbery062_x264.mp4,Robbery,train,1,60,event starts at 0 s: no footage before it
+Robbery067_x264.mp4,Robbery,train,1,30,no event time
+Robbery067_x264.mp4,Robbery,train,1,60,no event time
+Robbery069_x264.mp4,Robbery,train,1,30,event starts at 0 s: no footage before it
+Robbery069_x264.mp4,Robbery,train,1,60,event starts at 0 s: no footage before it
+Robbery070_x264.mp4,Robbery,train,1,30,no event time
+Robbery070_x264.mp4,Robbery,train,1,60,no event time
+Robbery075_x264.mp4,Robbery,validation,1,30,event starts at 0 s: no footage before it
+Robbery075_x264.mp4,Robbery,validation,1,60,event starts at 0 s: no footage before it
+Robbery076_x264.mp4,Robbery,validation,1,30,no event time
+Robbery076_x264.mp4,Robbery,validation,1,60,no event time
+Robbery083_x264.mp4,Robbery,train,1,30,no event time
+Robbery083_x264.mp4,Robbery,train,1,60,no event time
+Robbery085_x264.mp4,Robbery,train,1,30,no event time
+Robbery085_x264.mp4,Robbery,train,1,60,no event time
+Robbery087_x264.mp4,Robbery,train,1,30,event starts at 0 s: no footage before it
+Robbery087_x264.mp4,Robbery,train,1,60,event starts at 0 s: no footage before it
+Robbery091_x264.mp4,Robbery,validation,1,30,event starts at 0 s: no footage before it
+Robbery091_x264.mp4,Robbery,validation,1,60,event starts at 0 s: no footage before it
+Robbery092_x264.mp4,Robbery,train,1,30,no event time
+Robbery092_x264.mp4,Robbery,train,1,60,no event time
+Robbery094_x264.mp4,Robbery,train,1,30,event starts at 0 s: no footage before it
+Robbery094_x264.mp4,Robbery,train,1,60,event starts at 0 s: no footage before it
+Robbery095_x264.mp4,Robbery,train,1,30,no event time
+Robbery095_x264.mp4,Robbery,train,1,60,no event time
+Robbery096_x264.mp4,Robbery,train,1,30,no event time
+Robbery096_x264.mp4,Robbery,train,1,60,no event time
+Robbery097_x264.mp4,Robbery,train,1,30,no event time
+Robbery097_x264.mp4,Robbery,train,1,60,no event time
+Robbery103_x264.mp4,Robbery,train,1,30,no event time
+Robbery103_x264.mp4,Robbery,train,1,60,no event time
+Robbery104_x264.mp4,Robbery,train,1,30,no event time
+Robbery104_x264.mp4,Robbery,train,1,60,no event time
+Robbery107_x264.mp4,Robbery,train,1,30,no event time
+Robbery107_x264.mp4,Robbery,train,1,60,no event time
+Robbery109_x264.mp4,Robbery,train,1,30,no event time
+Robbery109_x264.mp4,Robbery,train,1,60,no event time
+Robbery110_x264.mp4,Robbery,train,1,30,no event time
+Robbery110_x264.mp4,Robbery,train,1,60,no event time
+Robbery111_x264.mp4,Robbery,validation,1,30,no event time
+Robbery111_x264.mp4,Robbery,validation,1,60,no event time
+Robbery113_x264.mp4,Robbery,train,1,30,no event time
+Robbery113_x264.mp4,Robbery,train,1,60,no event time
+Robbery119_x264.mp4,Robbery,train,1,30,no event time
+Robbery119_x264.mp4,Robbery,train,1,60,no event time
+Robbery128_x264.mp4,Robbery,train,1,30,no event time
+Robbery128_x264.mp4,Robbery,train,1,60,no event time
+Robbery135_x264.mp4,Robbery,train,1,30,no event time
+Robbery135_x264.mp4,Robbery,train,1,60,no event time
+Robbery138_x264.mp4,Robbery,train,1,30,no event time
+Robbery138_x264.mp4,Robbery,train,1,60,no event time
+Robbery139_x264.mp4,Robbery,train,1,30,no event time
+Robbery139_x264.mp4,Robbery,train,1,60,no event time
+Robbery141_x264.mp4,Robbery,train,1,30,no event time
+Robbery141_x264.mp4,Robbery,train,1,60,no event time
+Robbery144_x264.mp4,Robbery,train,1,30,no event time
+Robbery144_x264.mp4,Robbery,train,1,60,no event time
+Robbery145_x264.mp4,Robbery,train,1,30,no event time
+Robbery145_x264.mp4,Robbery,train,1,60,no event time
+Robbery146_x264.mp4,Robbery,train,1,30,no event time
+Robbery146_x264.mp4,Robbery,train,1,60,no event time
+Robbery147_x264.mp4,Robbery,validation,1,30,event starts at 0 s: no footage before it
+Robbery147_x264.mp4,Robbery,validation,1,60,event starts at 0 s: no footage before it
+Robbery148_x264.mp4,Robbery,validation,1,30,no event time
+Robbery148_x264.mp4,Robbery,validation,1,60,no event time
+Robbery149_x264.mp4,Robbery,train,1,30,no event time
+Robbery149_x264.mp4,Robbery,train,1,60,no event time
+Robbery150_x264.mp4,Robbery,train,1,30,no event time
+Robbery150_x264.mp4,Robbery,train,1,60,no event time
+Shooting003_x264.mp4,Shooting,train,1,30,no event time
+Shooting003_x264.mp4,Shooting,train,1,60,no event time
+Shooting006_x264.mp4,Shooting,train,1,30,no event time
+Shooting006_x264.mp4,Shooting,train,1,60,no event time
+Shooting009_x264.mp4,Shooting,train,1,30,no event time
+Shooting009_x264.mp4,Shooting,train,1,60,no event time
+Shooting014_x264.mp4,Shooting,train,1,30,no event time
+Shooting014_x264.mp4,Shooting,train,1,60,no event time
+Shooting027_x264.mp4,Shooting,validation,1,30,event starts at 0 s: no footage before it
+Shooting027_x264.mp4,Shooting,validation,1,60,event starts at 0 s: no footage before it
+Shooting041_x264.mp4,Shooting,validation,1,30,no event time
+Shooting041_x264.mp4,Shooting,validation,1,60,no event time
+Shooting044_x264.mp4,Shooting,train,1,30,no event time
+Shooting044_x264.mp4,Shooting,train,1,60,no event time
+Shooting046_x264.mp4,Shooting,held_out,2,30,second interval: its lead-up overlaps the first event
+Shooting046_x264.mp4,Shooting,held_out,2,60,second interval: its lead-up overlaps the first event
+Shooting047_x264.mp4,Shooting,held_out,2,30,second interval: its lead-up overlaps the first event
+Shooting047_x264.mp4,Shooting,held_out,2,60,second interval: its lead-up overlaps the first event
+Shooting053_x264.mp4,Shooting,train,1,30,no event time
+Shooting053_x264.mp4,Shooting,train,1,60,no event time
+Shoplifting003_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting003_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting006_x264.mp4,Shoplifting,validation,1,30,no event time
+Shoplifting006_x264.mp4,Shoplifting,validation,1,60,no event time
+Shoplifting007_x264.mp4,Shoplifting,held_out,2,30,second interval: its lead-up overlaps the first event
+Shoplifting007_x264.mp4,Shoplifting,held_out,2,60,second interval: its lead-up overlaps the first event
+Shoplifting010_x264.mp4,Shoplifting,held_out,2,30,second interval: its lead-up overlaps the first event
+Shoplifting010_x264.mp4,Shoplifting,held_out,2,60,second interval: its lead-up overlaps the first event
+Shoplifting012_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting012_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting022_x264.mp4,Shoplifting,held_out,2,30,second interval: its lead-up overlaps the first event
+Shoplifting022_x264.mp4,Shoplifting,held_out,2,60,second interval: its lead-up overlaps the first event
+Shoplifting025_x264.mp4,Shoplifting,validation,1,30,no event time
+Shoplifting025_x264.mp4,Shoplifting,validation,1,60,no event time
+Shoplifting027_x264.mp4,Shoplifting,held_out,2,30,second interval: its lead-up overlaps the first event
+Shoplifting027_x264.mp4,Shoplifting,held_out,2,60,second interval: its lead-up overlaps the first event
+Shoplifting030_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting030_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting032_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting032_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting038_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting038_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting042_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting042_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting045_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting045_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting050_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting050_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting052_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting052_x264.mp4,Shoplifting,train,1,60,no event time
+Shoplifting053_x264.mp4,Shoplifting,train,1,30,no event time
+Shoplifting053_x264.mp4,Shoplifting,train,1,60,no event time
+Stealing004_x264.mp4,Stealing,train,1,30,no event time
+Stealing004_x264.mp4,Stealing,train,1,60,no event time
+Stealing008_x264.mp4,Stealing,train,1,30,no event time
+Stealing008_x264.mp4,Stealing,train,1,60,no event time
+Stealing009_x264.mp4,Stealing,train,1,30,no event time
+Stealing009_x264.mp4,Stealing,train,1,60,no event time
+Stealing013_x264.mp4,Stealing,train,1,30,no event time
+Stealing013_x264.mp4,Stealing,train,1,60,no event time
+Stealing014_x264.mp4,Stealing,validation,1,30,no event time
+Stealing014_x264.mp4,Stealing,validation,1,60,no event time
+Stealing019_x264.mp4,Stealing,held_out,2,30,second interval: its lead-up overlaps the first event
+Stealing019_x264.mp4,Stealing,held_out,2,60,second interval: its lead-up overlaps the first event
+Stealing020_x264.mp4,Stealing,train,1,30,no event time
+Stealing020_x264.mp4,Stealing,train,1,60,no event time
+Stealing021_x264.mp4,Stealing,train,1,30,no event time
+Stealing021_x264.mp4,Stealing,train,1,60,no event time
+Stealing030_x264.mp4,Stealing,train,1,30,no event time
+Stealing030_x264.mp4,Stealing,train,1,60,no event time
+Stealing044_x264.mp4,Stealing,train,1,30,no event time
+Stealing044_x264.mp4,Stealing,train,1,60,no event time
+Stealing045_x264.mp4,Stealing,train,1,30,no event time
+Stealing045_x264.mp4,Stealing,train,1,60,no event time
+Stealing047_x264.mp4,Stealing,train,1,30,no event time
+Stealing047_x264.mp4,Stealing,train,1,60,no event time
+Stealing049_x264.mp4,Stealing,validation,1,30,no event time
+Stealing049_x264.mp4,Stealing,validation,1,60,no event time
+Stealing050_x264.mp4,Stealing,train,1,30,no event time
+Stealing050_x264.mp4,Stealing,train,1,60,no event time
+Stealing052_x264.mp4,Stealing,train,1,30,no event time
+Stealing052_x264.mp4,Stealing,train,1,60,no event time
+Stealing053_x264.mp4,Stealing,train,1,30,no event time
+Stealing053_x264.mp4,Stealing,train,1,60,no event time
+Stealing054_x264.mp4,Stealing,train,1,30,no event time
+Stealing054_x264.mp4,Stealing,train,1,60,no event time
+Stealing055_x264.mp4,Stealing,train,1,30,no event time
+Stealing055_x264.mp4,Stealing,train,1,60,no event time
+Stealing059_x264.mp4,Stealing,validation,1,30,no event time
+Stealing059_x264.mp4,Stealing,validation,1,60,no event time
+Stealing060_x264.mp4,Stealing,train,1,30,no event time
+Stealing060_x264.mp4,Stealing,train,1,60,no event time
+Stealing063_x264.mp4,Stealing,validation,1,30,no event time
+Stealing063_x264.mp4,Stealing,validation,1,60,no event time
+Stealing065_x264.mp4,Stealing,train,1,30,no event time
+Stealing065_x264.mp4,Stealing,train,1,60,no event time
+Stealing066_x264.mp4,Stealing,validation,1,30,no event time
+Stealing066_x264.mp4,Stealing,validation,1,60,no event time
+Stealing069_x264.mp4,Stealing,train,1,30,no event time
+Stealing069_x264.mp4,Stealing,train,1,60,no event time
+Stealing070_x264.mp4,Stealing,train,1,30,no event time
+Stealing070_x264.mp4,Stealing,train,1,60,no event time
+Stealing071_x264.mp4,Stealing,train,1,30,no event time
+Stealing071_x264.mp4,Stealing,train,1,60,no event time
+Stealing072_x264.mp4,Stealing,train,1,30,no event time
+Stealing072_x264.mp4,Stealing,train,1,60,no event time
+Stealing075_x264.mp4,Stealing,train,1,30,event starts at 0 s: no footage before it
+Stealing075_x264.mp4,Stealing,train,1,60,event starts at 0 s: no footage before it
+Stealing079_x264.mp4,Stealing,held_out,2,30,second interval: its lead-up overlaps the first event
+Stealing079_x264.mp4,Stealing,held_out,2,60,second interval: its lead-up overlaps the first event
+Stealing082_x264.mp4,Stealing,train,1,30,no event time
+Stealing082_x264.mp4,Stealing,train,1,60,no event time
+Stealing086_x264.mp4,Stealing,train,1,30,no event time
+Stealing086_x264.mp4,Stealing,train,1,60,no event time
+Stealing087_x264.mp4,Stealing,train,1,30,event starts at 0 s: no footage before it
+Stealing087_x264.mp4,Stealing,train,1,60,event starts at 0 s: no footage before it
+Stealing091_x264.mp4,Stealing,train,1,30,no event time
+Stealing091_x264.mp4,Stealing,train,1,60,no event time
+Stealing093_x264.mp4,Stealing,train,1,30,no event time
+Stealing093_x264.mp4,Stealing,train,1,60,no event time
+Stealing094_x264.mp4,Stealing,train,1,30,no event time
+Stealing094_x264.mp4,Stealing,train,1,60,no event time
+Stealing098_x264.mp4,Stealing,train,1,30,no event time
+Stealing098_x264.mp4,Stealing,train,1,60,no event time
+Stealing101_x264.mp4,Stealing,train,1,30,no event time
+Stealing101_x264.mp4,Stealing,train,1,60,no event time
+Stealing103_x264.mp4,Stealing,train,1,30,no event time
+Stealing103_x264.mp4,Stealing,train,1,60,no event time
+Stealing105_x264.mp4,Stealing,train,1,30,no event time
+Stealing105_x264.mp4,Stealing,train,1,60,no event time
+Stealing110_x264.mp4,Stealing,train,1,30,no event time
+Stealing110_x264.mp4,Stealing,train,1,60,no event time
+Stealing111_x264.mp4,Stealing,train,1,30,no event time
+Stealing111_x264.mp4,Stealing,train,1,60,no event time
+Stealing112_x264.mp4,Stealing,train,1,30,no event time
+Stealing112_x264.mp4,Stealing,train,1,60,no event time
+Stealing113_x264.mp4,Stealing,validation,1,30,no event time
+Stealing113_x264.mp4,Stealing,validation,1,60,no event time
+Stealing114_x264.mp4,Stealing,train,1,30,no event time
+Stealing114_x264.mp4,Stealing,train,1,60,no event time
+Vandalism001_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism001_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism002_x264.mp4,Vandalism,train,1,30,event starts at 0 s: no footage before it
+Vandalism002_x264.mp4,Vandalism,train,1,60,event starts at 0 s: no footage before it
+Vandalism004_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism004_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism006_x264.mp4,Vandalism,train,1,30,event starts at 0 s: no footage before it
+Vandalism006_x264.mp4,Vandalism,train,1,60,event starts at 0 s: no footage before it
+Vandalism013_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism013_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism014_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism014_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism017_x264.mp4,Vandalism,held_out,2,30,second interval: its lead-up overlaps the first event
+Vandalism017_x264.mp4,Vandalism,held_out,2,60,second interval: its lead-up overlaps the first event
+Vandalism019_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism019_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism021_x264.mp4,Vandalism,validation,1,30,no event time
+Vandalism021_x264.mp4,Vandalism,validation,1,60,no event time
+Vandalism024_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism024_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism026_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism026_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism027_x264.mp4,Vandalism,validation,1,30,no event time
+Vandalism027_x264.mp4,Vandalism,validation,1,60,no event time
+Vandalism028_x264.mp4,Vandalism,held_out,2,30,second interval: its lead-up overlaps the first event
+Vandalism028_x264.mp4,Vandalism,held_out,2,60,second interval: its lead-up overlaps the first event
+Vandalism029_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism029_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism030_x264.mp4,Vandalism,train,1,30,event starts at 0 s: no footage before it
+Vandalism030_x264.mp4,Vandalism,train,1,60,event starts at 0 s: no footage before it
+Vandalism033_x264.mp4,Vandalism,train,1,30,event starts at 0 s: no footage before it
+Vandalism033_x264.mp4,Vandalism,train,1,60,event starts at 0 s: no footage before it
+Vandalism036_x264.mp4,Vandalism,held_out,2,30,second interval: its lead-up overlaps the first event
+Vandalism036_x264.mp4,Vandalism,held_out,2,60,second interval: its lead-up overlaps the first event
+Vandalism037_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism037_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism039_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism039_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism041_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism041_x264.mp4,Vandalism,train,1,60,no event time
+Vandalism050_x264.mp4,Vandalism,train,1,30,no event time
+Vandalism050_x264.mp4,Vandalism,train,1,60,no event time

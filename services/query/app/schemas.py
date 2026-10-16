@@ -211,3 +211,32 @@ class FrameOut(BaseModel):
     # exact note — "admission_reason is on the row and returned once a frames
     # API exists to show it." This is that API.
     admission_reason: AdmissionReason | None = None
+
+
+class DashboardSummaryOut(BaseModel):
+    """The Operations Dashboard's figures (OMNI-610), read from the rollup and small
+    tables, never from a count over `segments`."""
+
+    # Cameras whose state is `live` (GET /cameras/live), out of every camera registered.
+    cameras_online: int
+    cameras_total: int
+    videos: int
+    segments: int
+    # None until alerts exist (slice 9): no alerts is not the same as zero alerts.
+    alerts_today: int | None
+    # Video bytes plus frame and thumbnail bytes, in GB (10^9 bytes).
+    storage_gb: float
+    # How long an uploaded or recorded video is kept (VIDEO_RETENTION_DAYS); dataset
+    # footage never expires.
+    retention_days: int
+    # The oldest video that retention will delete in time; None when there is none.
+    oldest_recording_at: datetime | None
+
+
+class DashboardActivityOut(BaseModel):
+    """One hour of activity (OMNI-610): the hour's start (UTC) and the segments stored in it."""
+
+    hour: datetime
+    segments: int
+    # None until alerts exist (slice 9).
+    alerts: int | None

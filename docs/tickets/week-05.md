@@ -228,8 +228,10 @@ first, none outside the window.
 - [x] More cameras than tiles: pages, not tiny tiles
 - [x] Polling stops when the tab is hidden
 
-**Acceptance:** ten simulator cameras running, the wall shows nine at once, each updating,
-and the network tab shows mostly 304s on still scenes.
+**Acceptance:** ten simulator cameras running, the wall shows nine at once, each updating;
+304s when a feed is frozen or lost; a live feed gets a new frame on every poll by design (D-14).
+*(Reworded 2026-10-07, OMNI-602, K-12: it read "the network tab shows mostly 304s on still
+scenes".)*
 
 ---
 

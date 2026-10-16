@@ -41,6 +41,11 @@ services:
       # OMNI-503: each live camera's current frame, written by ingestion and
       # served from here with the token check (not by nginx, so K-3 does not grow).
       - preview_storage:/data/previews:ro
+      # OMNI-608: the local dataset mirror, read-only. Dataset clips are read from here
+      # and copied into video_storage by the same function as an upload.
+      - ./data:/datasets:ro
+      # D-26: which dataset clips are loaded (the hand-check sample, committed).
+      - ./datasets/hand_check:/hand_check:ro
     depends_on:
       postgres:
         condition: service_healthy

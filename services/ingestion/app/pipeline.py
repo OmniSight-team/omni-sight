@@ -91,6 +91,9 @@ class SegmentRecord:
     clip_start_s: float | None = None
     clip_end_s: float | None = None
     admission_reason: str | None = None
+    # The bytes of the frame and thumbnail JPEGs written for this frame; 0 when none
+    # were (OMNI-610: the dashboard's storage figure sums this instead of walking the disk).
+    file_bytes: int = 0
 
 
 class FrameGate:
@@ -115,6 +118,32 @@ class FrameGate:
 # spuriously dropping a fully warmed-up gate back into "warmup" for a frame
 # or two. Microseconds, tiny next to any real Δ (settings enforce Δ > 0).
 _CLOCK_EPSILON_S = 1e-6
+
+
+def _split_edges(length: int, parts: int) -> np.ndarray:
+    # np.array_split's boundaries: the first `length % parts` parts are one
+    # pixel larger, so a frame that doesn't divide the grid evenly is still
+    # covered exactly, with no strip dropped.
+    size, extra = divmod(length, parts)
+    return np.array([i * size + min(i, extra) for i in range(parts + 1)])
+
+
+def _cell_means(diff: np.ndarray, grid_size: int) -> np.ndarray:
+    """Algorithm 1 lines 4-5's cell means, the G x G grid in one array operation
+    instead of G² (OMNI-613). The same cells as np.array_split and the same
+    arithmetic as each cell's .mean(): an exact integer sum divided by the
+    cell's pixel count, so the scores are identical, not approximately equal."""
+    height, width = diff.shape
+    if height % grid_size == 0 and width % grid_size == 0:
+        sums = diff.reshape(grid_size, height // grid_size, grid_size, width // grid_size).sum(
+            axis=(1, 3), dtype=np.uint32
+        )
+        return sums / ((height // grid_size) * (width // grid_size))
+    # Uneven: corner lookups in the integral image give each cell's sum.
+    rows, cols = _split_edges(height, grid_size), _split_edges(width, grid_size)
+    corners = cv2.integral(diff)[np.ix_(rows, cols)].astype(np.int64)
+    sums = corners[1:, 1:] - corners[:-1, 1:] - corners[1:, :-1] + corners[:-1, :-1]
+    return sums / np.outer(np.diff(rows), np.diff(cols))
 
 
 class MotionGate(FrameGate):
@@ -200,15 +229,8 @@ class MotionGate(FrameGate):
         earlier = min(self._buffer, key=lambda item: abs(item[0] - target))[1]
         diff = cv2.absdiff(processed, earlier)
 
-        # Lines 4-5: np.array_split tolerates a frame whose dimensions don't
-        # divide the grid evenly (some cells end up a pixel larger) rather
-        # than assuming a resolution that happens to divide cleanly.
-        active_cells = sum(
-            1
-            for row in np.array_split(diff, self._grid_size, axis=0)
-            for cell in np.array_split(row, self._grid_size, axis=1)
-            if cell.mean() > self._cell_threshold
-        )
+        # Lines 4-5.
+        active_cells = int(np.count_nonzero(_cell_means(diff, self._grid_size) > self._cell_threshold))
 
         # Line 6.
         admitted = active_cells >= self._min_active_cells
@@ -325,12 +347,14 @@ def process_frame(
     decision = gate.evaluate(frame, source.timestamp_s)
 
     frame_path = thumb_path = None
+    file_bytes = 0
     if decision.admitted:
         name = f"{source.frame_index:06d}.jpg"
         frame_path = frames_dir / name
         thumb_path = thumbs_dir / name
         _write_jpeg(frame_path, frame, frame_quality)
         _write_jpeg(thumb_path, _thumbnail(frame, thumb_width), thumb_quality)
+        file_bytes = frame_path.stat().st_size + thumb_path.stat().st_size
 
     return SegmentRecord(
         video_id=source.video_id,
@@ -345,6 +369,7 @@ def process_frame(
         clip_start_s=decision.clip_start_s,
         clip_end_s=decision.clip_end_s,
         admission_reason=decision.admission_reason,
+        file_bytes=file_bytes,
     )
 
 
