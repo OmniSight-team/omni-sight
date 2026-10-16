@@ -58,3 +58,7 @@ Not part of the running system.
   recording, threshold counts, a camera against the simulator, the simulator killed and restored, and the worker
   restarted mid-capture (ingestion graceful and `kill -9`, the consumer stopped and killed) with a loss check
   (OMNI-319). Run in the background; it stops and starts services on purpose and puts them back.
+- `verify_slice6_dod.py` — the slice 6 definition of done, the scripted part: the dashboard and `GET /datasets`
+  against a direct count, then the last 3 sampled UCF-Crime clips deleted through the archive and loaded again
+  through `POST /datasets/{name}/load`; each must come back the same (rows, admitted frames, no retention date,
+  in the archive) with its windows pointing at it, verdicts kept, playback answering 206.

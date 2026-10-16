@@ -403,7 +403,7 @@ recorded, whichever way they go.
 - [x] Everything committed on `slice-06-dashboard-datasets` (by you)
 - [x] **You merge into `master`** (`git switch master`,
       `git merge --no-ff slice-06-dashboard-datasets`), then `uv run pytest` green on `master`
-- [ ] Slice 6 ticked on the tracker
+- [x] Slice 6 ticked on the tracker
 
 ---
 
@@ -415,8 +415,8 @@ The plan's proof, on a fresh `docker compose up -d`:
 > through the normal pipeline, appears in the archive, and its derived lead-up windows are
 > spot-checked on screen.
 
-- [ ] All of the above true on a fresh stack
-- [ ] `results.md` has: the split (with hashes), windows per dataset, the hand-check rate, the
+- [x] All of the above true on a fresh stack
+- [x] `results.md` has: the split (with hashes), windows per dataset, the hand-check rate, the
       CCD pre-event distribution and the SM-3 target, NFR-5 rechecked for live, the dashboard
       endpoints' timings
 - [ ] `datasets/splits/` and `datasets/windows/` committed and copied to Drive for Colab

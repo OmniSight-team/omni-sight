@@ -37,6 +37,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Slice 2 definition of done | The plan's demo on a wiped stack | 5 of 5 steps, 62 tests | **Pass** | 2026-09-12 | Slice 2 DoD |
 | Slices 3-4 definition of done | The plan's demo, plus a worker restart mid-capture | 44 of 44 checks, 304 tests | **Pass** | 2026-09-26 | OMNI-319 |
 | Slice 5 definition of done | The plan's demo on a fresh stack: ten cameras on the wall, enlarge and rewind, pause and come back, resume after an ingestion restart, TC-1 | 39 of 39 script checks, 387 tests; ten cameras back in 19.5-22.3 s after a restart or kill, 0 failed resumes; ten tiles live, frozen then offline then live around a pause | **Pass** (ten run; 3 sustained, D-19) | 2026-10-04 | Slice 5 DoD |
+| Slice 6 definition of done | The plan's proof on a fresh stack: the dashboard's counts accurate and live, every figure leads somewhere; a dataset loads through the normal pipeline, appears in the archive, its windows spot-checked on screen | 20 of 20 script checks (dashboard and `GET /datasets` equal to the database on the fresh stack, after the delete and after the load; 3 UCF-Crime clips deleted and reloaded through the load endpoint in 148 s, rows and admitted frames identical, windows re-linked, verdicts kept); on screen: load progress, the dashboard moving without a reload, every link followed, a reloaded clip played on its window | **Pass** (one pass) | 2026-10-16 | Slice 6 DoD |
 | Ticket target (OMNI-310) | Re-gate "in about a second" | 1.4-2.0 s on a 10 s, 30 fps clip | **Not met** | 2026-09-25 | OMNI-310 |
 
 **The machine** (stated from OMNI-316 on; earlier entries ran on the same one): Windows 11
@@ -1663,3 +1664,35 @@ minutes fail on one criterion, one feed not `live` for 2 seconds. NFR-4 stays at
 it, with more work a frame); more than one run per row; why a feed briefly reads not live with
 the machine at 229% of 800% (the D-17 steadiness rule under hiccups, not measured); another
 machine.
+
+
+## Slice 6 definition of done · 2026-10-16
+
+**Conditions:** on `master` after the slice 6 merge; `docker compose down`, then `up -d`
+(volumes kept: the 60-clip hand-check sample stays loaded, D-26). The machine as stated at
+the top. The scripted part is `scripts/verify_slice6_dod.py` (new) against the real API
+through nginx; the on-screen part in Chrome at `https://localhost`, signed in as admin by
+Ahmad. One pass.
+
+| Step | How | Result |
+|---|---|---|
+| Suite on `master` | `uv run pytest` | 469 passed, 1 failed (K-14, `75 == 76`; 5 of 5 alone after), 1 skipped |
+| Dashboard accurate, fresh | script: `GET /dashboard/summary` against a direct count | equal: 60 videos, 146,807 segments, 31,715 admitted, 2.035 GB, 0 cameras |
+| Datasets accurate, fresh | script: `GET /datasets` against the database | equal: CCD 30 / 30, 4,500 windows, 30 checked, 30 verified; UCF-Crime 30 / 30, 3,260, 30, 23 |
+| Delete through the archive | script: `DELETE /videos/{id}` for the last 3 sampled UCF-Crime clips (`Stealing043`, `Vandalism007`, `Vandalism034`) | 200 each; dashboard equal to a direct count again (57 videos, 139,092 segments, 1.957 GB); UCF-Crime 27 / 30, partial |
+| Load through the normal pipeline | script: `POST /datasets/ucf_crime/load` (limit 3), poll `GET /datasets` | 202, 3 queued; done in **148 s**, 30 / 30, 0 failed |
+| The clips back as before | script, per clip | new video rows (3223-3225), `ready`, `source = dataset`, no retention date, in `GET /videos?source=dataset`; rows 4,813 / 1,146 / 1,756 and admitted 1,032 / 187 / 588, **identical** to before the delete |
+| Their windows | script, per sampled window | each points at the new video, verdict kept (Wrong / Correct / Correct), playback file 206 on a range request |
+| Dashboard accurate after | script | equal again: 60, 146,807, 31,715, 2.035 GB; both datasets 30 / 30 |
+| Load progress on screen | Datasets screen during the load | UCF-Crime "Loading", 27 / 30, "0 of 3 queued clips done", both Load buttons disabled ("A load is running") |
+| Dashboard live | dashboard open during the load, read twice 30 s apart, same document | 2:49:12 PM: 59 videos, 143,975 segments, 58 / 60; 2:49:42 PM: 60, 145,651, 59 / 60; 2:50:42 PM: 60, 146,807, 2.04 GB, 60 / 60 (equal to the database) |
+| Every figure leads somewhere | the dashboard's links | cameras → `/live`; footage, segments, storage, activity → `/videos`; datasets → `/datasets`; clicked: dashboard → Datasets → UCF-Crime's Windows (`/windows?dataset=ucf_crime`) → `Vandalism007` |
+| Windows spot-checked on screen | `/windows/10961` | the reloaded clip (new playback file, 38.2 s) loads and plays (0 → 2.9 s in 3 s); "shortened" window 0.0-8.0 s of 30 s; verdict Correct by the admin, 2026-10-10, kept |
+| In the archive | Video Archive | the three clips listed, Ready, linking to `/videos/3223`-`3225` |
+
+**Result: the definition of done holds on a fresh stack** (preliminary: one machine, one
+pass). The load progress bar, not seen on screen in OMNI-612, was seen here.
+
+**Not covered:** a wiped stack (`down -v`; the 36-minute reload of the sample was not
+redone); a CCD load (done in OMNI-612); the "Play window" button (the video was played from
+the page's own element); a second browser; an analyst's or operator's view.

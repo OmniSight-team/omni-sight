@@ -951,3 +951,47 @@ The slice closes with its pipeline drawn, its docs current and the branch merged
 ### Result
 
 Slice 6's pipeline is drawn and the docs are current. Commit, merge and tracker are with Ahmad.
+
+---
+
+## Slice 6 definition of done, on a fresh stack
+
+2026-10-16, on `master` after the merge. Not a ticket of its own: the sprint's definition of
+done, asked for by Ahmad. Numbers in `results.md` (Slice 6 definition of done).
+
+### What was done
+
+- **`uv run pytest` on `master`** after the merge: 469 passed, 1 failed, 1 skipped. The failure
+  was K-14's intermittent reconnection test (`75 == 76`); it passed 5 of 5 alone straight after.
+  Recorded in K-14
+- **`docker compose down`, then `up -d`,** volumes kept, as for slice 5. Wiping them
+  (`down -v`) would also wipe the sample, a 36-minute reload, and the proof asks for a dataset
+  loading, which a small reload shows
+- **`scripts/verify_slice6_dod.py` (new):** the dashboard and `GET /datasets` against the
+  database; then the last 3 sampled UCF-Crime clips deleted through the archive's own
+  `DELETE /videos/{id}` and loaded again through `POST /datasets/ucf_crime/load`; each clip
+  checked back as before and its sampled windows re-linked. UCF-Crime this time, because
+  OMNI-612 reloaded CCD. 20 of 20
+- **On screen** (Chrome, Ahmad signed in): the Datasets screen mid-load, the dashboard moving
+  without a reload and then equal to the database, every figure's link, dashboard → Datasets →
+  UCF-Crime's Windows → a reloaded clip's check screen, the clip playing there, and the three
+  clips in the archive
+
+### Verification performed
+
+- The 20 script checks and the screen checks above; the admitted counts after the reload
+  identical to before the delete (1,032 / 187 / 588), so the gate gave the same result on the
+  same footage
+- No camera, worker or throwaway user left; the tab closed
+
+### Not verified
+
+- A wiped stack (`down -v`) and the full 60-clip reload
+- The check screen's "Play window" button (the video element was played directly)
+- `datasets/splits/` and `datasets/windows/` on Drive for Colab (Ahmad's step)
+
+### Result
+
+The definition of done holds on a fresh stack: the dashboard's counts are exact and update
+live, every figure leads to its screen, a dataset reloads through the upload path and shows up
+in the archive, and its windows are checked on screen with their verdicts kept.
