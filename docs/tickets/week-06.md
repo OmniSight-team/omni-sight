@@ -400,8 +400,8 @@ recorded, whichever way they go.
 - [x] `results.md` scoreboard: NFR-5 (live), SM-3 target, the split, windows, hand check,
       dashboard; `decisions.md` and `known-issues.md` current
 - [x] `uv run pytest` green
-- [ ] Everything committed on `slice-06-dashboard-datasets` (by you)
-- [ ] **You merge into `master`** (`git switch master`,
+- [x] Everything committed on `slice-06-dashboard-datasets` (by you)
+- [x] **You merge into `master`** (`git switch master`,
       `git merge --no-ff slice-06-dashboard-datasets`), then `uv run pytest` green on `master`
 - [ ] Slice 6 ticked on the tracker
 
@@ -420,7 +420,7 @@ The plan's proof, on a fresh `docker compose up -d`:
       CCD pre-event distribution and the SM-3 target, NFR-5 rechecked for live, the dashboard
       endpoints' timings
 - [ ] `datasets/splits/` and `datasets/windows/` committed and copied to Drive for Colab
-- [ ] Merged into `master`
+- [x] Merged into `master`
 
 ---
 

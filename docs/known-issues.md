@@ -145,6 +145,9 @@ and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with
 and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
 them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
 K-14 test above is the intermittent one.
+**2026-10-16 (slice 6 merge):** it failed again in the full run on `master` after the merge,
+`assert 75 == 76`, one below as described: 469 passed, 1 failed, 1 skipped. Passed 5 of 5
+alone straight after. Second failure in about two weeks of full runs; still not fixed.
 
 ## K-21 · Files on disk that no row accounts for
 
