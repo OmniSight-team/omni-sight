@@ -378,13 +378,13 @@ the 8x8 grid's cell means in one array operation instead of 64 — **the same ar
 Algorithm 1 unchanged, less Python per frame. The revision is far easier to defend once the
 cheap optimisation has been tried.
 
-- [ ] Cell means in one NumPy operation (reshape and mean, or `cv2.resize` with `INTER_AREA`
+- [x] Cell means in one NumPy operation (reshape and mean, or `cv2.resize` with `INTER_AREA`
       to G x G when the frame divides evenly); a test that the scores are **identical** to the
       current implementation on recorded frames
-- [ ] `scripts/frame_cost.py` before and after, 1280x720 and 320x240
-- [ ] Rerun the NFR-4 ladder with the same definition of sustained (OMNI-509), wall visible,
+- [x] `scripts/frame_cost.py` before and after, 1280x720 and 320x240
+- [x] Rerun the NFR-4 ladder with the same definition of sustained (OMNI-509), wall visible,
       10-minute confirmations
-- [ ] If more feeds are sustained, update D-19's number and the scoreboard; if not, record that
+- [x] If more feeds are sustained, update D-19's number and the scoreboard; if not, record that
       it was tried and what it changed
 
 **Acceptance:** the per-frame cost and the sustained number are measured after the change and

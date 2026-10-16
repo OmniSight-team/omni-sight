@@ -411,3 +411,63 @@ def test_a_ccd_clip_and_a_ucf_crime_shaped_clip_both_produce_scored_frames(tmp_p
         )
         scored = [r for r in records if r.motion_score is not None]
         assert scored, f"{path.name} produced no scored frames at all"
+
+
+
+# ---------------------------------------------------------------------------
+# OMNI-613: the grid in one array operation gives the same scores as the loop
+# ---------------------------------------------------------------------------
+
+
+def _loop_cell_means(diff: np.ndarray, grid_size: int) -> np.ndarray:
+    """The implementation before OMNI-613, kept as the reference: G² cells
+    from np.array_split, each one's .mean()."""
+    return np.array(
+        [
+            cell.mean()
+            for row in np.array_split(diff, grid_size, axis=0)
+            for cell in np.array_split(row, grid_size, axis=1)
+        ]
+    ).reshape(grid_size, grid_size)
+
+
+@pytest.mark.parametrize(
+    "shape, grid_size", [((720, 1280), 8), ((360, 640), 8), ((240, 320), 8), ((203, 331), 8), ((7, 13), 4)]
+)
+def test_cell_means_are_identical_to_the_loop_on_even_and_uneven_frames(shape, grid_size):
+    rng = np.random.default_rng(613)
+    for _ in range(20):
+        diff = rng.integers(0, 256, shape, dtype=np.uint8)
+        assert np.array_equal(pipeline._cell_means(diff, grid_size), _loop_cell_means(diff, grid_size))
+
+
+_RECORDED_CLIPS = sorted((Path(__file__).resolve().parents[3] / "infra" / "mediamtx" / "clips" / "real").glob("*.mp4"))
+
+
+@pytest.mark.skipif(not _RECORDED_CLIPS, reason="the simulator's recorded clips are not on disk (never committed)")
+@pytest.mark.parametrize("clip", _RECORDED_CLIPS, ids=lambda p: p.name[:6])
+def test_scores_on_recorded_frames_are_identical_to_the_loop(clip, monkeypatch):
+    """Every frame of the first 300 of each simulator clip (VIRAT 1280x720,
+    UCF-Crime 320x240) through the gate with the defaults main.py wires, once
+    with the one-operation grid and once with the loop: the same score on
+    every frame, and the same admissions."""
+    capture = cv2.VideoCapture(str(clip))
+    fps = capture.get(cv2.CAP_PROP_FPS)
+    frames = []
+    while len(frames) < 300:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        frames.append(frame)
+    capture.release()
+
+    def scores():
+        gate = pipeline.MotionGate(grid_size=8, cell_threshold=25.0, min_active_cells=3, stride_s=0.5, blur_kernel=21)
+        return [(d.motion_score, d.admitted) for d in (gate.evaluate(f, i / fps) for i, f in enumerate(frames))]
+
+    vectorised = scores()
+    monkeypatch.setattr(pipeline, "_cell_means", _loop_cell_means)
+    looped = scores()
+
+    assert len(vectorised) == len(frames) > 2 * 0.5 * fps
+    assert vectorised == looped

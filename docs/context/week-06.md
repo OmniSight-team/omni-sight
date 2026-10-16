@@ -833,3 +833,77 @@ The Datasets screen shows each dataset's clips, status, windows derived, checked
 lets an admin load clips with progress, and links to each dataset's windows and from there to
 each window's check. Read under D-26, a 10-clip CCD load from the screen moved the screen's
 count and the dashboard on the real stack.
+
+---
+
+## OMNI-613 · The motion grid in one array operation, and NFR-4 again
+
+### Why this ticket exists
+
+NFR-4 was revised from 10 feeds to 3 (D-19) with one software candidate from K-2 never tried:
+computing the 8x8 grid's cell means in one array operation instead of 64. The same arithmetic,
+Algorithm 1 unchanged, less Python per frame. The revision is easier to defend once it is tried.
+
+### What was done
+
+2026-10-16.
+
+- **`_cell_means` in `services/ingestion/app/pipeline.py`:** lines 4-5 of Algorithm 1 now take
+  the G x G cell means in one operation: a reshape and an integer sum (`uint32`) when the frame
+  divides the grid evenly (every simulator clip does), an integral image (`cv2.integral`) with
+  np.array_split's exact cell boundaries otherwise. Exact integer sums over pixel counts, so
+  the means are bit-for-bit those of each cell's `.mean()`, not approximately equal
+- **Why not `cv2.resize(INTER_AREA)`,** which the ticket offered: it rounds in floating point,
+  so "identical" could not be promised. A first `np.add.reduceat` version was exact but slower
+  than the loop in HD (2.4 ms against 1.1 ms in a microbenchmark), so it was dropped
+- **Tests (`test_motion_gate.py`):** the old loop kept in the test as the reference; random
+  frames at five sizes, three uneven, equal cell means; and the first 300 frames of each of the
+  ten simulator clips through the gate both ways, the same score and admission on every frame
+  (skipped when the clips are not on disk; they are never committed)
+- **`frame_cost.py` before and after:** HEAD's `pipeline.py` copied into the ingestion
+  container beside the new one, the two alternated, 3 runs each, 900 frames, on `real01`
+  (1280x720) and `real04` (320x240). The script itself is unchanged
+- **The NFR-4 ladder** with the wall open at 4x4 in Chrome (Ahmad signed in), an in-page
+  recorder logging visibility, layout, each tile's badge and every preview request each second.
+  3 minutes at 4, 5, 6 feeds; 10 minutes at 5, then at 4
+- **D-19 and K-2** got a dated note: tried, the number stays 3
+
+### Things that went wrong on the way
+
+- **The recorder's first version read the layout and badges wrong** (a regex on the page
+  text, and badge spans with a child dot). Fixed about 40 s into the first 4-feed window; that
+  window's visibility was recorded throughout, the tiles were seen live on a screenshot
+- **The first 4-feed 10-minute run was killed by Claude Code at about 300 s,** for low memory on
+  the host, before its verdict and its cleanup. Four workers kept capturing. I stopped them
+  through ingestion's `POST /workers/stop` and deleted the cameras, their 7,909 segments, stats,
+  frame folders and the throwaway user by hand (the first delete hit a frame still in flight
+  and rolled back; the retry went through). Rerun after Ahmad agreed
+- `docker compose exec` from Git Bash rewrote `/workspace/...` again; PowerShell for those calls
+
+### Verification performed
+
+- `test_motion_gate.py`: 31 passed, including the ten recorded clips
+- `frame_cost.py`: gate + files 9.1-9.3 → 7.0-7.5 ms a frame in HD, 3.4-3.6 → 2.0-2.3 ms in SD
+  (one outlier "before" run at 17.8 ms)
+- NFR-4, wall visible at every sample: 4 and 5 feeds sustained over 3 minutes, 6 not (4
+  dropped); over 10 minutes 5 not (no drops, 2-4 s not live on three feeds) and 4 not (no
+  drops, worst 0.82 s, `cam01` 2 s not live). Numbers in `results.md`
+- After the last run: no `nfr4-` camera, segment or throwaway user. Ingestion still listed the
+  killed run's four cameras as `failed` workers: query had resumed them after I stopped them
+  (D-15), and they failed writing once their folders were gone. Not capturing; stopped, list empty
+- Full `uv run pytest`: 470 passed, 1 skipped
+
+### Not verified
+
+- 3 feeds over 10 minutes with the change (D-19's 3 was measured with the costlier grid)
+- More than one run per configuration; another machine
+- Why a feed briefly reads not live with the machine at 229% of 800%
+- Why SD decode read slower in every "after" run (the change does not touch decoding)
+
+### Result
+
+The grid is cheaper, the scores are identical, and the machine has more headroom at the same
+load: 4 feeds over 10 minutes drop nothing at 90% of a core in ingestion (149% before), and 5
+feeds hold for 3 minutes. The sustained number does not move: 4 feeds over 10 minutes fail on
+one feed being not live for 2 seconds. NFR-4 stays at 3 per machine (D-19); every software
+candidate in K-2 has now been tried.

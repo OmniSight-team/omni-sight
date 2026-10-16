@@ -320,6 +320,10 @@ consumer commits (unmeasured); a separate live queue (K-1); services off the one
 3 minutes, not 10. NFR-4 now reads 3 live feeds per machine of this class (D-19). The
 vectorised grid was not tried; it could raise the number, and stays a candidate.
 
+**2026-10-16 (OMNI-613):** the vectorised grid tried: identical scores, the gate 1.4-1.8 ms a
+frame cheaper, 4 feeds over 10 minutes with no frame dropped, but one feed 2 s not `live`, so
+still 3 sustained (`results.md`, OMNI-613). No software candidate is left untried.
+
 ### K-11 · The restart loss check no longer fitted live rows · fixed 2026-10-07
 
 **Was:** `scripts/verify_definition_of_done.py` (OMNI-319) counted a gap in a session's frame

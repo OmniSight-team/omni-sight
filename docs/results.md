@@ -24,7 +24,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-9, enlarge and rewind (no Phase A target) | Open a camera, rewind, step through what led up to motion | `cam05` in full screen, polled every 0.5 s; Rewind: 331 frames, motion and heartbeat told apart; stepped back through heartbeat frames to the motion | **Pass** (one run) | 2026-10-02 | OMNI-508 |
 | FR-9, layouts and pins (no Phase A target) | Choose 4x4, pin a camera top-left, reload: both kept | Kept after a reload; the pin held when a camera was added and removed; blocked or broken storage falls back to 3x3 with no pins | **Pass** (one pass) | 2026-10-04 | OMNI-512 |
 | TC-1 | Live camera and uploaded file together: both decode, only motion (or heartbeat) forwarded, the camera live on the wall throughout | 2 runs, 15 of 15 checks each: file 1,930 of 1,930, 356 admitted, 0 violations; live counters exact, every stored row admitted; camera live at every sample | **Pass, complete** | 2026-09-26, 2026-10-03 | OMNI-316, OMNI-511 |
-| NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min. 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03 | OMNI-509, OMNI-510a, NFR-4 revision |
+| NFR-4 (revised, D-19) | 3 live feeds per machine of this class, sustained over 10 min (Phase A: 10) | 3 realistic feeds, wall open, 10 min: 0 dropped, worst 0.17 s, always live. 4: not over 10 min, before and after the one-operation grid (after: 0 dropped, one feed 2 s not live). 10: not (OMNI-509, OMNI-510a) | **Pass** against the revised target (preliminary, one machine) | 2026-10-03, 2026-10-16 | OMNI-509, OMNI-510a, NFR-4 revision, OMNI-613 |
 | SM-3 | **mTTA ≥ 1.80 s** on CCD's held-out crash clips (D-2, rule D-23: half the held-out median pre-event footage, 3.60 s) | - | **Not measured yet** (no model before slice 10) | 2026-10-08 (target) | OMNI-606 |
 | UCF-Crime training event times (data for SM-2, SM-4; no Phase A target) | Every event time from an annotation, none guessed | 594 of 810 training anomalies timed from UCA by a written rule (6 not in UCA, 210 no match); against the official start on 110 test anomalies: median 3.0 s, mean 11.3 s apart, 34% within 1 s | **Measured** (D-21) | 2026-10-07 | OMNI-603 |
 | Train / validation / held-out split (data for SM-2, SM-3, SM-4; no Phase A target) | Fixed once, before any window; rebuilds byte-identical | UCF-Crime 1,368 / 242 / 290 (held-out = official test); CCD 3,132 / 675 / 693, no source video on two sides; VIRAT 275 evaluation; seed 605, SHA-256 recorded | **Fixed** (D-22) | 2026-10-08 | OMNI-605 |
@@ -1602,3 +1602,64 @@ from the screen (Ahmad clicked Load, limit 10).
 2 s polls are in the query log); an analyst's or operator's view (no Load control); a load
 that fails or is refused, seen on screen; nginx
 (`https://localhost`).
+
+
+## OMNI-613 · The motion grid in one array operation: frame cost and NFR-4 again (preliminary) · 2026-10-16
+
+**The change:** Algorithm 1's lines 4-5 compute the 8x8 grid's 64 cell means in one array
+operation (`_cell_means` in `services/ingestion/app/pipeline.py`: a reshape and an integer sum
+when the frame divides the grid evenly, an integral image otherwise) instead of 64
+`np.array_split` slices and 64 `.mean()` calls. The same cells, the same arithmetic (exact
+integer sum over pixel count); every frame still gated, Algorithm 1 unchanged.
+
+**Scores identical:** `test_motion_gate.py`, the first 300 frames of each of the ten simulator
+clips (VIRAT 1280x720, UCF-Crime 320x240) through the gate with the defaults (G 8, τ 25, k 3,
+Δ 0.5 s, blur 21), once each way: the same score and the same admission on every frame; 100
+random frames at five sizes, three of them uneven, with the cell means bit-for-bit equal.
+
+**Frame cost** (`scripts/frame_cost.py`, in the ingestion container, no camera capturing, 900
+frames, before and after alternated, 3 runs each; "before" is HEAD's `pipeline.py` copied
+into the container beside the new one):
+
+| Clip | Gate + files, before | Gate + files, after | Total a frame, before | Total, after | Of a core, before → after |
+|---|---|---|---|---|---|
+| `real01` VIRAT, 1280x720, 23.97 fps | 9.32 / 17.78 / 9.13 ms | 7.46 / 6.96 / 7.43 ms | 11.97 / 23.17 / 11.72 ms | 10.59 / 9.80 / 10.46 ms | 0.28-0.29 → 0.24-0.25 |
+| `real04` UCF-Crime, 320x240, 30 fps | 3.56 / 3.42 / 3.37 ms | 2.03 / 1.99 / 2.28 ms | 4.51 / 4.36 / 4.25 ms | 3.49 / 3.41 / 3.84 ms | 0.13-0.14 → 0.10-0.12 |
+
+The gate's own step is about 1.8 ms cheaper a frame in HD (20%) and 1.4 ms in SD (40%). Run 2's
+HD "before" (17.78 ms) is an outlier: every step was slower in it, decode too. SD decode read
+0.79-0.86 ms before and 1.31-1.43 ms after in every pair, though the change does not touch
+decoding; not explained. These numbers are lower than OMNI-509's (15.2 / 4.2 ms in all), taken
+on another day; only the before/after pairs here are compared.
+
+**NFR-4 ladder** (`scripts/measure_nfr4.py`, the definition of sustained unchanged from
+OMNI-509; the realistic mix `--paths 4,1,5,6,2,7,8,3,9,10`; D-18 and D-20 as before; the wall
+open at 4x4 in Chrome, visible at every recorded sample, with an in-page recorder of
+visibility, layout, tile badges and preview requests; one run per row):
+
+| Feeds | Window | Dropped per feed | Worst latency | Not live (API, per feed) | Ingestion / all containers | Sustained | Before (D-19 ladder) |
+|---|---|---|---|---|---|---|---|
+| 4 | 180 s | 0 | 1.11 s | none | 98% / 252% | yes | yes, 155% / 344% |
+| 5 | 180 s | 0 | 0.47 s | none | 149% / 303% | **yes** | no |
+| 6 | 180 s | 0-4 (`cam05`) | 1.15 s | `cam05` 2 samples | 192% / 387% | no | no, 0-256 dropped, 7.62 s |
+| 5 | **600 s** | 0 | 0.38 s | `cam01` 2, `cam05` 4, `cam02` 3 of 603 | 145% / 301% | **no** | not run |
+| 4 | **600 s** | **0** | 0.82 s | `cam01` 2 of 601 | 90% / 229% | **no** | no, 0/0/8/0 dropped, 1-4 samples every feed, 149% / 331% |
+
+The wall in the same windows: one preview request a second per tile (2,400 in the 4-feed 10-minute
+run, 2,379 200 and 21 304, p50 38 ms, p95 85 ms); tiles not `Live` on screen: 5 feeds over 3
+minutes `cam02` Frozen 2 s; 6 feeds `cam05` 2 s; 5 feeds over 10 minutes `cam05` 6 s and
+`cam01` 2 s; 4 feeds over 10 minutes `cam05` 2 s. The first 4-feed run's first ~40 s of the
+window has no tile or layout record (the recorder was being fixed); visibility was recorded
+throughout. A first 4-feed 10-minute run was killed by the host at about 300 s for low memory,
+before its verdict; its leftovers were removed by hand and it was rerun (the row above).
+Live queue 0 (peak 1) and file queue 0 in every run; no run dropped a frame except 6 feeds.
+
+**Result:** the grid costs less, and the machine has more headroom at the same load (4 feeds:
+ingestion 90-98% instead of 149-155%; no frame dropped over 10 minutes where 8 were before; 5
+feeds now hold for 3 minutes). **The sustained number does not change:** 4 feeds over 10
+minutes fail on one criterion, one feed not `live` for 2 seconds. NFR-4 stays at 3 (D-19).
+
+**Not covered:** 3 feeds over 10 minutes rerun with the change (D-19's 3 was measured before
+it, with more work a frame); more than one run per row; why a feed briefly reads not live with
+the machine at 229% of 800% (the D-17 steadiness rule under hiccups, not measured); another
+machine.

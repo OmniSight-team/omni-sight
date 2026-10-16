@@ -340,6 +340,14 @@ feed, from hiccups on a machine at 331%); 3 mixed feeds sustained over 10 minute
 worst 166 ms, always `live`). The 10-minute run decides. Phase A's 10, the measurements and
 this revision all go in the Phase B book.
 
+**2026-10-16 (OMNI-613): the one-operation grid tried; the number stays 3.** The cell means
+computed in one array operation (identical scores, Algorithm 1 unchanged) make the gate's step
+1.4-1.8 ms a frame cheaper. With the wall open, 5 feeds now hold for 3 minutes (they did not),
+and 4 feeds over 10 minutes drop nothing at 229% (8 dropped at 331% before), but one feed read
+not `live` for 2 seconds, so 4 is still not sustained under the unchanged definition; 5 over
+10 minutes fails the same way. `results.md`, OMNI-613. Every software candidate in K-2 has now
+been tried; what is left is hardware.
+
 ## D-20 · The live worker's buffer holds about 2 s of frames · 2026-10-03
 
 **Why:** the bounded queue between a camera's capture and its gate (OMNI-314) held 10 frames,
