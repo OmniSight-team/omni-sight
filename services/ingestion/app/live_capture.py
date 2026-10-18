@@ -516,8 +516,10 @@ class LiveWorker:
         """Read the stream until it is lost (raising CaptureError) or the worker
         is stopped (returning). Every decoded frame goes on the bounded queue, or
         is dropped if the queue is full; nothing here ever waits for the
-        pipeline."""
-        while not self._stop.is_set():
+        pipeline. The frame `_open_stream` already read is taken even if the
+        worker was stopped since: it was delivered, so it is counted and gated
+        like any other (K-14)."""
+        while self._pending_grab or not self._stop.is_set():
             if self._pending_grab:
                 self._pending_grab = False  # the frame `_open_stream` already read
             elif not capture.grab():

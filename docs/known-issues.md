@@ -13,7 +13,6 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
 | K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | Before the demo (moved 2026-10-04: not dealt with in slice 5) |
-| K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
 | K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
@@ -127,28 +126,6 @@ from when the late frames *arrived*, not from when they were captured, so it und
 old the picture is. Both are the second fix candidate above (stamp frames by the stream's own
 time, or treat a worker that is not receiving for a read timeout as lost).
 
-## K-14 · A live capture test fails now and then
-
-`test_no_frame_is_lost_or_counted_twice_across_a_reconnection` failed once in a full run
-(2026-10-02) and passed 15 times alone and in four full ingestion runs. Likely cause, read
-from the code, not reproduced: `_open_stream` grabs a frame to prove the stream works and
-leaves it pending; if the worker is stopped before the read loop counts it, `grabbed` ends
-one below what the stream delivered, which is what the test compares. The frame is a
-fraction of a second's worth at a moment the camera is being stopped anyway.
-**Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
-**2026-10-09 (OMNI-608):** two other tests in the same file failed once in a full run,
-`test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
-`test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
-summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
-**Corrected 2026-10-10 (OMNI-609): not timing.** They failed in every full run since OMNI-608
-and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with the ini file,
-and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
-them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
-K-14 test above is the intermittent one.
-**2026-10-16 (slice 6 merge):** it failed again in the full run on `master` after the merge,
-`assert 75 == 76`, one below as described: 469 passed, 1 failed, 1 skipped. Passed 5 of 5
-alone straight after. Second failure in about two weeks of full runs; still not fixed.
-
 ## K-21 · Files on disk that no row accounts for
 
 2026-10-11, during OMNI-610. `storage_gb` sums the videos' `size_bytes` and the frame bytes
@@ -235,6 +212,54 @@ the resume started all ten at once both times, 0 failed attempts, all `live` aga
 | K-11 | The restart loss check read index gaps as lost frames, and waited for the wrong queue | NFR-5 (the mid-capture check) | OMNI-501 | OMNI-601, 2026-10-07 |
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" could not hold | OMNI-506 acceptance | OMNI-503 | Fixed (reworded): OMNI-602, 2026-10-07 |
 | K-18 | `uv run pytest` deleted every video in the dev database | Loaded datasets (OMNI-608) | OMNI-608 | OMNI-608, 2026-10-09 |
+| K-14 | A live capture test failed now and then: the frame read on reconnecting was lost if the worker stopped at that instant | Test suite reliability | OMNI-504 | OMNI-701, 2026-10-18 |
+| K-22 | The tampered-token test changed a base64 padding bit, so 1 run in 16 it sent a valid token | TC-10's test, suite reliability | OMNI-701 | OMNI-701, 2026-10-18 |
+
+### K-22 · The tampered-token test passed a valid token 1 time in 16 · fixed 2026-10-18
+
+Found in OMNI-701's repeated full runs: run 4 of 5 failed all five
+`test_tc10_auth.py::test_tampered_token_returns_401` cases (200 instead of 401). The test
+"tampered" a token by changing its last character to `A` (or `B` if it was `A`). An HS256
+signature is 32 bytes, 43 base64url characters; the last one carries 2 unused bits, so a
+token ending in `A` changed to `B` decodes to the same signature and is still valid. Checked
+with PyJWT: 128 of 2,000 tokens ended in `A`, and every one stayed valid after the swap
+(about 1 in 16). The token is module-scoped, so all five routes failed together. A test bug,
+not an auth hole: the token really was not tampered.
+**Fix (OMNI-701):** change a character in the middle of the signature (20 characters in),
+which always changes the decoded bytes.
+**Result:** `test_tc10_auth.py` 23 passed; full suite 5 runs in a row, all green.
+
+### K-14 · A live capture test failed now and then · fixed 2026-10-18
+
+`test_no_frame_is_lost_or_counted_twice_across_a_reconnection` failed once in a full run
+(2026-10-02) and passed 15 times alone and in four full ingestion runs. Likely cause, read
+from the code, not reproduced: `_open_stream` grabs a frame to prove the stream works and
+leaves it pending; if the worker is stopped before the read loop counts it, `grabbed` ends
+one below what the stream delivered, which is what the test compares. The frame is a
+fraction of a second's worth at a moment the camera is being stopped anyway.
+**Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
+**2026-10-09 (OMNI-608):** two other tests in the same file failed once in a full run,
+`test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
+`test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
+summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
+**Corrected 2026-10-10 (OMNI-609): not timing.** They failed in every full run since OMNI-608
+and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with the ini file,
+and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
+them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
+K-14 test above is the intermittent one.
+**2026-10-16 (slice 6 merge):** it failed again in the full run on `master` after the merge,
+`assert 75 == 76`, one below as described: 469 passed, 1 failed, 1 skipped. Passed 5 of 5
+alone straight after. Second failure in about two weeks of full runs; still not fixed.
+**Fix (OMNI-701, 2026-10-18):** the cause was the one read from the code, but the fix
+candidate was not enough. Counting the proving frame in `grabbed` where `_open_stream` reads
+it moves the failure instead of removing it: the frame is then counted but never decoded,
+offered or gated, so `captured` ends one below `grabbed` (tried: `assert 10 == 11` on
+`captured`). The frame is lost either way. The fix is in `_read_until_lost`: the loop runs
+while a proving frame is pending **or** the worker is not stopped, so that frame is always
+taken, counted, decoded and queued; the processing thread already drains the queue on a stop.
+**Result:** a new test stops the worker inside the reconnection's proving grab: it failed 3 of
+3 before the fix (`assert 10 == 11`, one below, K-14's shape) and passes after. Full suite 5
+runs in a row, 471 passed, 1 skipped each (after K-22's fix too, found in the same runs).
 
 ### K-18 · The test suite deleted every video in the dev database · fixed 2026-10-09
 

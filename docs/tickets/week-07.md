@@ -113,10 +113,10 @@ One working search path beats partial coverage of every source.*
 **Why:** it failed again on `master` after the slice 6 merge (`assert 75 == 76`). A suite that
 fails now and then stops being believed.
 
-- [ ] Count the frame `_open_stream` grabs to prove the stream in `grabbed` where it is
+- [x] Count the frame `_open_stream` grabs to prove the stream in `grabbed` where it is
       grabbed (K-14's fix candidate), or show from the code why that is wrong
-- [ ] A test that reproduces it deterministically: stop the worker right after the stream opens
-- [ ] Full suite 5 times in a row, all green; K-14 → *Fixed*
+- [x] A test that reproduces it deterministically: stop the worker right after the stream opens
+- [x] Full suite 5 times in a row, all green; K-14 → *Fixed*
 
 **Acceptance:** the reproducing test fails before the fix and passes after; 5 green full runs.
 
