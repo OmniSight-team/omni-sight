@@ -85,6 +85,8 @@ class Settings(CommonSettings):
     datasets_path: str = "/datasets"
     # OMNI-608, D-26: the committed hand-check sample, the only dataset clips loaded.
     hand_check_sample_path: str = "/hand_check/sample.csv"
+    # OMNI-702: the committed VIRAT demo sample (one video per loadable scene), to search.
+    demo_sample_path: str = "/demo/virat_sample.csv"
 
     # ge=1: the slice-16 retention job deletes footage past this date, so a
     # zero or negative value would mark every new upload as already expired.

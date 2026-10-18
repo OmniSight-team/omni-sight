@@ -110,3 +110,75 @@ K-14 fixed: the proving frame is no longer lost on a stop, and a test pins it. K
 candidate was shown not to fix it. K-22 found and fixed. 5 green full runs in a row.
 
 ---
+
+## OMNI-702 · A VIRAT sample in the product, to search
+
+### Why this ticket exists
+
+D-26 kept the product to the 60 hand-check clips, none of them VIRAT. Search needs real
+surveillance footage with people and vehicles to be demonstrated at all, and VIRAT is
+Phase A's search dataset.
+
+### What was done
+
+2026-10-18, on `slice-07-search`.
+
+- **The draw** (`omnisight_common.datasets.demo`, `scripts/build_virat_demo_sample.py`):
+  one video per scene from the 275 VIRAT videos with events, seed 702, inputs sorted, into
+  `datasets/demo/virat_sample.csv` (the hand-check sample's columns, so the same code reads
+  both). The VIRAT loader runs on the local listing and annotations; no database
+- **The conflict, raised before loading:** the first draw (not committed) picked 1,456 MB
+  and 1,111 MB videos for scenes 0000 and 0001. Every video in those two scenes is over the
+  500 MB upload limit (642-1,608 MB, 9,075-29,580 frames), and would also run far past the
+  900 s extraction timeout. "11 from 11 scenes" could not pass without raising the product's
+  limits, which D-25 tried and reverted. **Ahmad chose 9 scenes:** only videos under the
+  limit are eligible (sizes from OMNI-608's probe of Drive, `data/omni608_estimate.csv`), and
+  the sample was redrawn. The rule changes the rng sequence, so the other scenes' picks
+  differ from the first draw. 9 videos, 1,120.6 MB, 23,057 frames, the largest 490.6 MB
+- **D-26 amended** in `decisions.md`: the VIRAT demo sample, the 9-scene rule and why the
+  limits stay; index row updated
+- **The load path:** `virat` added to `DOMAINS` (surveillance) in
+  `services/query/app/datasets.py`; `sample_keys("virat")` reads the demo sample
+  (`demo_sample_path`, new setting), every other dataset the hand-check sample.
+  `docker-compose.yml` mounts `./datasets/demo:/demo:ro` into `query`.
+  `scripts/copy_dataset_subsets.py` copies both samples' files.
+  `scripts/run_dataset_load.py` takes dataset names as arguments (default unchanged)
+- **Drive:** Google Drive for desktop was not running (no `GoogleDriveFS` process, no `G:`);
+  started it from here once Ahmad had tried, `G:` appeared in 10 s. Copied the 9 files (96 s,
+  sizes equal to Drive)
+- **The load:** `scripts/run_dataset_load.py virat` through nginx: 9 of 9 `ready`, 0 failed,
+  13 min 37 s. Numbers in `results.md` (OMNI-702)
+- **Found, not fixed (K-23):** the gate kept 949 of 23,057 frames (4.1%), 701 of them
+  heartbeats; 4 of the 9 videos kept no frame for motion and a fifth kept 3, though all have
+  annotated events. Search on them sees about a frame a second. Outside the ticket; it
+  matters for FR-4 and SM-1, so it goes to slice 8, before SM-1
+
+### Verification performed
+
+- `uv run python scripts/build_virat_demo_sample.py` writes the file; run again it finds the
+  same bytes. `test_virat_demo_sample.py` (3 tests): the redraw equals the committed file;
+  9 distinct scenes, each pick under the limit, the two left-out scenes have nothing under
+  it; a video over the limit or of unknown size is never drawn
+- `test_dataset_load.py`: a new test, `sample_keys("virat")` gives 9 keys from 9 scenes, the
+  test dataset still reads the hand-check sample, `GET /datasets` lists `virat` as
+  surveillance. 9 passed; `test_windows.py` and the common tests also pass
+- After the load, in Postgres: all 9 `source = dataset`, `retention_until` NULL, `ready`,
+  `gate_stride_s` set, manifest `video_id` set, no `error`; `GET /datasets` shows `virat`
+  `loaded` 9 of 9, CCD and UCF-Crime still 30 of 30. No live worker in ingestion afterwards
+- Storage measured per video in the volumes (original, playback copy, frame and thumbnail
+  directories)
+
+### Not verified
+
+- The full suite was not rerun after these changes (the touched test files were); OMNI-714
+  runs it
+- Playing the VIRAT videos in the browser; the search ticket (OMNI-707) does that
+- No whole-volume before/after storage snapshot (taken per video instead)
+- The gate's recall against VIRAT's event annotations (K-23)
+
+### Result
+
+9 VIRAT videos `ready`, never expiring, from 9 scenes, in 13 min 37 s; 949 kept frames to
+search. The ticket's 11 became 9 by Ahmad's decision (D-26 amended). K-23 opened.
+
+---

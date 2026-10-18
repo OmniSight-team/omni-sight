@@ -31,7 +31,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-23 | The SM-3 target rule, written before CCD's footage was measured | 2026-10-08 | Done (mTTA ≥ 1.80 s) |
 | D-24 | How lead-up windows are cut, and when an event gets none | 2026-10-09 | Done |
 | D-25 | Dataset footage enters through the upload function | 2026-10-09 | Done |
-| D-26 | Model measurements on Colab; the product holds only the hand-check sample | 2026-10-09 | Done |
+| D-26 | Model measurements on Colab; the product holds only the hand-check sample (and, since OMNI-702, a 9-video VIRAT demo sample) | 2026-10-09, 10-18 | Done |
 | D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
 | D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
 
@@ -576,6 +576,24 @@ It is a change to this sprint's plan (OMNI-608's "what goes in").
 **What it costs:** the dashboard's "real footage volumes" are the sample's (60 clips), not
 5,065. The CCD retention on all 4,500 clips (K-4) is a property of Algorithm 1, not of the
 stack, so it moves to a Colab run of the same gate code.
+
+**Amended 2026-10-18 (OMNI-702): the product also holds a VIRAT demo sample.** Search
+(slice 7) needs real surveillance footage with people and vehicles to be demonstrated at
+all, and none of the 60 hand-check clips is VIRAT, Phase A's search dataset. So the
+product also holds **one VIRAT video per scene**, drawn once with seed 702 from the 275
+videos with events into `datasets/demo/virat_sample.csv`
+(`omnisight_common.datasets.demo`, `scripts/build_virat_demo_sample.py`) and loaded through
+D-25's path (`POST /datasets/virat/load`). SM-1 still runs on Colab over all 275.
+- **9 scenes, not 11.** Only videos the product accepts are eligible: a file over the
+  500 MB upload limit would be refused like any upload. Scenes `0000` (5 videos) and `0001`
+  (2) have none under it (642-1,608 MB, 9,075-29,580 frames each, also far past the 900 s
+  extraction timeout on this machine), so they are left out before the draw. The limits are
+  not raised for demo footage: D-25 tried that for the full load and reverted it the same
+  day. Decided with Ahmad. Those two scenes are searchable on Colab only
+- A first draw without the size rule (not committed) picked 1,456 MB and 1,111 MB videos for
+  scenes 0000 and 0001; the rule was added and the sample redrawn, which also changes the
+  other scenes' picks
+- The 9 videos: 1,120.6 MB, 23,057 frames in all (OMNI-608's probe), the largest 490.6 MB
 
 ## D-27 · The hand-check criterion, written before any window was checked · 2026-10-10
 

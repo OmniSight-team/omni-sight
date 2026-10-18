@@ -46,6 +46,8 @@ services:
       - ./data:/datasets:ro
       # D-26: which dataset clips are loaded (the hand-check sample, committed).
       - ./datasets/hand_check:/hand_check:ro
+      # OMNI-702: the VIRAT demo sample (committed), the VIRAT clips loaded to search.
+      - ./datasets/demo:/demo:ro
     depends_on:
       postgres:
         condition: service_healthy

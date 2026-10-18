@@ -128,11 +128,11 @@ fails now and then stops being believed.
 real surveillance footage with people and vehicles to be demonstrated at all, and VIRAT is
 Phase A's search dataset.
 
-- [ ] Amend D-26 in `decisions.md`: *the product also holds a VIRAT demo sample, one video
+- [x] Amend D-26 in `decisions.md`: *the product also holds a VIRAT demo sample, one video
       per scene with events (11), drawn once with a fixed seed into
       `datasets/demo/virat_sample.csv`*. SM-1 still runs on Colab
-- [ ] Load them through `POST /datasets/virat/load` (D-25's path: upload, extract, gate)
-- [ ] Record load time, frames, admitted frames and storage in `results.md`
+- [x] Load them through `POST /datasets/virat/load` (D-25's path: upload, extract, gate)
+- [x] Record load time, frames, admitted frames and storage in `results.md`
 
 **Acceptance:** 11 VIRAT videos `ready`, never expiring, in the archive, from 11 scenes.
 

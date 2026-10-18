@@ -18,6 +18,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
 | K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
 | K-21 | About 1.05 GB of frame and thumbnail files on disk have no segment row, so the dashboard's storage does not count them; playback copies (22.7 MB) are not counted either | FR-9 (storage in use), K-8 | OMNI-610 | Slice 16 (retention) |
+| K-23 | On VIRAT the gate keeps almost only heartbeats: 4 of 9 demo videos kept no frame for motion (a fifth kept 3), though all have annotated events | FR-1b, FR-4 (what search can find), SM-1 | OMNI-702 | Slice 8, before SM-1 |
 
 ---
 
@@ -125,6 +126,23 @@ each burst restarts the read timeout; and the age a tile shows ("last frame 11 s
 from when the late frames *arrived*, not from when they were captured, so it understates how
 old the picture is. Both are the second fix candidate above (stamp frames by the stream's own
 time, or treat a worker that is not receiving for a read timeout as lost).
+
+## K-23 · On VIRAT the gate keeps almost only heartbeats
+
+2026-10-18, OMNI-702 (`results.md`). Loading the 9 VIRAT demo videos, Algorithm 1 kept 949
+of 23,057 frames (4.1%): 248 for motion, 701 heartbeats. **4 of the 9 kept no frame for
+motion at all** (scenes 0002, 0100, 0101, 0400; 0502 kept 3), though every video has
+annotated VIRAT events (2-12 each: people walking, getting in and out of vehicles). VIRAT's
+cameras are far away and still; the people are a few dozen pixels in a 1280x720 or
+1920x1080 frame, which probably does not move enough of an 8x8 grid cell to pass the
+threshold. Not measured against the annotations yet. Why it matters: search (FR-4) can only
+find frames the gate kept, so a short event between two heartbeats (one a second) may have
+no frame at all; and SM-1 on Colab runs the same gate first (OMNI-710).
+**Fix candidates, none tried:** measure first: the share of VIRAT's annotated event
+intervals that contain at least one kept frame, and at least one motion-kept frame (the
+annotations give the frames). Then decide with Ahmad: a heartbeat is enough for search, or
+the gate's parameters for this kind of camera are a recorded deviation. Never by changing
+the defaults to make SM-1 pass.
 
 ## K-21 · Files on disk that no row accounts for
 
