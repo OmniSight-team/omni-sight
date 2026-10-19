@@ -33,6 +33,8 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
 | VIRAT demo sample in the product (no Phase A target) | One VIRAT video per scene, through the upload path, never expiring (D-26 amended) | 9 of 9 `ready`, 0 failed, 9 scenes (0000, 0001 have no video under 500 MB), 13 min 37 s; 23,057 frames gated, 949 kept (4.1%: 248 motion, 701 heartbeat); 1.49 GB of storage | **Pass** with 9, not 11, scenes (D-26) | 2026-10-18 | OMNI-702 |
 | TC-3, frame half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 2 runs: 1,000 of 1,000 by id (payloads equal as JSON bytes, vectors bit-identical) and by filtered search, filter counts equal, a redelivery of 100 left 1,000 points; the same after each restart (healthy again in 4.7-4.8 s). First run failed: 66 `timestamp_s` values one unit in the last place off, fixed (D-29) | **Pass, first half** (`clip_vectors` in slice 8) | 2026-10-19 | OMNI-703 |
+| TC-2, frame half | Each admitted frame of a 30 s uploaded MP4 and of 30 s from a live camera encodes to one 1152-D, unit-length vector, no error | Upload: 136 of 136 (VIRAT 0102, first 30 s, 720 frames gated). Camera `cam05`: 41 of 41. All 1152-D, finite, norms 0.9999998-1.0000001, 0 errors. One run, CPU | **Pass, first half** (clip embedding in slice 8) | 2026-10-19 | OMNI-704 |
+| SigLIP 2 cost on this laptop's CPU (information, D-31) | No target: the speed is judged on a GPU (Colab, OMNI-710) | 8.7 s per frame at batch 1, 9.3 s at batch 8; 1.2 s per text query; 4.2 GiB RSS; 80 s start to ready | Information only | 2026-10-19 | OMNI-704 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1779,3 +1781,56 @@ it exists (no create request in its log); `curl http://localhost:6333` from the 
 collection at archive size (slice 7 holds about 1,000 admitted VIRAT frames plus the
 hand-check sample's); `docker compose down` and up, and a kill (only `restart`); search
 latency (OMNI-708). One machine, two runs.
+
+## OMNI-704 · SigLIP 2 on this laptop's CPU (no GPU; information, not pass/fail) · 2026-10-19
+
+`scripts/measure_encoder.py --frames 8 --batches 2`: the pinned checkpoint (D-30), float32,
+PyTorch 2.14.1+cpu with 4 threads, in a one-off `ai-workers` container (service stopped, the
+rest of the stack up and idle). Frames: VIRAT demo video 3233's stored admitted frames,
+1920x1080 JPEGs. One run. An earlier run with 32 + 64 frames was killed by Claude Code when
+Windows ran low on memory (2.6 GB of 15.7 GB free); nothing from it is reported.
+
+| Measure | Result |
+|---|---|
+| Model load (weights memory-mapped) | 6.8 s |
+| First image (reads the vision weights from disk) | 27.7 s |
+| First text (reads the text weights) | 18.8 s |
+| Image, batch 1, per frame (8 frames) | median 8,747 ms, p95 9,962 ms, 8,252-10,135 |
+| Image, batch 8, per frame (2 batches) | median 9,288 ms, 9,025-9,551 |
+| Text, per query (20 queries) | median 1,221 ms, p95 1,919 ms, 797-2,408 |
+| Process RSS, peak / service idle / service after 20 queries | 4.23 / 3.83 / 3.84 GiB |
+| `docker stats`, same moments | 1.01 / 0.64 / 0.64 GiB (leaves out the mapped weights) |
+| Service: start to healthy (load plus warm-up) | 80 s |
+| First query to the warmed service (through `docker exec`) | 2.4 s |
+
+**What it means:** about 9 s per frame on this CPU, and batching does not help here. An
+admitted frame is about one a second per camera, so this machine's CPU cannot keep up with
+one camera, and a frame alone takes longer than NFR-1's 5 s. Phase A puts the AI Workers on
+a GPU (§3.3.2); the GPU cost is measured on Colab (D-31: how
+NFR-1 and NFR-2 are judged). It fits in memory: about 4.2 GiB of Docker's 7.6 GiB.
+
+**Not covered:** a GPU; more than 8 + 16 frames; text queries timed through query's API
+(OMNI-708); preliminary, one run, one machine.
+
+## OMNI-704 · TC-2, frame half: an upload's and a camera's admitted frames encoded · 2026-10-19
+
+`scripts/verify_tc2_frames.py` on the real stack. The first 30 s of VIRAT demo video 3229
+(scene 0102, `VIRAT_S_010201_03_000270_000359`, 1280x720, 24 fps) re-encoded to H.264 and
+uploaded through nginx, extracted by the product (Algorithm 1): `ready`, 30.04 s, 720 frames
+gated. `cam05` from the simulator registered and started, 30 s captured after it read `live`,
+stopped. Every admitted frame's `frame_path` read from Postgres and encoded from the stored
+JPEG by `FrameTextEncoder.encode_images` (D-30), batches of 8, in a one-off `ai-workers`
+container with the service stopped. One run, laptop CPU.
+
+| Source | Admitted frames | Vectors | Errors | 1152-D, finite, unit length | Norms | Encode time (CPU) |
+|---|---|---|---|---|---|---|
+| Upload | 136 | 136 | 0 | 136 of 136 | 0.9999998-1.0000001 | 1,160.5 s (8.5 s/frame) |
+| Camera | 41 | 41 | 0 | 41 of 41 | 0.9999999-1.0000001 | 360.3 s (8.8 s/frame) |
+
+8 of 8 checks. The throwaway user and camera were removed by the script. The uploaded video
+was not: the encode outlasted the token's 15 idle minutes (NFR-9) and the delete got no
+answer it checked. Deleted afterwards through the API (200; rows and files gone); the script
+now logs in again before cleaning up and reports a failed delete.
+
+**Not covered:** the vectors written to Qdrant (OMNI-705); the clip embedding (slice 8);
+GPU timing (OMNI-710, D-31); one run.

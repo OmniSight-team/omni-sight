@@ -127,6 +127,37 @@ services:
       timeout: 5s
       retries: 12
 
+  # OMNI-704: the only service with PyTorch and a model. SigLIP 2 (Algorithm 2's frame
+  # encoder) on the CPU; query asks it to encode a search query (POST /encode/text).
+  # No port published and no nginx route. The checkpoint lives in models/pretrained/
+  # (never committed) and is downloaded there at the pinned revision if missing.
+  ai-workers:
+    build:
+      context: .
+      dockerfile: services/ai_workers/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FRAME_MODEL_DIR: /models/pretrained/siglip2-so400m-patch14-384
+    volumes:
+      - ./services/common:/workspace/services/common
+      - ./services/ai_workers:/workspace/services/ai_workers
+      # Frames are encoded from the stored full-frame JPEG (`frame_path`), read-only.
+      - frame_storage:/data/frames:ro
+      - ./models/pretrained:/models/pretrained
+    healthcheck:
+      test:
+        [
+          "CMD", "/workspace/.venv/bin/python", "-c",
+          "import json,urllib.request,sys;sys.exit(0 if json.load(urllib.request.urlopen('http://localhost:8000/health'))['loaded'] else 1)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # Loading the checkpoint takes a while; a first start also downloads it.
+      start_period: 600s
+
   # OMNI-311: reads segments off the queue and writes the rows. The query
   # image with a different command, so it can be killed and restarted without
   # touching the API — which is exactly what the acceptance test does to it.

@@ -14,7 +14,7 @@ The clip stream (InternVideo2), Algorithm 3's fusion, SM-1 and TC-4 are slice 8.
 **Ships in:** `services/ai_workers/` · `services/query/` · `services/ingestion/` · `infra/` ·
 `frontend/` · `notebooks/`
 
----
+--- 
 
 ## Why the frame half only, and what that means
 
@@ -181,23 +181,23 @@ payload {segment_id, video_id, camera_id, source_type, domain, timestamp_s, capt
 **Why:** **FR-2** — *produce a searchable representation of each accepted segment's visual
 content.* Algorithm 2, line 1: `e_f ← SigLIP2_image(f_t); e_f ← e_f / ||e_f||`, 1152-D.
 
-- [ ] Model: **`google/siglip2-so400m-patch14-384`** (1152-D, Phase A's dimension). Pin the
+- [x] Model: **`google/siglip2-so400m-patch14-384`** (1152-D, Phase A's dimension). Pin the
       revision hash in settings; record it in `decisions.md`
-- [ ] `ai_workers` is the only service with PyTorch and transformers (`uv add ...
+- [x] `ai_workers` is the only service with PyTorch and transformers (`uv add ...
       --package omnisight-ai-workers`); CPU locally, the same code on a GPU
-- [ ] Encode from the **stored full-frame JPEG** (`frame_path`), in both places, so local and
+- [x] Encode from the **stored full-frame JPEG** (`frame_path`), in both places, so local and
       Colab see the same input
-- [ ] `get_image_features` / `get_text_features`, then L2-normalise; assert 1152 dimensions and
+- [x] `get_image_features` / `get_text_features`, then L2-normalise; assert 1152 dimensions and
       unit length
-- [ ] **Text trap:** SigLIP 2 was trained on lowercased text padded to `max_length=64`
+- [x] **Text trap:** SigLIP 2 was trained on lowercased text padded to `max_length=64`
       (`padding="max_length"`, `truncation=True`). `AutoProcessor` does this by default; the
       bare tokenizer does not, and a wrong padding silently gives poor matches, not an error.
       A test pins it
-- [ ] Internal HTTP endpoint `POST /encode/text {q}` → 1152 floats, for `query`. Not exposed
+- [x] Internal HTTP endpoint `POST /encode/text {q}` → 1152 floats, for `query`. Not exposed
       through nginx
-- [ ] **TC-2, frame half:** encode the admitted frames of a 30 s uploaded MP4 and of 30 s from
+- [x] **TC-2, frame half:** encode the admitted frames of a 30 s uploaded MP4 and of 30 s from
       a live camera: one 1152-D vector each, unit length, no error
-- [ ] Measure on this machine: image encode ms per frame (batch 1 and batch 8), text encode ms,
+- [x] Measure on this machine: image encode ms per frame (batch 1 and batch 8), text encode ms,
       model load time, container memory. The checkpoint is about 1B parameters, about 4 GB in
       float32; Docker has 7.6 GiB for everything. If it does not fit, raise Docker's memory
       (the machine has 15.7 GB) and record it

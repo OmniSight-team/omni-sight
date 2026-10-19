@@ -11,3 +11,18 @@ members = ["services/*"]
 
 [dependency-groups]
 dev = ["pytest", "ruff", "jupyter", "matplotlib"]
+
+# OMNI-704: PyTorch's CPU-only wheels for ai_workers. PyPI's Linux wheels pull the CUDA
+# libraries (several GB) into an image that runs on a CPU; Colab brings its own GPU build.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+markers = [
+    "model: loads a full model checkpoint (SigLIP 2: about 4.5 GB of memory, minutes on this CPU); run with -m model",
+]
+# OMNI-704: model tests are opt-in, so the everyday suite does not load a 4.5 GB model.
+# A later -m on the command line replaces this one.
+addopts = "-m 'not model'"

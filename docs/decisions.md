@@ -35,6 +35,8 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
 | D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
 | D-29 | **Deviation:** `frame_vectors` point id = segment id (B.2 line 4); `captured_at` absolute for every source; payload times to the microsecond | 2026-10-19 | Done |
+| D-30 | The SigLIP 2 checkpoint (`google/siglip2-so400m-patch14-384` @ `e8e48729`), float32, lowercased text padded to 64 tokens | 2026-10-19 | Done |
+| D-31 | The encoder's speed is measured on a GPU (Colab); the laptop proves it works; NFR-1, NFR-2 = local stack times + GPU encode time | 2026-10-19 | Done |
 
 ---
 
@@ -703,3 +705,60 @@ keeps the full value; the payload differs from it by under half a microsecond.
 
 **Where:** `services/common/omnisight_common/frame_vectors.py`; Qdrant `v1.19.1` in
 `docker-compose.yml`, no host port, `infra/qdrant/production.yaml`.
+
+## D-30 · The SigLIP 2 checkpoint, pinned, and how it runs · 2026-10-19
+
+**The model:** `google/siglip2-so400m-patch14-384` at revision
+**`e8e487298228002f3d8a82e0cd5c8ea9c567f57f`** (Hugging Face, last modified 2025-02-21),
+1152-D image and text embeddings, Phase A's dimension. Pinned in `ai_workers` settings
+(`frame_model_id`, `frame_model_revision`); the same revision runs locally and on Colab.
+Changing either is a new model: stored vectors would no longer compare with new ones.
+
+**How it runs (`services/ai_workers/app/encoder.py`):**
+
+- `AutoModel` / `AutoProcessor`, **float32** on both machines, so local and Colab compute the
+  same numbers. The embedding is `get_image_features(...).pooler_output` /
+  `get_text_features(...).pooler_output` (transformers 5.20.1 returns an output object, not
+  a tensor), then L2-normalised; 1152 dimensions and unit length asserted on every batch
+- Frames are read from the stored full-frame JPEG (`frame_path`) and resized by the
+  checkpoint's own processor (384x384, bilinear, mean and std 0.5)
+- **Text:** lowercased and padded to `max_length=64` with truncation, as SigLIP 2 was trained.
+  The processor does neither by default in this version (a test shows it gives a shorter
+  sequence), so the encoder does both explicitly; pinned by `test_encoder.py`
+- **CPU wheels:** PyTorch comes from its CPU-only index for `ai_workers` (root
+  `pyproject.toml`), so the image carries no CUDA libraries (1.59 GB). Colab uses its own
+  GPU build of PyTorch with the same encoder code
+- **The checkpoint** sits in `models/pretrained/siglip2-so400m-patch14-384/` (never
+  committed), downloaded at the pinned revision if missing; a `REVISION` file says which
+  revision the folder holds, and a folder with another one is brought to the pinned one
+- **Warm-up at startup:** the weights are memory-mapped and read on first use. Without a
+  warm-up the first text query took 31.5 s; the service now encodes one blank image and one
+  text before `/health` reports it loaded
+
+**Not a Phase A deviation:** Phase A names SigLIP 2 and 1152 dimensions; the checkpoint,
+precision and text preparation are choices inside that.
+
+## D-31 · The encoder's speed is measured on a GPU (Colab); the laptop proves it works · 2026-10-19
+
+**Why:** Phase A puts the AI Workers on a GPU (§3.3.2: *"SigLIP 2 and InternVideo2 on GPU,
+horizontally scalable"*). This laptop has none: on its CPU SigLIP 2 takes about 9 s per frame
+(`results.md`, OMNI-704), slower than one camera's admitted frames arrive and longer than
+NFR-1's 5 s on its own. That number describes a machine Phase A did not design for, not the
+system. **Ahmad's decision.**
+
+**What changes:**
+
+- **On the laptop:** the encoder is checked for correctness only (TC-2: every admitted frame
+  gets a 1152-D unit vector, no error). Slow is acceptable there. Laptop CPU timings are kept
+  in `results.md` as "dev machine, no GPU", for information, never pass/fail
+- **On Colab's GPU:** the encoder's cost per frame (batch 1 and 8) and per query is
+  measured with the same code (`services/ai_workers/app/encoder.py`) and the same pinned
+  checkpoint (D-30)
+- **NFR-1 and NFR-2** (OMNI-708, OMNI-709): judged as the stack's own times measured
+  locally (capture, gate, queue, store, Qdrant, the API) plus the encode time measured on
+  the GPU, reported as a combined figure and labelled so. The laptop's end-to-end times with
+  CPU encoding are reported too, as information
+
+**Revises:** OMNI-704's "measure on this machine" for the encoder's speed, and the sprint
+table's "NFR-1 and NFR-2 are system measurements" (D-26) for the encoding step only.
+The GPU measurement is done with OMNI-710 (the Colab ticket), on the same notebook run.

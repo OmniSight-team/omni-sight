@@ -255,3 +255,80 @@ never recreated. TC-3's frame half passes, including after a restart, after a fi
 that failed on 17-digit floats and was fixed by D-29's microsecond rounding.
 
 ---
+
+## OMNI-704 · `ai_workers`: SigLIP 2 frame and text encoder
+
+### Why this ticket exists
+
+FR-2: produce a searchable representation of each accepted segment's visual content.
+Algorithm 2 line 1: `e_f ← SigLIP2_image(f_t); e_f ← e_f / ||e_f||`, 1152-D. Search (OMNI-706)
+also needs the same model's text tower to turn a query into a vector.
+
+### What was done
+
+2026-10-19, on `slice-07-search`.
+
+- **The checkpoint:** `google/siglip2-so400m-patch14-384` at revision `e8e48729…` (from the
+  Hugging Face API), downloaded to `models/pretrained/siglip2-so400m-patch14-384/` (4.54 GB,
+  9.6 min, git-ignored). It is a plain `siglip` checkpoint (fixed 384x384) with a Gemma
+  tokenizer. Pinned in `services/ai_workers/app/settings.py`; **D-30**
+- **Dependencies, `ai_workers` only:** torch 2.14.1+cpu (from PyTorch's CPU index, declared
+  in the root `pyproject.toml`), transformers 5.20.1, pillow, fastapi, uvicorn, sentencepiece,
+  protobuf. Image `phase-b-ai-workers` 1.59 GB
+- **`app/encoder.py`:** `ensure_checkpoint` (download at the pinned revision if the folder's
+  `REVISION` file says otherwise), `text_inputs` (lowercase, pad to 64, truncate),
+  `FrameTextEncoder.encode_images` / `encode_texts` (float32, `pooler_output`, L2-normalised,
+  1152-D and unit length asserted). No `app.` imports, so Colab and tests load it by path
+- **transformers 5 differs from what the ticket assumed:** `get_*_features` return an
+  output object, not a tensor (the embedding is `.pooler_output`), and `SiglipProcessor`
+  has no padding defaults at all. Checked in the installed source, then pinned by tests
+- **`app/main.py`:** `GET /health`, `POST /encode/text {q}` → `{vector (1152), model,
+  model_revision}`; empty or over-1,000-character `q` → 422. The model is loaded in the
+  lifespan and **warmed up** (one blank image, one text): the weights are memory-mapped,
+  and before the warm-up the first query took 31.5 s
+- **`ai-workers` in `docker-compose.yml`:** no port, no nginx route; `frame_storage`
+  read-only and `./models/pretrained` mounted; healthcheck on `/health` with a 600 s start
+  period; no `--reload` (it would reload 4.5 GB on any file change)
+- **Tests opt-in for the model** (Ahmad agreed): a `[tool.pytest.ini_options]` section in
+  the root `pyproject.toml` registers a `model` marker and adds `-m 'not model'`. The 4 tests
+  that load the model run with `uv run pytest services/ai_workers/tests -m model`
+- **The speed question:** the first measurement (32 + 64 frames) was killed by Claude Code
+  when Windows ran low on memory (2.6 GB free; Docker's VM held 4 GB). Ahmad asked why speed
+  is measured on a laptop when the target has a GPU; Phase A §3.3.2 puts the AI Workers on a
+  GPU. **D-31 (Ahmad's decision):** the laptop checks correctness; speed is measured on
+  Colab's GPU (with OMNI-710); NFR-1 and NFR-2 are judged as local stack times plus GPU
+  encode time. A short laptop run (8 + 16 frames) was kept as information
+- **`scripts/measure_encoder.py`**, **`scripts/verify_tc2_frames.py`**: both stop the
+  service and use a one-off container, so only one copy of the model is in memory. TC-2's
+  first run left its uploaded video behind (the token expired during the 25-minute encode);
+  deleted through the API, and the script now logs in again before cleaning up. Its stderr is
+  now read as UTF-8 (Windows' cp1255 could not decode it; the run itself was unaffected)
+
+### Verification performed
+
+- `services/ai_workers/tests/test_encoder.py`: 6 always-on tests (padding to 64, the
+  processor alone not padding, lowercasing, truncation, the `REVISION` check both ways) and 4
+  model tests (unit 1152-D frames, batch equals one-at-a-time, unit 1152-D text, red and green
+  images matched to their texts). All 10 passed on the host with the checkpoint
+- Endpoint from inside `query`: 1152 floats, norm 1.0, revision `e8e48729`; `"A PERSON
+  WALKING"` gives the same vector as `"a person walking"`; empty `q` → 422. From the host:
+  no port (`ps` shows none); `https://localhost/encode/text` and `/api/encode/text` → 404
+- TC-2: 8 of 8 (`results.md`, OMNI-704). Laptop CPU cost recorded as information
+- Full suite: **490 passed, 1 skipped, 4 deselected** (6 min 58 s)
+
+### Not verified
+
+- The encoder's speed on a GPU (OMNI-710, D-31)
+- The 4 model tests through `-m model` (they were run before the marker existed)
+- Two copies of the model at once (the service plus a script) do not fit beside the stack on
+  this laptop; the scripts avoid it by stopping the service
+- The transformers warning that the config's bos/eos token ids are outside the vocabulary:
+  the checkpoint's own config, harmless for embeddings (not generation), not investigated
+
+### Result
+
+`ai-workers` serves SigLIP 2 at a pinned revision, only service with PyTorch; TC-2's frame half
+passes for an upload and a live camera. On this CPU a frame takes about 9 s, so its speed is
+measured on Colab's GPU instead (D-31).
+
+---
