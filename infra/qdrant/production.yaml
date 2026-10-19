@@ -1,0 +1,17 @@
+# Qdrant settings (OMNI-703), mounted over the image's own production.yaml, which Qdrant
+# reads on top of its defaults (RUN_MODE=production). Collections are created by the
+# services (omnisight_common.frame_vectors), not here.
+log_level: INFO
+
+storage:
+  # On the `qdrant_data` volume, so the vectors outlive the container.
+  storage_path: /qdrant/storage
+  snapshots_path: /qdrant/snapshots
+
+service:
+  host: 0.0.0.0
+  # HTTP only, inside the Docker network; no port is published to the host.
+  http_port: 6333
+
+# Qdrant reports anonymous usage to its developers by default.
+telemetry_disabled: true

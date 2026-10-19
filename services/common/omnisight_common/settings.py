@@ -38,3 +38,12 @@ class CommonSettings(BaseSettings):
     # OMNI-313: a camera going unreachable, or coming back, as the capture worker
     # notices it.
     camera_event_queue: str = "omnisight.camera_events"
+
+    # Qdrant (OMNI-703). Here because ai_workers writes vectors and query searches
+    # them, and both must agree on the store and the collection. Not published to
+    # the host: inside the stack it is reached as `qdrant` (QDRANT_HOST).
+    qdrant_host: str = "127.0.0.1"
+    qdrant_port: int = 6333
+    qdrant_timeout_s: float = 10.0
+    # Overridable so a test can use a collection of its own (OMNI-703's TC-3 does).
+    frame_collection: str = "frame_vectors"

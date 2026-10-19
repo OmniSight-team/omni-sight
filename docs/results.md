@@ -32,6 +32,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
 | VIRAT demo sample in the product (no Phase A target) | One VIRAT video per scene, through the upload path, never expiring (D-26 amended) | 9 of 9 `ready`, 0 failed, 9 scenes (0000, 0001 have no video under 500 MB), 13 min 37 s; 23,057 frames gated, 949 kept (4.1%: 248 motion, 701 heartbeat); 1.49 GB of storage | **Pass** with 9, not 11, scenes (D-26) | 2026-10-18 | OMNI-702 |
+| TC-3, frame half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 2 runs: 1,000 of 1,000 by id (payloads equal as JSON bytes, vectors bit-identical) and by filtered search, filter counts equal, a redelivery of 100 left 1,000 points; the same after each restart (healthy again in 4.7-4.8 s). First run failed: 66 `timestamp_s` values one unit in the last place off, fixed (D-29) | **Pass, first half** (`clip_vectors` in slice 8) | 2026-10-19 | OMNI-703 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1742,3 +1743,39 @@ writes it).
 
 **Not covered:** scenes 0000 and 0001 (no video under the upload limit, D-26); the gate's
 recall against VIRAT's event annotations (K-23); load time with cameras capturing; one run.
+
+## OMNI-703 · TC-3, frame half: `frame_vectors` in Qdrant, across a restart · 2026-10-19
+
+`scripts/verify_tc3_frame_vectors.py` on the real stack (Qdrant `v1.19.1`, `qdrant-client`
+1.19.1, no host port; the checks run inside `query`). A scratch collection
+`frame_vectors_tc3`, made by the product's `ensure_frame_collection` (1152-D, Cosine, payload
+indexes on `camera_id`, `video_id`, `captured_at`), 1,000 points made by `frame_point` from
+seed 703: 500 uploads over 5 videos, 500 live frames over 10 cameras, three domains, 143
+without a thumbnail, random unit vectors. Written in batches of 100, then the first 100
+written again; checked; `docker compose restart qdrant`; checked again; dropped.
+
+| Check | Run 1 before / after restart | Run 2 before / after restart |
+|---|---|---|
+| Points after a redelivery of 100 | 1,000 / 1,000 | 1,000 / 1,000 |
+| By id: payload equal (dict and canonical JSON bytes) | 1,000 / 1,000 | 1,000 / 1,000 |
+| By id: vector bit-identical to the float32 written | 1,000 / 1,000 | 1,000 / 1,000 |
+| Filtered search (own video or camera, exact `captured_at`): own point top hit, payload equal | 1,000 / 1,000 | 1,000 / 1,000 |
+| Point count under each of 5 video and 10 camera filters | 15 / 15 | 15 / 15 |
+| Write 1,000 points | 2.93 s | 2.33 s |
+| Healthy again after the restart | 4.8 s | 4.7 s |
+
+**The run before these failed.** With `timestamp_s` stored as given, 66 of 1,000 payloads
+came back different, all upload frames whose time needs 17 significant digits
+(`0.9175842509175843` read back as `0.9175842509175844`); the raw HTTP response showed the
+changed value, so it is Qdrant, not the client. Searches found all 1,000; the 66 failed only
+on payload equality. Fixed by storing `timestamp_s` to the microsecond (D-29); the live
+frames' times then got a full-precision random fraction too, to test the fix on both sources.
+
+Also: `query` created `frame_vectors` on its first start, and on a restart only checked that
+it exists (no create request in its log); `curl http://localhost:6333` from the host fails
+(exit 7, nothing listening).
+
+**Not covered:** real SigLIP 2 vectors and real segment rows (OMNI-704, OMNI-705); a
+collection at archive size (slice 7 holds about 1,000 admitted VIRAT frames plus the
+hand-check sample's); `docker compose down` and up, and a kill (only `restart`); search
+latency (OMNI-708). One machine, two runs.

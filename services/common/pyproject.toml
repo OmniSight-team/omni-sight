@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pika>=1.4.4",
     "pydantic-settings>=2.15.0",
+    "qdrant-client>=1.19.1",
 ]
 
 [build-system]

@@ -1,10 +1,11 @@
 import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from omnisight_common.frame_vectors import ensure_frame_collection, qdrant_client
 
 from app.admin import router as admin_router
 from app.auth import router as auth_router
@@ -33,6 +34,14 @@ async def lifespan(_app: FastAPI):
         mark_interrupted_extractions()
     except Exception as exc:  # noqa: BLE001 - the app should still start
         logger.error("startup extraction sweep failed", extra={"extra_fields": {"error": str(exc)}})
+    # OMNI-703: `frame_vectors` is created if missing, never recreated. Logged, not fatal:
+    # everything but search still works without Qdrant.
+    try:
+        with closing(qdrant_client(settings)) as client:
+            if ensure_frame_collection(client, settings.frame_collection):
+                logger.info("created the frame vector collection", extra={"extra_fields": {"name": settings.frame_collection}})
+    except Exception as exc:  # noqa: BLE001 - the app should still start
+        logger.error("frame vector collection check failed", extra={"extra_fields": {"error": str(exc)}})
     # OMNI-504: cameras that should be captured are started again whenever
     # ingestion has no worker for them, after a restart of either service.
     resumer = start_capture_resume(settings.capture_resume_interval_s)

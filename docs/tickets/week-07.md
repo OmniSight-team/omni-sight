@@ -152,22 +152,22 @@ payload {segment_id, video_id, camera_id, source_type, domain, timestamp_s, capt
          frame_path, thumb_path, model, model_revision}
 ```
 
-- [ ] `qdrant` service in `docker-compose.yml`, named volume, **no port published to the
+- [x] `qdrant` service in `docker-compose.yml`, named volume, **no port published to the
       host**, version pinned; config in `infra/qdrant/`
-- [ ] The collection is created on startup if missing, never recreated if present
-- [ ] **Point id = segment id**, so a redelivered message overwrites the same point instead of
+- [x] The collection is created on startup if missing, never recreated if present
+- [x] **Point id = segment id**, so a redelivered message overwrites the same point instead of
       making a duplicate
-- [ ] **Deviation, record in `decisions.md`:** Appendix B.2 line 4 sets the shared identifier
+- [x] **Deviation, record in `decisions.md`:** Appendix B.2 line 4 sets the shared identifier
       to `frame_id = hash(camera_id, timestamp)`. An uploaded file has no camera, so two files
       would collide; the segment id is unique for every source and is the same identifier
       slice 8's `clip_vectors` will use, which is what line 4 is for (matching a frame entry to
       its clip entry)
-- [ ] `captured_at` is an absolute time for every source: a camera frame's capture time; an
+- [x] `captured_at` is an absolute time for every source: a camera frame's capture time; an
       uploaded file's upload time plus `timestamp_s` (files carry no wall-clock time; recorded
       in `decisions.md`)
-- [ ] **Payload indexes** on `camera_id`, `video_id` and `captured_at`, so filters run inside
+- [x] **Payload indexes** on `camera_id`, `video_id` and `captured_at`, so filters run inside
       the vector search
-- [ ] **TC-3, frame half:** insert a batch of 1,000 vectors with payloads, retrieve them by id
+- [x] **TC-3, frame half:** insert a batch of 1,000 vectors with payloads, retrieve them by id
       and by filtered search, compare every field byte for byte; restart Qdrant and compare
       again
 

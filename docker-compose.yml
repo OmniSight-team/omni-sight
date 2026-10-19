@@ -27,6 +27,7 @@ services:
       POSTGRES_HOST: postgres
       INGESTION_BASE_URL: http://ingestion:8000
       RABBITMQ_HOST: rabbitmq
+      QDRANT_HOST: qdrant
     ports:
       - "8000:8000"
     volumes:
@@ -53,6 +54,8 @@ services:
         condition: service_healthy
       ingestion:
         condition: service_started
+      qdrant:
+        condition: service_healthy
 
   # No port published and no nginx route — nothing outside the Docker network
   # can reach this service. Query is the only caller.
@@ -102,6 +105,27 @@ services:
       interval: 10s
       timeout: 10s
       retries: 6
+
+  # OMNI-703: the vector store (Phase A §3.3). Holds `frame_vectors`, one point per
+  # admitted frame, created by query at startup (omnisight_common.frame_vectors).
+  # No port published: only services inside the Docker network reach it. Pinned
+  # to the version `qdrant-client` in uv.lock was released with.
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    restart: unless-stopped
+    volumes:
+      - ./infra/qdrant/production.yaml:/qdrant/config/production.yaml:ro
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # The image has no curl or wget; bash's /dev/tcp asks /readyz instead.
+      test:
+        [
+          "CMD", "bash", "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   # OMNI-311: reads segments off the queue and writes the rows. The query
   # image with a different command, so it can be killed and restarted without
@@ -220,3 +244,5 @@ volumes:
   preview_storage:
   # OMNI-311: queued messages must outlive the container, not just a restart.
   rabbitmq_data:
+  # OMNI-703: the vectors, which must outlive the container like the rows do.
+  qdrant_data:

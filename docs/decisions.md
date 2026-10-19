@@ -34,6 +34,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-26 | Model measurements on Colab; the product holds only the hand-check sample (and, since OMNI-702, a 9-video VIRAT demo sample) | 2026-10-09, 10-18 | Done |
 | D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
 | D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
+| D-29 | **Deviation:** `frame_vectors` point id = segment id (B.2 line 4); `captured_at` absolute for every source; payload times to the microsecond | 2026-10-19 | Done |
 
 ---
 
@@ -676,3 +677,29 @@ transaction, through the database rather than the consumer's code.
 **What it costs:** every insert into `segments` runs one extra upsert. Not measured against
 the consumer's throughput (OMNI-610 context). `storage_gb` counts only files that have a row:
 files left on disk with no row are invisible to it (K-21).
+
+## D-29 · `frame_vectors`: point id = segment id, an absolute `captured_at`, times to the microsecond · 2026-10-19
+
+**Deviation:** Appendix B.2 line 4 sets the identifier shared by a frame's entries to
+`frame_id = hash(camera_id, timestamp)`. An uploaded file has no camera, so two files would
+give their frames at the same second the same id, and one would overwrite the other. **The
+point id is the segment id** (`segments.id`): unique for every source, and the id slice 8's
+`clip_vectors` will use for the same frame, which is what line 4's identifier is for
+(matching a frame entry to its clip entry). It also makes a write idempotent: a redelivered
+message upserts the same point instead of adding a second (shown in TC-3, OMNI-703).
+
+**`captured_at` for every source.** The payload carries an absolute time so one filter
+covers cameras and files: a live frame's capture time (its `timestamp_s` is Unix time); for
+an uploaded file, which carries no wall-clock time, the upload time (`videos.created_at`)
+plus `timestamp_s`. RFC 3339 in UTC, to the microsecond, under a datetime payload index.
+A file's `captured_at` is therefore when it was uploaded, not when it was filmed.
+
+**`timestamp_s` in the payload is rounded to the microsecond.** Qdrant 1.19.1 did not read
+back exactly a float needing 17 significant digits: in TC-3's first run, 66 of 1,000 upload
+timestamps (frame index over 23.976 fps) came back one unit in the last place off
+(`results.md`, OMNI-703). Rounded to 6 decimals, a timestamp (up to Unix time) has at most
+16 digits, an integer below 2^53 over a power of ten, and round-trips exactly. `segments`
+keeps the full value; the payload differs from it by under half a microsecond.
+
+**Where:** `services/common/omnisight_common/frame_vectors.py`; Qdrant `v1.19.1` in
+`docker-compose.yml`, no host port, `infra/qdrant/production.yaml`.

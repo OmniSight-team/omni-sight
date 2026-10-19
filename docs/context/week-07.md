@@ -182,3 +182,76 @@ Phase A's search dataset.
 search. The ticket's 11 became 9 by Ahmad's decision (D-26 amended). K-23 opened.
 
 ---
+
+## OMNI-703 · Qdrant in the stack, and `frame_vectors`
+
+### Why this ticket exists
+
+FR-3: store each analysed segment with its details for later retrieval. Phase A puts the
+vectors in Qdrant (§3.3, Appendix B.2). Nothing can be encoded (OMNI-704) or searched
+(OMNI-706) until the store and the collection exist.
+
+### What was done
+
+2026-10-19, on `slice-07-search`. Docker Desktop was not running; started it from here.
+
+- **`qdrant` service** in `docker-compose.yml`: `qdrant/qdrant:v1.19.1`, the version of the
+  `qdrant-client` uv resolved (1.19.1); named volume `qdrant_data`; **no port published**;
+  `infra/qdrant/production.yaml` mounted over the image's (storage paths, HTTP 6333,
+  telemetry off). The image has no curl or wget, so the healthcheck asks `/readyz` through
+  bash's `/dev/tcp`. `query` waits for it to be healthy and gets `QDRANT_HOST: qdrant`.
+  The `.gitkeep` in `infra/qdrant/` removed now that the folder has a file
+- **`omnisight_common/frame_vectors.py`** (shared, because ai_workers writes and query
+  searches): `FRAME_VECTOR_SIZE` 1152, `FramePayload` (the ticket's 11 fields),
+  `frame_point` (point id = `segment_id`, refuses a vector that is not 1152-D),
+  `captured_at` (D-29), `qdrant_client`, `ensure_frame_collection` (create if missing,
+  Cosine, Qdrant's default HNSW; never recreate; payload indexes `camera_id` and `video_id`
+  integer, `captured_at` datetime, asked for on every start so a half-finished first start
+  is repaired). `qdrant-client` added to `omnisight-common`. Settings: `qdrant_host`,
+  `qdrant_port`, `qdrant_timeout_s`, `frame_collection`
+- **Created on startup:** query's lifespan calls `ensure_frame_collection`; a failure is
+  logged, not fatal (everything but search works without Qdrant), like the extraction sweep
+- **D-29** in `decisions.md`: the point-id deviation from B.2 line 4, `captured_at` for
+  uploads (upload time plus offset), and the microsecond rounding below
+- **TC-3's first run failed:** 66 of 1,000 payloads differed, all upload `timestamp_s`
+  values needing 17 significant digits, one unit in the last place off. The raw HTTP
+  response had the changed value, so Qdrant changes it, not the client. A diagnostic run
+  showed every filtered search did find its point; the 66 "misses" were the same payload
+  inequality. **Fix:** `FramePayload` rounds `timestamp_s` to the microsecond (as
+  `captured_at` already is); TC-3's live timestamps then got full-precision fractions too.
+  Recorded as a failed run in `results.md`, not hidden
+- **`scripts/verify_tc3_frame_vectors.py`:** Qdrant is not reachable from the host, so the
+  script pipes itself into `query` for the `write` and `check` stages and does the restart
+  from the host between them. Scratch collection `frame_vectors_tc3`, dropped at the end;
+  the real collection is only checked to exist
+
+### Verification performed
+
+- `services/common/tests/test_frame_vectors.py`, 9 tests on qdrant-client's in-process
+  mode: the collection's shape; an existing collection with a point is not recreated; the
+  same segment written twice is one point holding the second payload; a 768-D vector is
+  refused; the payload is plain JSON with exactly the model's fields; the microsecond
+  rounding; `captured_at` for a live and an uploaded frame; an upload without its time is
+  refused
+- TC-3 on the real stack, twice, each passing before and after `docker compose restart
+  qdrant` (numbers in `results.md`, OMNI-703)
+- `query`'s log: on the first start a create request for `frame_vectors`; after `docker
+  compose restart query` only the existence check and the three index requests
+- `docker compose ps`: `6333-6334/tcp`, nothing mapped; `curl http://localhost:6333` from the
+  host: exit 7
+- Full suite: **484 passed, 1 skipped** (4 min 50 s)
+
+### Not verified
+
+- Real SigLIP 2 vectors and real segments (OMNI-704, OMNI-705)
+- A kill or `down`/`up` of Qdrant (only `restart`); NFR-5 for vectors comes with OMNI-705
+- Qdrant also listens on gRPC 6334 inside the network (the image default); unused, not
+  turned off
+
+### Result
+
+Qdrant runs in the stack with no host port; `frame_vectors` is created by query once and
+never recreated. TC-3's frame half passes, including after a restart, after a first run
+that failed on 17-digit floats and was fixed by D-29's microsecond rounding.
+
+---
