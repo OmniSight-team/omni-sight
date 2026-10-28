@@ -38,7 +38,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-30 | The SigLIP 2 checkpoint (`google/siglip2-so400m-patch14-384` @ `e8e48729`), float32, lowercased text padded to 64 tokens | 2026-10-19 | Done |
 | D-31 | The encoder's speed is measured on a GPU (Colab); the laptop proves it works; NFR-1, NFR-2 = local stack times + GPU encode time | 2026-10-19 | Done |
 | D-32 | The laptop loads only InternVideo2's text side; clip vectors of the product's footage are made on Colab | 2026-10-28 | Done |
-| D-33 | **Deviation:** the InternVideo2 checkpoint (`OpenGVLab/InternVideo2_CLIP_S` @ `1f9fca13`), 512-D not 768, float32, its model code copied into the repo | 2026-10-28 | Done (motion check and GPU timings pending, Colab) |
+| D-33 | **Deviation:** the InternVideo2 checkpoint (`OpenGVLab/InternVideo2_CLIP_S` @ `1f9fca13`), 512-D not 768, float32, its model code copied into the repo | 2026-10-28 | Done |
 | D-34 | Embed jobs: a frame's domain, and the model pin shared by every service | 2026-10-28 | Done |
 | D-35 | OMNI-705 is proved on one video; the archive is not backfilled | 2026-10-28 | Done |
 
@@ -763,6 +763,10 @@ system. **Ahmad's decision.**
   the GPU, reported as a combined figure and labelled so. The laptop's end-to-end times with
   CPU encoding are reported too, as information
 
+**GPU used (2026-10-28, Ahmad):** Colab's A100 is often not free and the runtime falls back
+to an **L4**. The timings are taken on whichever GPU the runtime gets, named in the result
+(OMNI-706 ran on an L4). An L4 is slower than an A100, so an L4 figure is an upper bound.
+
 **Revises:** OMNI-704's "measure on this machine" for the encoder's speed, and the sprint
 table's "NFR-1 and NFR-2 are system measurements" (D-26) for the encoding step only.
 The GPU measurement is done with OMNI-710 (the Colab ticket), on the same notebook run.
@@ -844,9 +848,12 @@ Confirmed by running it (one VIRAT clip and texts: 512-D, finite, norm 1.0).
 - **Licences:** InternVideo2's code Apache-2.0 (OpenGVLab); the text encoder Copyright
   Apple Inc., MobileCLIP's licence; both named in the copied files
 
-**Pending on Colab** (`notebooks/encoders_gpu.ipynb`): the motion check (10 VIRAT event
-clips of 5 types against 10 captions) and the GPU timings. If the motion check shows the
-model cannot tell opening from closing a trunk, that is recorded, not hidden.
+**Checked on Colab** (`notebooks/encoders_gpu.ipynb`, NVIDIA L4; `results.md`, OMNI-706):
+the same vectors as on the laptop's CPU (one clip, similarity 0.0967 on both). **The motion
+check is weak:** 2 of 10 clips rank their own caption first, 4 of 10 a caption of their own
+type, and opening and closing a trunk are not told apart. Recorded as measured. The
+checkpoint is kept: it is the only one that passes the ticket's three checks, and search
+quality is judged by SM-1 (OMNI-713) with both streams fused, not by this 10-clip check.
 
 ## D-34 · Embed jobs: a frame's domain, and the model pin shared by every service · 2026-10-28
 

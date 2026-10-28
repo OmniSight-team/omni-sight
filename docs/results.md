@@ -37,7 +37,9 @@ are in `known-issues.md`; how the work went is in `context/`.
 | SigLIP 2 cost on this laptop's CPU (information, D-31) | No target: the speed is judged on a GPU (Colab, OMNI-710) | 8.7 s per frame at batch 1, 9.3 s at batch 8; 1.2 s per text query; 4.2 GiB RSS; 80 s start to ready | Information only | 2026-10-19 | OMNI-704 |
 | NFR-5 for vectors (OMNI-705) | Every admitted frame ends with exactly one point; a kill of `ai_workers` mid-batch loses nothing and duplicates nothing | VIRAT video 3226, 44 admitted frames: killed 14 s into the 3rd batch with 16 stored and 8 in flight; after restart 44 of 44 frames with a point, 44 points, 0 missing, 0 extra, 0 dead letters. `GET /embeddings/status`: 44 / 44 | **Pass** (one video, one kill, D-35) | 2026-10-28 | OMNI-705 |
 | InternVideo2's text side on this laptop, beside SigLIP 2 (D-32) | Fits Docker's 7.6 GiB; ms per query recorded | ai_workers process 3.84 GiB after 400 queries, 4.17 GiB peak; InternVideo2 text median 131 ms (p95 300), SigLIP 2 text median 1,097 ms (p95 1,885); 200 queries each, one run | **Pass** (fits; preliminary) | 2026-10-28 | OMNI-706 |
-| InternVideo2 checkpoint (D-33): one 8-frame clip and one text | 512-D (Phase A: 768, D-33), finite, unit length | VIRAT 040103_00 event 29 (opening a trunk), 8 frames: clip and text 512-D, finite, norm 1.0; every checkpoint weight loaded with all keys matched. CPU, one clip | **Pass** (on CPU; GPU run pending) | 2026-10-28 | OMNI-706 |
+| InternVideo2 checkpoint (D-33): one 8-frame clip and one text | 512-D (Phase A: 768, D-33), finite, unit length | VIRAT 040103_00 event 29 (opening a trunk), 8 frames: clip and text 512-D, finite, norm 1.0; every checkpoint weight loaded with all keys matched. Laptop CPU and L4 GPU: the same similarity (0.0967) | **Pass** | 2026-10-28 | OMNI-706 |
+| InternVideo2 motion check (OMNI-706; a sanity check, not SM-1) | Record the 10 x 10 matrix and how many clips rank their own caption first (no pass mark) | 2 of 10 own caption first; 4 of 10 a caption of their own type (chance 2 of 10). Opening and closing a trunk not told apart: all 4 trunk clips rank a vehicle caption first and score *shutting a car's trunk* above both opening captions | Recorded (weak) | 2026-10-28 | OMNI-706 |
+| Encoder cost on a GPU (D-31) | No target here: NFR-1 and NFR-2 use it (OMNI-714) | NVIDIA L4, float32, from the stored input: SigLIP 2 108 / 106 / 112 ms per frame at batch 1 / 8 / 32, text 13 ms; InternVideo2 297 / 319 / 316 ms per clip, text 7 ms; peak GPU memory up to 6.9 GiB (SigLIP 2 b32) and 8.6 GiB (InternVideo2 b32), both models loaded | Information (L4, not the A100 named: none free) | 2026-10-28 | OMNI-706 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1895,4 +1897,76 @@ is the 10-clip check on Colab.
 **Not covered:** the GPU timings and the motion check (`notebooks/encoders_gpu.ipynb`, to
 run on Colab's A100); the text encoders under load together with frame encoding; one run,
 one machine, preliminary.
+
+## OMNI-706 · InternVideo2's motion check and both encoders' cost on a GPU · 2026-10-28
+
+**Conditions:** Colab, **NVIDIA L4** (22 GiB; the ticket names an A100, none was free, Ahmad's
+choice, D-31: an L4 is slower, so these are upper bounds for an A100), torch 2.11.0+cu130,
+transformers 5.20.1. `notebooks/encoders_gpu.ipynb` at commit `1ff7fd0`, importing the
+repo's `encoder.py` and `clip_encoder.py`; both checkpoints at their pinned revisions
+(D-30, D-33), float32, both on the GPU together. Raw output:
+`MyDrive/omnisight/results/omni706_encoders_gpu.json`. One run.
+
+**One clip and one text** (the laptop's CPU check, repeated on the GPU): 512-D, finite,
+norm 1.0; similarity to *a person opening the trunk of a car* 0.0967, the same as on the CPU.
+
+**Does it see motion.** 10 clips, 2 per type, drawn with seed 706 from the 275 VIRAT
+evaluation videos (events at least 8 frames long; 42 to 156 candidates per type); each clip
+is its event's own span, 8 frames by `uniform_indices`. One caption per clip, two wordings
+per type. Rows are clips, columns captions; the highest in each row in bold.
+
+| Clip (type, video, event) | c0 | c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 open trunk, 050202_07_001126_001301 e1 | 0.091 | 0.096 | 0.098 | 0.117 | 0.123 | **0.132** | 0.128 | 0.110 | 0.110 | 0.089 |
+| 1 open trunk, 000202_00_000000_000977 e18 | 0.083 | 0.088 | 0.086 | 0.109 | 0.125 | 0.101 | **0.129** | 0.092 | 0.100 | 0.054 |
+| 2 close trunk, 040005_07_001026_001223 e39 | 0.045 | 0.058 | 0.047 | 0.076 | 0.072 | 0.059 | 0.083 | 0.053 | **0.093** | 0.051 |
+| 3 close trunk, 040103_02_000199_000279 e12 | 0.126 | 0.130 | 0.130 | 0.148 | 0.154 | 0.127 | **0.161** | 0.123 | 0.132 | 0.096 |
+| 4 into vehicle, 040103_00_000000_000120 e27 | 0.098 | 0.101 | 0.103 | 0.126 | 0.127 | 0.114 | **0.133** | 0.104 | 0.103 | 0.079 |
+| 5 into vehicle, 040000_06_000746_000964 e13 | 0.054 | 0.069 | 0.055 | 0.083 | 0.078 | 0.066 | 0.089 | 0.058 | **0.091** | 0.049 |
+| 6 out of vehicle, 000101 e28 | 0.128 | 0.137 | 0.132 | 0.144 | 0.175 | 0.144 | **0.188** | 0.152 | 0.187 | 0.160 |
+| 7 out of vehicle, 040103_03_000284_000425 e40 | 0.112 | 0.121 | 0.115 | 0.135 | 0.153 | 0.125 | **0.161** | 0.132 | 0.140 | 0.104 |
+| 8 enter facility, 010205_04_000545_000576 e3 | 0.028 | 0.045 | 0.027 | 0.058 | 0.095 | 0.086 | 0.108 | 0.087 | **0.205** | 0.170 |
+| 9 enter facility, 010207_10_001549_001596 e12 | 0.025 | 0.041 | 0.025 | 0.058 | 0.090 | 0.084 | 0.103 | 0.087 | **0.198** | 0.169 |
+
+Captions: c0 *a person opening the trunk of a car*, c1 *someone lifting open a car's trunk*,
+c2 *a person closing the trunk of a car*, c3 *someone shutting a car's trunk*, c4 *a person
+getting into a car*, c5 *someone climbing into a vehicle*, c6 *a person getting out of a
+car*, c7 *someone stepping out of a vehicle*, c8 *a person walking into a building*, c9
+*someone entering a building through a door*.
+
+| Measure | Result |
+|---|---|
+| Clips whose own caption ranks first | **2 of 10** (6, 8) |
+| Clips whose first caption is of their own type | **4 of 10** (6, 7, 8, 9); chance is 2 of 10 |
+| Per type | entering a facility 2/2, getting out of a vehicle 2/2, getting into 0/2, opening a trunk 0/2, closing a trunk 0/2 |
+| Opening against closing a trunk | Not told apart: all 4 trunk clips rank a vehicle or building caption first, and each scores *shutting a car's trunk* (c3) above both opening captions |
+| One caption wins most rows | c6 *a person getting out of a car* is first for 6 of 10 clips |
+
+**What it means:** on these 10 clips the model puts a clip near the right *scene* (cars, a
+building's door) but does not tell the trunk actions apart and barely separates the vehicle
+actions. Similarities are low throughout (0.03-0.21). Why is not tested here: VIRAT's
+people are small in 1920 x 1080 frames that the checkpoint squeezes to 224 x 224, but that
+is a guess. This is a sanity check on 10 clips, not SM-1: search quality is measured on the
+labelled query set (OMNI-709, OMNI-713), with both streams fused.
+
+**GPU cost.** 5 warm-up calls, then the median of 20, `torch.cuda.synchronize()` around
+each. Frames from the stored full-frame JPEG (read, resize, encode: what ai_workers does);
+clips from 8 decoded 1920 x 1080 frames in memory (resize and encode). Peak GPU memory per
+measurement, both models loaded (weights: SigLIP 2 4.23 GiB, InternVideo2 1.43 GiB).
+
+| Encoder | Batch 1 | Batch 8 | Batch 32 | Peak GPU memory (b1 / b8 / b32) |
+|---|---:|---:|---:|---:|
+| SigLIP 2, ms per frame | 108 | 106 | 112 | 5.71 / 5.97 / 6.87 GiB |
+| InternVideo2, ms per clip | 297 | 319 | 316 | 5.76 / 6.40 / 8.57 GiB |
+| SigLIP 2 text, ms per query | 13.3 | | | 5.67 GiB |
+| InternVideo2 text, ms per query | 7.4 | | | 5.67 GiB |
+
+Batching does not lower the cost per frame or per clip. Each call includes image work on
+Colab's CPU (JPEG decode and resize for a frame, a bicubic resize of eight 1080p frames for
+a clip); that this part dominates is likely but **not measured**: the split between CPU
+preparation and GPU compute was not timed. Against this laptop's CPU (OMNI-704, OMNI-706):
+SigLIP 2 8.7 s → 0.11 s a frame; text 1.1 s → 13 ms (SigLIP 2), 131 ms → 7 ms (InternVideo2).
+
+**Not covered:** an A100; the CPU / GPU split of each call; float16 or TF32 (float32 only,
+as D-30, D-33); more than one run; the motion check on more than 10 clips.
 

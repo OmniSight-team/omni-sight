@@ -413,7 +413,7 @@ Every admitted frame now gets an embed job after its row commits, and ai_workers
 after its point is stored. A kill mid-batch lost nothing and duplicated nothing on a real
 VIRAT video. Encoding the stored archive is left until something needs it (D-35).
 
-## OMNI-706 · InternVideo2 pinned, and both encoders timed on the GPU (in progress)
+## OMNI-706 · InternVideo2 pinned, and both encoders timed on the GPU
 
 ### Why this ticket exists
 
@@ -475,7 +475,11 @@ chosen and pinned once, here. It also carries D-31's GPU timings for both encode
   required); with `test_encoder.py`, 22 passed including the model tests
 - The rebuilt ai_workers: healthy with both encoders; 200 queries each: InternVideo2 text
   131 ms median, SigLIP 2 1,097 ms; 3.84 GiB RSS, 4.17 GiB peak (`results.md`)
-- First Colab run: the batch-32 clip timing ran out of GPU memory on a 22 GiB GPU (not the
+- Colab, three runs: the first stopped on `No module named 'omnisight_common'` (an
+  editable install is only seen after a runtime restart; the setup cell now adds the path
+  itself); the second ran out of GPU memory (below); the third completed on an L4
+  (`results.md`)
+- The second Colab run: the batch-32 clip timing ran out of GPU memory on a 22 GiB GPU (not the
   A100 the ticket names). The video encoder's attention built the full attention matrix,
   8 GiB at batch 32; it now uses PyTorch's fused `scaled_dot_product_attention`, the same
   result to 5e-8 (checked against the original computation on a 2049-token input); the
@@ -485,12 +489,18 @@ chosen and pinned once, here. It also carries D-31's GPU timings for both encode
 
 ### Not verified
 
-- The motion check and the GPU timings: the notebook has not run on Colab yet
-- The notebook itself on Colab (install, Drive paths, CUDA)
+- The timings on an A100 (none free; an L4 was used, Ahmad's choice, recorded in D-31)
+- Where each call's time goes (CPU image work against GPU compute)
+- Why the motion check is weak (small people in squeezed 1080p frames is a guess, not tested)
 - The copied code against the original: not run side by side (the original could not be
   run here); the evidence is the strict weight load and sensible vectors
 
 ### Result
 
-In progress: the checkpoint is chosen, pinned and running; its text side fits on the
-laptop. Waiting for Ahmad's Colab run for the motion check and the GPU timings.
+Done. `OpenGVLab/InternVideo2_CLIP_S` is pinned (D-33): 8 frames at 224, **512-D** (Phase A
+says 768; recorded), unit vectors, the same numbers on the laptop's CPU and Colab's GPU. Its
+text side runs in ai_workers beside SigLIP 2 at 131 ms a query, 3.84 GiB in all (D-32). On
+an L4: SigLIP 2 about 110 ms a frame and 13 ms a query, InternVideo2 about 300 ms a clip
+and 7 ms a query; batching no cheaper per item. **The motion check is weak:** 2 of 10 own
+caption first, 4 of 10 own type, trunk opening and closing not told apart. Recorded, not
+hidden, and left to SM-1 to judge with both streams fused.
