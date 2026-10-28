@@ -36,6 +36,8 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-2, frame half | Each admitted frame of a 30 s uploaded MP4 and of 30 s from a live camera encodes to one 1152-D, unit-length vector, no error | Upload: 136 of 136 (VIRAT 0102, first 30 s, 720 frames gated). Camera `cam05`: 41 of 41. All 1152-D, finite, norms 0.9999998-1.0000001, 0 errors. One run, CPU | **Pass, first half** (clip embedding in slice 8) | 2026-10-19 | OMNI-704 |
 | SigLIP 2 cost on this laptop's CPU (information, D-31) | No target: the speed is judged on a GPU (Colab, OMNI-710) | 8.7 s per frame at batch 1, 9.3 s at batch 8; 1.2 s per text query; 4.2 GiB RSS; 80 s start to ready | Information only | 2026-10-19 | OMNI-704 |
 | NFR-5 for vectors (OMNI-705) | Every admitted frame ends with exactly one point; a kill of `ai_workers` mid-batch loses nothing and duplicates nothing | VIRAT video 3226, 44 admitted frames: killed 14 s into the 3rd batch with 16 stored and 8 in flight; after restart 44 of 44 frames with a point, 44 points, 0 missing, 0 extra, 0 dead letters. `GET /embeddings/status`: 44 / 44 | **Pass** (one video, one kill, D-35) | 2026-10-28 | OMNI-705 |
+| InternVideo2's text side on this laptop, beside SigLIP 2 (D-32) | Fits Docker's 7.6 GiB; ms per query recorded | ai_workers process 3.84 GiB after 400 queries, 4.17 GiB peak; InternVideo2 text median 131 ms (p95 300), SigLIP 2 text median 1,097 ms (p95 1,885); 200 queries each, one run | **Pass** (fits; preliminary) | 2026-10-28 | OMNI-706 |
+| InternVideo2 checkpoint (D-33): one 8-frame clip and one text | 512-D (Phase A: 768, D-33), finite, unit length | VIRAT 040103_00 event 29 (opening a trunk), 8 frames: clip and text 512-D, finite, norm 1.0; every checkpoint weight loaded with all keys matched. CPU, one clip | **Pass** (on CPU; GPU run pending) | 2026-10-28 | OMNI-706 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1860,3 +1862,37 @@ the acks, a window of milliseconds, covered by idempotent upserts and the unit t
 kill of the consumer between commit and publish on the real stack (unit test only); a new
 upload or a running camera producing jobs on the real stack (unit tests only); the other
 34,725 admitted frames (D-35); preliminary.
+
+## OMNI-706 · InternVideo2 on this laptop: the text side beside SigLIP 2, and one clip · 2026-10-28
+
+**Conditions:** this laptop (i7-1165G7, Docker Desktop 8 CPUs, 7.6 GiB), the whole stack up
+and idle, the embed queue empty. ai_workers rebuilt with both text encoders (SigLIP 2, D-30;
+InternVideo2-CLIP-S text side only, D-32, D-33). `scripts/measure_text_encoders.py --runs 20`:
+10 search-style queries, one warm-up round, then 20 rounds per encoder, one at a time, sent
+from inside `query` (HTTP round trip in the Docker network). Memory: the uvicorn process's
+`VmRSS` / `VmHWM`, as OMNI-704 (`docker stats` leaves out the memory-mapped weights).
+
+| Measure | Result |
+|---|---|
+| Start to healthy: SigLIP 2 load + warm-up / InternVideo2 text load + warm-up | 14.1 s + 87.0 s / 12.6 s |
+| InternVideo2 text, per query (200) | median 131 ms, p95 300 ms, max 517 ms |
+| SigLIP 2 text, per query (200) | median 1,097 ms, p95 1,885 ms, max 2,188 ms |
+| Process RSS after 400 queries / peak | 3.84 GiB / 4.17 GiB |
+| `docker stats` before / after | 988 / 1,004 MiB |
+
+OMNI-704 measured SigLIP 2 alone at 3.84 GiB after its queries, 4.23 GiB at peak: the
+63M-parameter text tower (about 0.25 GB in float32) does not show as a separate step at this
+resolution, and the total fits in 7.6 GiB with about 3.4 GiB to spare.
+
+**One clip and one text** (outside the service, `uv run`, CPU, float32): VIRAT
+`VIRAT_S_040103_00_000000_000120`, event 29 (type 3, opening a trunk, frames 2489-2577),
+8 frames at 2494, 2505, ..., 2571. Clip vector 512-D, text vectors 512-D, all finite, norm
+1.0. Full model load 36 s, 3.0 GB RSS; the clip took 29.6 s on this CPU, 4 texts 0.4 s.
+Similarity of the clip to *opening the trunk* 0.097, *closing the trunk* 0.100, *getting
+into a car* 0.121, *a dog running on grass* -0.002: one clip says nothing about motion; that
+is the 10-clip check on Colab.
+
+**Not covered:** the GPU timings and the motion check (`notebooks/encoders_gpu.ipynb`, to
+run on Colab's A100); the text encoders under load together with frame encoding; one run,
+one machine, preliminary.
+

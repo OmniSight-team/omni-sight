@@ -211,6 +211,18 @@ def virat_root(tmp_path: Path) -> Path:
     return root
 
 
+def test_virat_events_are_read_once_each_with_their_frames(virat_root):
+    write(
+        virat_root / "annotations" / f"{GOOD}.viratdata.events.txt",
+        "1 3 89 2489 2577 2489 1 1 1 1\n1 3 89 2489 2577 2490 1 1 1 1\n0 9 405 0 404 0 1 1 1 1\n",
+    )
+
+    events = virat.read_events(virat_root, GOOD)
+
+    assert events == [virat.Event(0, 9, 0, 404), virat.Event(1, 3, 2489, 2577)]
+    assert virat.EVENT_TYPES[events[1].event_type] == "Person Opening a Vehicle Trunk"
+
+
 def test_virat_empty_directories_are_not_annotations(virat_root):
     keys = [e.clip_key for e in virat.load(virat_root)]
     assert keys == [GOOD]

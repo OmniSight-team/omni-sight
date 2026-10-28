@@ -37,6 +37,10 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-29 | **Deviation:** `frame_vectors` point id = segment id (B.2 line 4); `captured_at` absolute for every source; payload times to the microsecond | 2026-10-19 | Done |
 | D-30 | The SigLIP 2 checkpoint (`google/siglip2-so400m-patch14-384` @ `e8e48729`), float32, lowercased text padded to 64 tokens | 2026-10-19 | Done |
 | D-31 | The encoder's speed is measured on a GPU (Colab); the laptop proves it works; NFR-1, NFR-2 = local stack times + GPU encode time | 2026-10-19 | Done |
+| D-32 | The laptop loads only InternVideo2's text side; clip vectors of the product's footage are made on Colab | 2026-10-28 | Done |
+| D-33 | **Deviation:** the InternVideo2 checkpoint (`OpenGVLab/InternVideo2_CLIP_S` @ `1f9fca13`), 512-D not 768, float32, its model code copied into the repo | 2026-10-28 | Done (motion check and GPU timings pending, Colab) |
+| D-34 | Embed jobs: a frame's domain, and the model pin shared by every service | 2026-10-28 | Done |
+| D-35 | OMNI-705 is proved on one video; the archive is not backfilled | 2026-10-28 | Done |
 
 ---
 
@@ -762,6 +766,87 @@ system. **Ahmad's decision.**
 **Revises:** OMNI-704's "measure on this machine" for the encoder's speed, and the sprint
 table's "NFR-1 and NFR-2 are system measurements" (D-26) for the encoding step only.
 The GPU measurement is done with OMNI-710 (the Colab ticket), on the same notebook run.
+
+## D-32 · The laptop loads only InternVideo2's text side · 2026-10-28
+
+**Ahmad's decision** (written in the sprint's ticket file on Wed 28, recorded here with
+OMNI-706). InternVideo2's video side does not belong on the laptop: with SigLIP 2 already
+taking about 4.2 GiB of Docker's 7.6 GiB, and SigLIP 2 already at 9 s a frame on this CPU,
+a second video model would not fit beside it and would be slower still. So:
+
+- **Clip vectors** of the product's footage (the 9 VIRAT videos, the 60 hand-check clips)
+  are encoded on Colab and imported from Drive (OMNI-708, OMNI-710)
+- **On the laptop,** a new upload or a camera gets a frame vector only; fused search ranks
+  it by the frame list alone (Algorithm 3 already gives a missing rank the value ∞)
+- **On a GPU machine** the same `ai_workers` code also encodes clips (`clip_encoder.py`,
+  `video=True`)
+- **ai_workers here** loads `ClipTextEncoder(video=False)`: the text tower's weights only
+
+**Measured** (`results.md`, OMNI-706): with both text encoders loaded, ai_workers' process
+is 3.84 GiB after 400 queries, 4.17 GiB at peak; InternVideo2's text takes 131 ms a query
+(median), SigLIP 2's 1,097 ms.
+
+**Not a Phase A deviation:** Phase A puts the AI Workers on a GPU (§3.3.2); this is where
+the laptop stands in for one.
+
+## D-33 · The InternVideo2 checkpoint, pinned, and how it runs · 2026-10-28
+
+**The model:** `OpenGVLab/InternVideo2_CLIP_S` at revision
+**`1f9fca1389fd883defc652634d95a21121c85a8c`** (Hugging Face, last modified 2025-05-22,
+Apache-2.0). Pinned in `CommonSettings` (`clip_model_id`, `clip_model_revision`), like
+SigLIP 2 (D-30, D-34): clip vectors are made on Colab and searched here with the text
+side, so both sides must be this exact revision.
+
+**Chosen by the ticket's three checks, not by name** (OpenGVLab's InternVideo2 checkpoints
+on Hugging Face, 2026-10-28):
+
+| Checkpoint | 8 frames at 224 | Dimension | Text side on the laptop | Result |
+|---|---|---|---|---|
+| `InternVideo2-Stage2_1B-224p-f4` | No: 4 frames (`f4`); gated, one 2.8 GB `.pt` | Not read (gated) | Not read (gated) | Fails the first check |
+| `InternVideo2-CLIP-1B-224p-f8` | Yes (`f8`) | Not read (gated) | Not checkable: gated, and the repository holds only a 14 MB `1B_clip.pth`, far too small to be the model, so the rest comes from elsewhere | Not one usable checkpoint |
+| `InternVideo2-Stage2_6B`, `InternVideo2-CLIP-6B-224p-f8` | — | — | A 6B model | Not checked further: too large |
+| `InternVideo2_distillation_models` | Yes (`f8`) | — | `stage1/`: video only, no text side; `clip/`: 2-9 MB files, heads only | No text side |
+| **`InternVideo2_CLIP_S`** | **Yes** (config `num_frames` 8, `img_size` 224; run) | **512** (run) | **63M parameters, 131 ms a query beside SigLIP 2** | **Passes all three** |
+
+Its video side is a 24-layer InternVideo2 ViT (1024 wide, patch 14, 309M parameters); its
+text side is MobileCLIP's text transformer (63M). It is a small InternVideo2 retrieval
+model, not the 1B or 6B the paper reports.
+
+**Deviation (dimension):** Phase A writes a 768-D clip embedding (Appendix B.2, line 3).
+This checkpoint's video features are 768-D, but the space where video and text meet is
+512-D (`vision_align` and the text projection), and only that space can be searched with a
+query. So `clip_vectors` is 512-D: the collection follows the model, as the ticket says.
+Confirmed by running it (one VIRAT clip and texts: 512-D, finite, norm 1.0).
+
+**How it runs (`services/ai_workers/app/clip_encoder.py`):**
+
+- **The model code is copied into the repo** (`services/ai_workers/app/internvideo2/`),
+  not run from the download. The checkpoint ships its code as `.py` files beside the
+  weights; running those means executing files downloaded from the internet (Claude Code's
+  permission check refused it), they could change upstream, and they import `flash_attn`,
+  which cannot be installed without CUDA. The copy is inference only: the flash-attention
+  and fused paths (the config turns them off), training-only parts and the image-only path
+  removed, module and parameter names unchanged. Only `config.json` and `model.safetensors`
+  are downloaded; every weight loads with every key matched (`strict=True`), and a test
+  checks no part of the checkpoint is left out (only the training temperature is unused)
+- **float32 on both machines** (the weights are stored half in float16), as D-30
+- **Frames:** `uniform_indices` is Algorithm 2's `uniform_subsample`: 8 frames, the middle
+  of each eighth of the span, as the checkpoint's own "middle" sampling; a span under 8
+  frames repeats its last frame. Each frame resized to 224 x 224 (bicubic, aspect ratio not
+  kept), scaled to [0, 1], ImageNet mean and std: the checkpoint's own transform
+- **Text:** open_clip's ViT-B-16 tokenizer, the one the checkpoint was trained with; it
+  lowercases and cleans the text itself; 77 tokens. Nothing added (a test shows upper and
+  lower case give the same vector)
+- **The checkpoint** sits in `models/pretrained/internvideo2-clip-s/` (never committed;
+  746 MB) and on Colab in `MyDrive/omnisight/models/pretrained/internvideo2-clip-s/`,
+  downloaded at the pinned revision if missing, with a `REVISION` file (D-30's
+  `ensure_checkpoint`)
+- **Licences:** InternVideo2's code Apache-2.0 (OpenGVLab); the text encoder Copyright
+  Apple Inc., MobileCLIP's licence; both named in the copied files
+
+**Pending on Colab** (`notebooks/encoders_gpu.ipynb`): the motion check (10 VIRAT event
+clips of 5 types against 10 captions) and the GPU timings. If the motion check shows the
+model cannot tell opening from closing a trunk, that is recorded, not hidden.
 
 ## D-34 · Embed jobs: a frame's domain, and the model pin shared by every service · 2026-10-28
 

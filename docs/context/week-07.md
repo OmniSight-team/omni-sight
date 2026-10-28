@@ -412,3 +412,80 @@ numbers.
 Every admitted frame now gets an embed job after its row commits, and ai_workers acks only
 after its point is stored. A kill mid-batch lost nothing and duplicated nothing on a real
 VIRAT video. Encoding the stored archive is left until something needs it (D-35).
+
+## OMNI-706 · InternVideo2 pinned, and both encoders timed on the GPU (in progress)
+
+### Why this ticket exists
+
+FR-2's temporal half: Algorithm 2 lines 2-3 encode an 8-frame clip with InternVideo2, so
+search can tell actions apart (opening against closing a trunk), which a single frame
+cannot. The forecasting model later trains on these clip vectors, so the checkpoint is
+chosen and pinned once, here. It also carries D-31's GPU timings for both encoders.
+
+### What was done
+
+- **Getting the code to Colab:** the repo had no remote. Ahmad pushed it to the existing
+  public repo `OmniSight-team/omni-sight` as two new branches, `phase-b` (from `master`)
+  and `slice-07-search`, leaving Phase A's `main` alone. Before the push, all 81 commits
+  were checked for secrets: only `changeme` placeholders in `.env.example`. Colab clones
+  the branch with no token (public)
+- **The checkpoint, by the ticket's three checks** (D-33): OpenGVLab's InternVideo2 repos
+  on Hugging Face were listed and their files and configs read. `Stage2_1B` takes 4 frames;
+  `CLIP-1B-224p-f8` is gated and holds only a 14 MB head file; the 6B ones are too large;
+  the distillation repo has no text side. `InternVideo2_CLIP_S` passes: 8 frames at 224,
+  512-D (run), a 63M-parameter text side. Phase A says 768; the 768-D features exist
+  inside the model, but the searchable video-text space is 512-D, so `clip_vectors` will
+  be 512-D (recorded as a deviation in D-33)
+- **Detour: the model code.** The checkpoint ships its model as `.py` files next to the
+  weights. The first version imported them from the download folder (with a stub for
+  `flash_attn`, which they import but the config turns off); Claude Code's permission check
+  refused to run downloaded code. Ahmad chose to copy the code into the repo instead:
+  `services/ai_workers/app/internvideo2/` (`vision.py`, `text.py`), inference only, read
+  line by line, names unchanged, sources and licences in the header. Only `config.json`
+  and `model.safetensors` are downloaded now. With the copy, `timm` and `einops` were no
+  longer needed; `open-clip-torch` (the tokenizer) and `torchvision` (CPU wheels, the
+  resize) stayed
+- **`clip_encoder.py`** beside `encoder.py`, the same style: `ClipTextEncoder(model_dir,
+  device, video=True|False)`, `encode_clips` (8 RGB frames per clip, the checkpoint's own
+  resize and normalisation), `encode_texts`, float32, 512-D unit vectors checked on every
+  call; `uniform_indices` (Algorithm 2's `uniform_subsample`, the checkpoint's "middle"
+  sampling) and `read_clip` (OpenCV, imported only where clips are read from files)
+- **The pin** in `CommonSettings` (`clip_model_id`, `clip_model_revision`), next to
+  SigLIP 2's; `ensure_checkpoint` takes the checkpoint's own download patterns
+- **ai_workers on the laptop** (D-32) loads `ClipTextEncoder(video=False)` after SigLIP 2,
+  warms it up, reports both models on `/health`, and answers `POST /encode/clip-text`
+- **VIRAT events:** `virat.read_events` and `EVENT_TYPES` in `omnisight_common`, the 12
+  type names checked against the Release 2.0 description (PDF, section 3.2), so the
+  notebook names its clips from the repo, not from memory
+- **`notebooks/encoders_gpu.ipynb`:** clones the branch, installs the locked versions,
+  mounts Drive, loads both encoders on the GPU from `MyDrive/omnisight/models/pretrained/`,
+  then the one-clip check, the motion check and the timings; writes everything to
+  `MyDrive/omnisight/results/omni706_encoders_gpu.json`
+- **`scripts/measure_text_encoders.py`:** ms per query for both text encoders and the
+  container's memory
+- Fixed a wrong reference in OMNI-705's `embed_jobs.py` (the domain rule is D-34, not
+  D-33); added the missing D-34 and D-35 rows to the index table of `decisions.md`
+
+### Verification performed
+
+- One VIRAT trunk-opening clip (040103_00, event 29) and four texts, on this CPU: every
+  checkpoint weight loaded with all keys matched; 512-D, finite, norm 1.0 (`results.md`)
+- `test_clip_encoder.py`: 13 tests (sampling, text side, the video side marked `model`:
+  unit 512-D, batch equals one at a time, frame order changes the vector, 8 frames
+  required); with `test_encoder.py`, 22 passed including the model tests
+- The rebuilt ai_workers: healthy with both encoders; 200 queries each: InternVideo2 text
+  131 ms median, SigLIP 2 1,097 ms; 3.84 GiB RSS, 4.17 GiB peak (`results.md`)
+- The notebook's clip selection, run locally against the full VIRAT annotations: 42 to 156
+  candidates per type, 10 clips chosen
+
+### Not verified
+
+- The motion check and the GPU timings: the notebook has not run on Colab yet
+- The notebook itself on Colab (install, Drive paths, CUDA)
+- The copied code against the original: not run side by side (the original could not be
+  run here); the evidence is the strict weight load and sensible vectors
+
+### Result
+
+In progress: the checkpoint is chosen, pinned and running; its text side fits on the
+laptop. Waiting for Ahmad's Colab run for the motion check and the GPU timings.

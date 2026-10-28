@@ -5,7 +5,7 @@ needs no database: everything it stores next to the vector comes from here.
 
 The domain is not on a segment. It is taken from, in order: the frame's camera (a live
 frame), the video's camera, the dataset the video was loaded from (`dataset_manifest`),
-and otherwise `surveillance` (D-33): a plain upload with no camera has no domain recorded.
+and otherwise `surveillance` (D-34): a plain upload with no camera has no domain recorded.
 """
 
 from collections.abc import Iterable, Iterator

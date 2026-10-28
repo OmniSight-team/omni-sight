@@ -27,11 +27,16 @@ UNIT_TOLERANCE = 1e-4
 REVISION_FILE = "REVISION"
 
 
-def ensure_checkpoint(model_id: str, revision: str, model_dir: str | Path) -> Path:
+ALLOW_PATTERNS = ["*.json", "*.safetensors", "tokenizer.model"]
+
+
+def ensure_checkpoint(model_id: str, revision: str, model_dir: str | Path,
+                      allow_patterns: list[str] = ALLOW_PATTERNS) -> Path:
     """The checkpoint's files at the pinned revision, downloaded if missing.
 
     A `REVISION` file in the folder records which revision its files are; a folder holding
-    any other revision is brought to the pinned one rather than silently used.
+    any other revision is brought to the pinned one rather than silently used. Used for
+    InternVideo2 too (OMNI-706), with that checkpoint's own `allow_patterns`.
     """
     folder = Path(model_dir)
     marker = folder / REVISION_FILE
@@ -42,7 +47,7 @@ def ensure_checkpoint(model_id: str, revision: str, model_dir: str | Path) -> Pa
             model_id,
             revision=revision,
             local_dir=folder,
-            allow_patterns=["*.json", "*.safetensors", "tokenizer.model"],
+            allow_patterns=allow_patterns,
         )
         marker.write_text(revision + "\n")
     return folder

@@ -55,6 +55,11 @@ class CommonSettings(BaseSettings):
     # vectors of this model.
     frame_model_id: str = "google/siglip2-so400m-patch14-384"
     frame_model_revision: str = "e8e487298228002f3d8a82e0cd5c8ea9c567f57f"
+    # OMNI-706: Algorithm 2's clip encoder and Algorithm 3's second text encoder, pinned the
+    # same way (D-33). Clip vectors are made on Colab (D-32) and searched here with this
+    # model's text side, so both must be this exact revision.
+    clip_model_id: str = "OpenGVLab/InternVideo2_CLIP_S"
+    clip_model_revision: str = "1f9fca1389fd883defc652634d95a21121c85a8c"
 
     # OMNI-705: admitted frames waiting for a vector. The consumer publishes one job per
     # admitted frame after its row commits; ai_workers acknowledges it after the upsert.
