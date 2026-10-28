@@ -126,10 +126,11 @@ class Attention(nn.Module):
             q = self.q_norm(q.transpose(1, 2).flatten(-2, -1)).view(B_, N_, H_, D_).transpose(1, 2)
             k = self.k_norm(k.transpose(1, 2).flatten(-2, -1)).view(B_, N_, H_, D_).transpose(1, 2)
 
-        attn = (q * self.scale) @ k.transpose(-2, -1)
-        attn = attn.softmax(dim=-1)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        # softmax(q k^T * scale) v, as the original's naive path, through PyTorch's fused
+        # kernel: the same result without holding the full attention matrix (B x 16 x 2049 x
+        # 2049 floats, 8 GiB at batch 32), which ran a 22 GiB GPU out of memory (OMNI-706).
+        x = F.scaled_dot_product_attention(q, k, v, scale=self.scale)
+        x = x.transpose(1, 2).reshape(B, N, C)
         return self.proj(x)
 
 

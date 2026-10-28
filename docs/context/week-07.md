@@ -470,11 +470,16 @@ chosen and pinned once, here. It also carries D-31's GPU timings for both encode
 
 - One VIRAT trunk-opening clip (040103_00, event 29) and four texts, on this CPU: every
   checkpoint weight loaded with all keys matched; 512-D, finite, norm 1.0 (`results.md`)
-- `test_clip_encoder.py`: 13 tests (sampling, text side, the video side marked `model`:
+- `test_clip_encoder.py`: 12 tests (sampling, text side, the video side marked `model`:
   unit 512-D, batch equals one at a time, frame order changes the vector, 8 frames
   required); with `test_encoder.py`, 22 passed including the model tests
 - The rebuilt ai_workers: healthy with both encoders; 200 queries each: InternVideo2 text
   131 ms median, SigLIP 2 1,097 ms; 3.84 GiB RSS, 4.17 GiB peak (`results.md`)
+- First Colab run: the batch-32 clip timing ran out of GPU memory on a 22 GiB GPU (not the
+  A100 the ticket names). The video encoder's attention built the full attention matrix,
+  8 GiB at batch 32; it now uses PyTorch's fused `scaled_dot_product_attention`, the same
+  result to 5e-8 (checked against the original computation on a 2049-token input); the
+  clip tests pass again
 - The notebook's clip selection, run locally against the full VIRAT annotations: 42 to 156
   candidates per type, 10 clips chosen
 

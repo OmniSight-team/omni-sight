@@ -17,4 +17,8 @@ paths (the checkpoint's config turns them off, and `flash_attn` cannot be instal
 without CUDA), training-only parts (drop path, gradient checkpointing, weight
 initialisation: every weight is loaded from the checkpoint), and the image-only path.
 Module and parameter names are unchanged, so the checkpoint loads with every key matched.
+One computation is written differently: the video encoder's self-attention uses PyTorch's
+`scaled_dot_product_attention` instead of building the attention matrix by hand, the same
+result to float rounding (max difference 5e-8 on a 2049-token clip) without the 8 GiB
+matrix that ran a 22 GiB GPU out of memory at batch 32.
 """
