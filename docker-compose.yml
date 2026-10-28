@@ -131,6 +131,8 @@ services:
   # encoder) on the CPU; query asks it to encode a search query (POST /encode/text).
   # No port published and no nginx route. The checkpoint lives in models/pretrained/
   # (never committed) and is downloaded there at the pinned revision if missing.
+  # OMNI-705: it also consumes `omnisight.embed` (one job per admitted frame, published
+  # by the consumers) and writes each frame's point to Qdrant.
   ai-workers:
     build:
       context: .
@@ -140,6 +142,8 @@ services:
       - .env
     environment:
       FRAME_MODEL_DIR: /models/pretrained/siglip2-so400m-patch14-384
+      RABBITMQ_HOST: rabbitmq
+      QDRANT_HOST: qdrant
     volumes:
       - ./services/common:/workspace/services/common
       - ./services/ai_workers:/workspace/services/ai_workers
@@ -157,6 +161,11 @@ services:
       retries: 6
       # Loading the checkpoint takes a while; a first start also downloads it.
       start_period: 600s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
 
   # OMNI-311: reads segments off the queue and writes the rows. The query
   # image with a different command, so it can be killed and restarted without

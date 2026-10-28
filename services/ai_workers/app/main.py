@@ -1,6 +1,9 @@
 """ai_workers' internal API (OMNI-704). Not published to the host and not routed by nginx:
 only services inside the Docker network reach it, and query is the one that does, to turn a
 search query into a vector. query never loads a model itself.
+
+OMNI-705: the same process consumes the embed queue on a thread of its own (embed_worker.py),
+so the one loaded model encodes both the admitted frames and the search queries.
 """
 
 import logging
@@ -10,9 +13,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from omnisight_common import connection_parameters
+from omnisight_common.frame_vectors import qdrant_client
 from PIL import Image
 from pydantic import BaseModel, Field
 
+from app.embed_worker import EmbedWorker
 from app.encoder import FrameTextEncoder, ensure_checkpoint
 from app.logging_conf import configure_logging
 from app.settings import settings
@@ -46,7 +52,23 @@ async def lifespan(_app: FastAPI):
             "warm_up_s": round(time.perf_counter() - loaded, 1),
         }},
     )
+    worker = None
+    if settings.embed_consumer_enabled:
+        worker = EmbedWorker(
+            encoder,
+            lambda: qdrant_client(settings),
+            connection_params=connection_parameters(settings),
+            queue=settings.embed_queue,
+            collection=settings.frame_collection,
+            model=settings.frame_model_id,
+            model_revision=settings.frame_model_revision,
+            batch_size=settings.embed_batch_size,
+            batch_wait_s=settings.embed_batch_wait_s,
+        )
+        worker.start()
     yield
+    if worker is not None:
+        worker.stop(timeout_s=5)
     state.clear()
 
 

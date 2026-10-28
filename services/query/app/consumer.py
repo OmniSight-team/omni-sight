@@ -14,6 +14,9 @@ The one thing that can then happen twice is a message whose row *was*
 committed but whose acknowledgement never got out; the unique index on
 (video_id, frame_index) turns that second delivery into a no-op instead of a
 duplicate row.
+
+OMNI-705: after an admitted frame's row commits, and before the message is
+acknowledged, its embed job goes onto `omnisight.embed` for ai_workers.
 """
 
 import json
@@ -34,11 +37,13 @@ from omnisight_common import (
     declare_camera_event_queue,
     declare_segment_queue,
 )
+from omnisight_common.embed_queue import declare_embed_queue
 from pydantic import ValidationError
 from sqlalchemy import or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db import SessionLocal
+from app.embed_jobs import job_for_frame, publish_jobs
 from app.logging_conf import configure_logging
 from app.models import Camera, CameraStats, Segment, Video
 from app.settings import settings
@@ -267,6 +272,29 @@ def _on_event(channel, method, _properties, body: bytes) -> None:
         )
 
 
+def queue_embedding(channel, body: bytes) -> bool:
+    """Publish the embed job for a stored admitted frame (OMNI-705). True if one was
+    published. Called after the commit and before the acknowledgement, so a process
+    that dies in between gets the message again, finds the row there (DUPLICATE) and
+    publishes the job then: a stored frame cannot end up without one. A job published
+    twice upserts the same point twice."""
+    message = SegmentMessage.model_validate_json(body)
+    if not message.admitted:
+        return False
+    with SessionLocal() as db:
+        job = job_for_frame(
+            db,
+            video_id=message.video_id,
+            camera_id=message.camera_id,
+            frame_index=message.frame_index,
+            timestamp_s=message.timestamp_s,
+        )
+    if job is None:
+        return False
+    publish_jobs(channel, settings.embed_queue, [job])
+    return True
+
+
 def _on_message(channel, method, _properties, body: bytes) -> None:
     try:
         outcome = store_segment(body)
@@ -280,7 +308,11 @@ def _on_message(channel, method, _properties, body: bytes) -> None:
         channel.basic_nack(method.delivery_tag, requeue=False)
         return
     # store_segment returned: the row is committed (or there was nothing to
-    # commit). Only now is it safe to tell the broker it can forget the message.
+    # commit). Its frame's embed job goes out next; a failure to publish raises,
+    # which drops the connection and brings this message back.
+    if outcome is not Outcome.STALE:
+        queue_embedding(channel, body)
+    # Only now is it safe to tell the broker it can forget the message.
     channel.basic_ack(method.delivery_tag)
     if outcome is not Outcome.STORED:
         logger.info(
@@ -296,6 +328,10 @@ def start(channel, on_message=_on_message, on_event=None, *, queue: str | None =
     `on_event` also subscribes to the camera status queue (OMNI-313)."""
     queue = queue or settings.segment_queue
     declare_segment_queue(channel, queue)
+    # OMNI-705: embed jobs are published on this channel; in confirm mode each publish
+    # returns only once the broker has the (persistent) job.
+    channel.confirm_delivery()
+    declare_embed_queue(channel, settings.embed_queue)
     # The most unacknowledged messages this consumer may hold. Without it the
     # broker pushes the whole backlog at the first consumer to connect, and a
     # second consumer sits idle while the first works through it.

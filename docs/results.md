@@ -35,6 +35,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-3, frame half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 2 runs: 1,000 of 1,000 by id (payloads equal as JSON bytes, vectors bit-identical) and by filtered search, filter counts equal, a redelivery of 100 left 1,000 points; the same after each restart (healthy again in 4.7-4.8 s). First run failed: 66 `timestamp_s` values one unit in the last place off, fixed (D-29) | **Pass, first half** (`clip_vectors` in slice 8) | 2026-10-19 | OMNI-703 |
 | TC-2, frame half | Each admitted frame of a 30 s uploaded MP4 and of 30 s from a live camera encodes to one 1152-D, unit-length vector, no error | Upload: 136 of 136 (VIRAT 0102, first 30 s, 720 frames gated). Camera `cam05`: 41 of 41. All 1152-D, finite, norms 0.9999998-1.0000001, 0 errors. One run, CPU | **Pass, first half** (clip embedding in slice 8) | 2026-10-19 | OMNI-704 |
 | SigLIP 2 cost on this laptop's CPU (information, D-31) | No target: the speed is judged on a GPU (Colab, OMNI-710) | 8.7 s per frame at batch 1, 9.3 s at batch 8; 1.2 s per text query; 4.2 GiB RSS; 80 s start to ready | Information only | 2026-10-19 | OMNI-704 |
+| NFR-5 for vectors (OMNI-705) | Every admitted frame ends with exactly one point; a kill of `ai_workers` mid-batch loses nothing and duplicates nothing | VIRAT video 3226, 44 admitted frames: killed 14 s into the 3rd batch with 16 stored and 8 in flight; after restart 44 of 44 frames with a point, 44 points, 0 missing, 0 extra, 0 dead letters. `GET /embeddings/status`: 44 / 44 | **Pass** (one video, one kill, D-35) | 2026-10-28 | OMNI-705 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1834,3 +1835,28 @@ now logs in again before cleaning up and reports a failed delete.
 
 **Not covered:** the vectors written to Qdrant (OMNI-705); the clip embedding (slice 8);
 GPU timing (OMNI-710, D-31); one run.
+
+## OMNI-705 · Every admitted frame reaches the encoder: a kill mid-batch · 2026-10-28
+
+The real stack (`docker compose up -d`), laptop CPU, the pinned SigLIP 2 (D-30), batches of
+8. One VIRAT demo video, 3226 (scene 0002, `VIRAT_S_000207_00_000000_000045`), 44 admitted
+frames, none with a point before. `scripts/backfill_embeddings.py queue --video 3226`
+published 44 jobs to `omnisight.embed` at 14:09:37; ai_workers consumed them.
+
+| Moment | Frames with a point | Points | Ready in the queue | Dead letters |
+|---|---|---|---|---|
+| Before | 0 of 44 | 0 | 0 | 0 |
+| 2 batches stored, `docker compose kill ai-workers` 14 s into the 3rd (14:13:48) | 16 of 44 | 16 | 28 (the 8 in flight came back) | 0 |
+| Restarted 14:14:09, healthy 14:15:41, done 14:20:25 | **44 of 44** | **44** | 0 | 0 |
+
+`check --video 3226`: missing 0, the model's points for the video = 44 = frames with a
+point (no extra, no duplicate). `GET /embeddings/status` from inside the stack: video 3226
+`frames_total` 44, `frames_embedded` 44, `clips_embedded` 0. After the restart the worker
+encoded the remaining 28 in 4 batches (8, 8, 8, 4). Batches took 72-134 s for 8 frames
+(9-17 s a frame; the first was slower, the stack had just started).
+
+**Not covered:** one video, one kill, at one moment (mid-encode; not between the upsert and
+the acks, a window of milliseconds, covered by idempotent upserts and the unit tests); a
+kill of the consumer between commit and publish on the real stack (unit test only); a new
+upload or a running camera producing jobs on the real stack (unit tests only); the other
+34,725 admitted frames (D-35); preliminary.

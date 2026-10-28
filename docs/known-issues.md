@@ -19,6 +19,8 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
 | K-21 | About 1.05 GB of frame and thumbnail files on disk have no segment row, so the dashboard's storage does not count them; playback copies (22.7 MB) are not counted either | FR-9 (storage in use), K-8 | OMNI-610 | Slice 16 (retention) |
 | K-23 | On VIRAT the gate keeps almost only heartbeats: 4 of 9 demo videos kept no frame for motion (a fifth kept 3), though all have annotated events | FR-1b, FR-4 (what search can find), SM-1 | OMNI-702 | Slice 8, before SM-1 |
+| K-24 | Deleting or re-gating a video leaves its old frames' points in `frame_vectors` | FR-4 (search could return a frame that no longer exists) | OMNI-705 | OMNI-707 (`GET /search`) |
+| K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
 
 ---
 
@@ -126,6 +128,34 @@ each burst restarts the read timeout; and the age a tile shows ("last frame 11 s
 from when the late frames *arrived*, not from when they were captured, so it understates how
 old the picture is. Both are the second fix candidate above (stamp frames by the stream's own
 time, or treat a worker that is not receiving for a read timeout as lost).
+
+## K-24 · Old points left behind by a deleted or re-gated video
+
+2026-10-28, OMNI-705. A point's id is its segment id (D-29). Deleting a video deletes its
+segments (cascade) but nothing removes their points from Qdrant; a re-gate replaces a
+video's segments with new ones (new ids) and the old ids' points stay. An old embed job
+still in the queue can even write one after the re-gate. `GET /embeddings/status` does not
+count them (it counts frames whose id has a point, D-34), but a search over `frame_vectors`
+would return them, pointing at a frame that is gone.
+**Fix candidates:** search drops hits whose segment id is not in `segments` (one indexed
+query per page of hits); and/or delete a video's points by `video_id` when it is deleted or
+re-gated. The first is needed anyway because of the queued-job race.
+
+## K-25 · The embed queue cannot keep up on this laptop
+
+2026-10-28, OMNI-705. SigLIP 2 takes about 9 s a frame on this CPU, batch 1 or 8
+(`results.md`, OMNI-704). When the backfill started the stack held **34,769 admitted
+frames** with no vector: VIRAT 1,039, CCD 1,014, live (2 disabled cameras) 2,015,
+**UCF-Crime 30,701**. That is about 87 h of encoding with the CPU fully busy, which would
+also distort NFR-1/NFR-2's local timings (OMNI-714). The ticket's "about 2.5 h" counted
+VIRAT only. A running camera admits frames faster than one per 9 s, so its backlog only
+grows while it runs. Expected on a machine with no GPU (D-31); recorded so the numbers are
+not a surprise. The backfill queues VIRAT first, then CCD, other uploads, live, and
+UCF-Crime last (`scripts/backfill_embeddings.py --only`).
+**Options:** let the laptop run UCF-Crime's frames over several days, or encode the
+product's UCF-Crime frames on Colab's GPU with the same code and import the points (the
+D-32 pattern for clip vectors). **Decided 2026-10-28 (D-35):** neither for now; OMNI-705
+is proved on one video, and only VIRAT is queued, when search needs it.
 
 ## K-23 · On VIRAT the gate keeps almost only heartbeats
 

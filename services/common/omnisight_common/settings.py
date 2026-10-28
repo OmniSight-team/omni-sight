@@ -47,3 +47,15 @@ class CommonSettings(BaseSettings):
     qdrant_timeout_s: float = 10.0
     # Overridable so a test can use a collection of its own (OMNI-703's TC-3 does).
     frame_collection: str = "frame_vectors"
+
+    # OMNI-704: Algorithm 2's frame encoder (Phase A §3.5.2), pinned to one revision so
+    # this machine and Colab run the same weights (D-30). Changing either is a new model:
+    # the stored vectors would no longer be comparable with new ones. Here since OMNI-705:
+    # ai_workers writes vectors of this model, and query counts (and will search) only
+    # vectors of this model.
+    frame_model_id: str = "google/siglip2-so400m-patch14-384"
+    frame_model_revision: str = "e8e487298228002f3d8a82e0cd5c8ea9c567f57f"
+
+    # OMNI-705: admitted frames waiting for a vector. The consumer publishes one job per
+    # admitted frame after its row commits; ai_workers acknowledges it after the upsert.
+    embed_queue: str = "omnisight.embed"

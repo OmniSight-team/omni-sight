@@ -1,17 +1,23 @@
 from omnisight_common import CommonSettings
+from pydantic import Field
 
 
 class Settings(CommonSettings):
     app_name: str = "omnisight-ai-workers"
 
-    # OMNI-704: Algorithm 2's frame encoder (Phase A §3.5.2), pinned to one revision so
-    # this machine and Colab run the same weights (D-30). Changing either is a new model:
-    # the stored vectors would no longer be comparable with new ones.
-    frame_model_id: str = "google/siglip2-so400m-patch14-384"
-    frame_model_revision: str = "e8e487298228002f3d8a82e0cd5c8ea9c567f57f"
+    # The pinned checkpoint itself (`frame_model_id`, `frame_model_revision`) is in
+    # CommonSettings since OMNI-705: query counts the vectors of that model only.
     # Where the checkpoint's files are kept (`models/pretrained/`, never committed),
     # downloaded at the pinned revision on the first start if missing.
     frame_model_dir: str = "/models/pretrained/siglip2-so400m-patch14-384"
+
+    # OMNI-705: the embed queue's consumer. At most this many frames are encoded together
+    # (also the broker's prefetch, so it never holds more than one batch unacknowledged).
+    # A batch closes when it is full or when no further job arrives within the wait.
+    embed_batch_size: int = Field(8, ge=1)
+    embed_batch_wait_s: float = Field(0.5, gt=0)
+    # Off for a process that only serves text queries.
+    embed_consumer_enabled: bool = True
 
 
 settings = Settings()

@@ -240,3 +240,15 @@ class DashboardActivityOut(BaseModel):
     segments: int
     # None until alerts exist (slice 9).
     alerts: int | None
+
+
+class EmbeddingStatusOut(BaseModel):
+    """OMNI-705: one video's (or one camera's live) admitted frames against their vectors."""
+
+    video_id: int | None
+    camera_id: int | None
+    frames_total: int
+    frames_embedded: int
+    # 0 until clip vectors exist (OMNI-710).
+    clips_embedded: int
+    model: str

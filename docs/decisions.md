@@ -762,3 +762,37 @@ system. **Ahmad's decision.**
 **Revises:** OMNI-704's "measure on this machine" for the encoder's speed, and the sprint
 table's "NFR-1 and NFR-2 are system measurements" (D-26) for the encoding step only.
 The GPU measurement is done with OMNI-710 (the Colab ticket), on the same notebook run.
+
+## D-34 · Embed jobs: a frame's domain, and the model pin shared by every service · 2026-10-28
+
+**A frame's domain** (`FramePayload.domain`, OMNI-703) is not stored on a segment. The
+embed job (OMNI-705) takes it from, in order: the live frame's camera, the video's camera,
+the dataset the video was loaded from (`dataset_manifest.domain`), and otherwise
+**`surveillance`**. A plain upload with no camera has no domain recorded anywhere; Phase A's
+main domain is surveillance. If uploads get a domain of their own later, the job takes it
+from there instead.
+
+**The pinned checkpoint moved to `CommonSettings`** (`frame_model_id`,
+`frame_model_revision`; values unchanged from D-30). ai_workers writes vectors of that model
+and query counts (and will search) only vectors of that model, so both read the same pin.
+
+**`frames_embedded` counts frames, not points:** an admitted frame counts when a point of
+the pinned model has its segment id. A point whose segment no longer exists (K-24) is not
+counted.
+
+**Not a Phase A deviation:** choices inside Algorithm 2's payload and storage.
+
+## D-35 · OMNI-705 is proved on one video; the archive is not backfilled · 2026-10-28
+
+**Ahmad's decision.** The ticket's goal is durability: every admitted frame reaches the
+encoder and ends with exactly one point, even through a kill. That is shown on one VIRAT
+video (3226, 44 frames; `results.md`, OMNI-705), not by encoding everything stored.
+
+**Revises** OMNI-705's backfill line ("queue every admitted segment ... the 60 hand-check
+clips, the 9 VIRAT videos") and its acceptance ("after the backfill, `frames_embedded =
+frames_total` for every video"). The stack holds 34,769 admitted frames, about 87 h on this
+CPU (K-25); the ticket's 2.5 h counted VIRAT only. The 60 hand-check clips (CCD and
+UCF-Crime) are not searched in this sprint, and SM-1 is measured on VIRAT only (OMNI-713, on
+Colab). The other VIRAT videos are queued when search needs them
+(`scripts/backfill_embeddings.py queue --only virat`, about 2.5 h); the rest when something
+needs it.

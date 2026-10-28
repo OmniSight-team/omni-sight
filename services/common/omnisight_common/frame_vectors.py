@@ -85,6 +85,32 @@ def frame_point(payload: FramePayload, vector: list[float]) -> models.PointStruc
     return models.PointStruct(id=payload.segment_id, vector=vector, payload=payload.model_dump(mode="json"))
 
 
+def embedded_segment_ids(client: QdrantClient, name: str, model: str, model_revision: str) -> set[int]:
+    """The ids (= segment ids) of every point made by this model at this revision
+    (OMNI-705). Ids only: no payload, no vector. A point from another model is not this
+    model's vector of the frame, so it is not counted."""
+    same_model = models.Filter(
+        must=[
+            models.FieldCondition(key="model", match=models.MatchValue(value=model)),
+            models.FieldCondition(key="model_revision", match=models.MatchValue(value=model_revision)),
+        ]
+    )
+    ids: set[int] = set()
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=name,
+            scroll_filter=same_model,
+            limit=10_000,
+            offset=offset,
+            with_payload=False,
+            with_vectors=False,
+        )
+        ids.update(int(point.id) for point in points)
+        if offset is None:
+            return ids
+
+
 def qdrant_client(settings: CommonSettings) -> QdrantClient:
     return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port, timeout=settings.qdrant_timeout_s)
 

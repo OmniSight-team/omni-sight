@@ -332,3 +332,83 @@ passes for an upload and a live camera. On this CPU a frame takes about 9 s, so 
 measured on Colab's GPU instead (D-31).
 
 ---
+
+---
+
+## OMNI-705 · Every admitted frame reaches the encoder, durably
+
+### Why this ticket exists
+
+NFR-5 applies to vectors too: an admitted frame that never gets a vector is a frame search
+can never find. OMNI-704 gave ai_workers an encoder but nothing fed it.
+
+### What was done
+
+2026-10-28, on `slice-07-search`.
+
+- **The embed queue** (`omnisight_common/embed_queue.py`): `EmbedJob` (segment id, frame
+  path, and every payload field but the model) and `omnisight.embed`, durable with a
+  dead-letter queue, declared the same way as the segment queue
+- **The consumer** (`app/consumer.py`, both roles): after a segment's row commits and
+  **before** the message is acked, an admitted frame's job is published (confirmed,
+  persistent). Also on a DUPLICATE: a consumer that died between the commit and the
+  publish gets the message back, finds the row, and publishes then. Jobs are built from
+  Postgres by `app/embed_jobs.py` (shared with the backfill)
+- **ai_workers** (`app/embed_worker.py`, a thread beside the HTTP API, so one copy of the
+  model serves both): batches of up to 8 (a batch closes when full or after 0.5 s with
+  nothing new), encode, upsert with `wait=True`, **then** ack. The encode runs on a helper
+  thread while the connection keeps being serviced, so a 70-130 s batch does not miss the
+  broker's heartbeat. An unparseable job or an unreadable frame is dead-lettered (the batch
+  falls back to one frame at a time so the rest are stored); anything else drops the
+  connection and the jobs come back
+- **`GET /embeddings/status`** (`app/embeddings.py`, any logged-in role): per video and per
+  live camera, admitted frames against frames whose segment id has a point of the pinned
+  model. Ids are scrolled from Qdrant (ids only) rather than counted per video, so points
+  left by a deleted or re-gated video are not counted (K-24). 503 if Qdrant is down
+- **`scripts/backfill_embeddings.py`** `queue` / `check`, run inside `query`; groups queued
+  in order VIRAT, CCD, other, live, UCF-Crime; `--only`, `--video`
+- The model pin moved to `CommonSettings`; a frame's domain is taken from its camera, its
+  video's camera, its dataset, else surveillance (**D-34**). Compose: ai-workers gets
+  `RABBITMQ_HOST`, `QDRANT_HOST` and waits for both
+
+**The detour:** before starting the backfill the counts showed **34,769** admitted frames,
+not about 1,000: UCF-Crime's hand-check clips alone hold 30,701 (about 77 h at 9 s a frame).
+I first proposed running VIRAT and CCD overnight and moving UCF-Crime to Colab. Ahmad
+pointed out the ticket's goal is the durable path, not encoding the archive, and SM-1 is
+measured on VIRAT only. So the proof ran on **one video** (**D-35**); K-25 records the
+numbers.
+
+### Verification performed
+
+- `services/query/tests/test_embeddings.py`, 13 tests (real Postgres and RabbitMQ, scratch
+  queues, Qdrant in-process): the job's payload and absolute time; no job for a frame not
+  admitted or stale; the four domain cases; the backfill picks only frames without a point;
+  three admitted of six messages give three jobs; a consumer killed after the commit still
+  gets the job out on redelivery; status counts (another model's point and an orphan point
+  not counted), 401 without a login, 503 with Qdrant down
+- `services/ai_workers/tests/test_embed_worker.py`, 6 tests (real RabbitMQ, a stand-in
+  encoder): one point per job with its payload; batches up to the batch size; a job
+  delivered twice is one point; an unreadable frame and a malformed job dead-lettered, the
+  rest stored; an upsert failure acks nothing and the next run stores all; a 6 s batch with
+  a 2 s heartbeat keeps its connection. The first test failed once in the first run, while
+  the stack was still starting, on its 20 s limit; passed 9 times after, limit raised to 60 s
+- Full suite: **509 passed, 1 skipped, 4 deselected** (8 min 25 s)
+- On the real stack, VIRAT video 3226 (44 frames): `docker compose kill ai-workers` 14 s
+  into the third batch with 16 stored; after restart 44 of 44, 44 points, none missing,
+  none extra, no dead letters; `GET /embeddings/status` 44 / 44 (`results.md`, OMNI-705)
+
+### Not verified
+
+- A new upload or a running camera producing jobs on the real stack (the consumer path is
+  covered by tests on the real broker and database, not by the running consumer containers)
+- A kill of the consumer between commit and publish on the real stack (test only)
+- The other 34,725 admitted frames: not queued (D-35). Search (OMNI-707) needs the other 8
+  VIRAT videos: `backfill_embeddings.py queue --only virat`, about 2.5 h
+- K-24 is open: search must drop hits whose segment no longer exists
+- Note: the tickets moved to `docs/tickets/week-07-08.md`; these notes stay in this file
+
+### Result
+
+Every admitted frame now gets an embed job after its row commits, and ai_workers acks only
+after its point is stored. A kill mid-batch lost nothing and duplicated nothing on a real
+VIRAT video. Encoding the stored archive is left until something needs it (D-35).
