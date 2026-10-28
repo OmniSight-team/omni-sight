@@ -18,6 +18,7 @@ from app.deps import RENEWED_TOKEN_HEADER
 from app.extraction import mark_interrupted_extractions
 from app.logging_conf import configure_logging
 from app.nav import router as nav_router
+from app.search import router as search_router
 from app.settings import settings
 from app.videos import router as videos_router
 from app.windows import router as windows_router
@@ -67,6 +68,7 @@ app.include_router(dashboard_router)
 app.include_router(datasets_router)
 app.include_router(embeddings_router)
 app.include_router(nav_router)
+app.include_router(search_router)
 app.include_router(videos_router)
 app.include_router(windows_router)
 

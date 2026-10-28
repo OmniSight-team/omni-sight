@@ -19,7 +19,8 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
 | K-21 | About 1.05 GB of frame and thumbnail files on disk have no segment row, so the dashboard's storage does not count them; playback copies (22.7 MB) are not counted either | FR-9 (storage in use), K-8 | OMNI-610 | Slice 16 (retention) |
 | K-23 | On VIRAT the gate keeps almost only heartbeats: 4 of 9 demo videos kept no frame for motion (a fifth kept 3), though all have annotated events | FR-1b, FR-4 (what search can find), SM-1 | OMNI-702 | Slice 8, before SM-1 |
-| K-24 | Deleting or re-gating a video leaves its old frames' points in `frame_vectors` | FR-4 (search could return a frame that no longer exists) | OMNI-705 | OMNI-707 (`GET /search`) |
+| K-24 | Deleting or re-gating a video leaves its old frames' points in `frame_vectors` | Disk, and a search slot: since OMNI-707 search drops them, so a query can return fewer than `k` | OMNI-705 | Slice 16 (retention deletes videos) |
+| K-26 | After ai_workers sits idle for a while, the first search waits for SigLIP 2's weights to be read back from disk: over 30 s (a 503 at query's timeout), then 9 s, then about 2 s | NFR-2 on this laptop | OMNI-707 | OMNI-714 (NFR-2) |
 | K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
 
 ---
@@ -140,6 +141,23 @@ would return them, pointing at a frame that is gone.
 **Fix candidates:** search drops hits whose segment id is not in `segments` (one indexed
 query per page of hits); and/or delete a video's points by `video_id` when it is deleted or
 re-gated. The first is needed anyway because of the queued-job race.
+**2026-10-28, OMNI-707: the first is done.** `GET /search` drops a hit whose segment is gone
+or no longer admitted, counts it in `dropped` and logs it (tested). The points stay, and each
+takes a place in the top `k`, so such a query returns fewer than `k`. Deleting a video's
+points with the video is left for slice 16, where retention deletes videos in bulk.
+
+## K-26 · The first search after ai_workers sits idle is slow
+
+2026-10-28, OMNI-707. ai_workers had been idle about 2 h (its embed queue empty). The first
+search's text encode then ran past query's 30 s timeout (`ai_workers_timeout_s`), and query
+answered 503 *the text encoder (ai_workers) is unreachable*, as designed. The same query
+again took 9.0 s to encode, the next queries about 2 s (`results.md`, OMNI-707). SigLIP 2's
+weights are memory-mapped (D-30); after a long idle on this 7.6 GiB machine they are no
+longer in memory and are read back from disk on use, the same cost OMNI-704 saw before its
+startup warm-up existed. Not seen on a GPU machine with the weights in GPU memory.
+**Fix candidates, none tried:** a periodic keep-warm text encode in ai_workers; or load the
+weights into memory instead of mapping them (about 4 GiB held, D-32's budget allows it).
+Measure first in OMNI-714, where NFR-2 is judged.
 
 ## K-25 · The embed queue cannot keep up on this laptop
 

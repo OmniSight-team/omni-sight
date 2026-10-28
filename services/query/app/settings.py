@@ -41,6 +41,14 @@ class Settings(CommonSettings):
     # OMNI-504: asking ingestion which workers it runs is quick, or it is down.
     ingestion_workers_timeout_s: float = Field(3.0, gt=0)
 
+    # OMNI-707: ai_workers turns a search query into a vector (internal, no host port).
+    # On this laptop's CPU SigLIP 2 takes 1-2 s a query (OMNI-706), so the timeout leaves
+    # room for a busy moment; past it, ai_workers is treated as down.
+    ai_workers_base_url: str = "http://localhost:8002"
+    ai_workers_timeout_s: float = Field(30.0, gt=0)
+    # How many query vectors are kept, per encoder, by exact text (NFR-2).
+    search_text_cache_size: int = Field(1000, ge=1)
+
     # OMNI-504: a camera is `live` when its newest frame (the preview's write
     # time, OMNI-503) is at most this old; older, with the worker still reading,
     # it is `frozen`. The preview is rewritten every 0.5 s on a healthy feed.

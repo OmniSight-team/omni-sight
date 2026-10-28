@@ -40,6 +40,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | InternVideo2 checkpoint (D-33): one 8-frame clip and one text | 512-D (Phase A: 768, D-33), finite, unit length | VIRAT 040103_00 event 29 (opening a trunk), 8 frames: clip and text 512-D, finite, norm 1.0; every checkpoint weight loaded with all keys matched. Laptop CPU and L4 GPU: the same similarity (0.0967) | **Pass** | 2026-10-28 | OMNI-706 |
 | InternVideo2 motion check (OMNI-706; a sanity check, not SM-1) | Record the 10 x 10 matrix and how many clips rank their own caption first (no pass mark) | 2 of 10 own caption first; 4 of 10 a caption of their own type (chance 2 of 10). Opening and closing a trunk not told apart: all 4 trunk clips rank a vehicle caption first and score *shutting a car's trunk* above both opening captions | Recorded (weak) | 2026-10-28 | OMNI-706 |
 | Encoder cost on a GPU (D-31) | No target here: NFR-1 and NFR-2 use it (OMNI-714) | NVIDIA L4, float32, from the stored input: SigLIP 2 108 / 106 / 112 ms per frame at batch 1 / 8 / 32, text 13 ms; InternVideo2 297 / 319 / 316 ms per clip, text 7 ms; peak GPU memory up to 6.9 GiB (SigLIP 2 b32) and 8.6 GiB (InternVideo2 b32), both models loaded | Information (L4, not the A100 named: none free) | 2026-10-28 | OMNI-706 |
+| FR-4, frame search (`GET /search`, OMNI-707) | Ranked moments with every field; a camera filter returns only that camera's frames even when its best match ranks below other cameras' | Running stack, video 3226 (44 frames with vectors): 3 queries, 5 ranked hits each, every field set, 0 dropped; a date filter around the top hit returns it alone. Camera filter: tested on real Postgres with in-process Qdrant (the stack has no two cameras with vectors). 27 tests | **Pass** (frame mode; clip and fused in OMNI-710, 711) | 2026-10-28 | OMNI-707 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1969,4 +1970,35 @@ SigLIP 2 8.7 s → 0.11 s a frame; text 1.1 s → 13 ms (SigLIP 2), 131 ms → 7
 
 **Not covered:** an A100; the CPU / GPU split of each call; float16 or TF32 (float32 only,
 as D-30, D-33); more than one run; the motion check on more than 10 clips.
+
+## OMNI-707 · `GET /search` on the running stack (frame mode) · 2026-10-28
+
+**Conditions:** this laptop, the whole stack up; ai_workers on the CPU (SigLIP 2 text,
+D-30); `frame_vectors` holds the 44 points of VIRAT video 3226 (OMNI-705, D-35), no camera
+has a point. `scripts/try_search.py`: three queries, each twice, through the real API
+inside `query` as the admin; then a date filter and a camera filter, `mode=fused`, an empty
+query. One run.
+
+| Query | First: elapsed (encode / search / join), ms | Again (vector cached), ms |
+|---|---|---|
+| *a person walking across a parking lot* | 503 after 30,135 (encode timed out, K-26); then 9,291 (9,050 / 213 / 29) | — |
+| *a white car driving on the road* | 2,037 (1,985 / 38 / 14) | 82 (0 / 78 / 4) |
+| *a person carrying a bag* | 1,900 (1,860 / 26 / 13) | 133 (0 / 120 / 13) |
+
+- Each query: 5 hits from video 3226, ranked by cosine (top scores 0.145, 0.059, 0.022), every
+  field set (segment, video, time, `captured_at`, score, `matched_by` = frame, thumbnail
+  URL), 0 dropped. The same frame (31.0 s) ranks first for all three
+- `from` = `to` = the top hit's `captured_at`: that one hit. `from` in 2100: none. `camera_id=1`:
+  none (no camera has a point). `mode=fused`: 503 *the clip index is not ready yet*. `q` of
+  spaces: 422 *the query is empty*
+
+**What it means:** with a warm encoder, a query costs about 2 s on this CPU, almost all of it
+the text encode; a repeated query skips it and takes 80-130 ms. The search and join over 44
+points take 20-210 ms. NFR-2 (results within 3 s) is judged in OMNI-714 with the GPU's encode
+time (D-31): 13 ms on an L4 (OMNI-706). After a long idle the first encode exceeded 30 s (K-26).
+
+**Not covered:** relevance (44 frames of one video; SM-1 is OMNI-713); a camera filter on the
+real stack (tested with real Postgres and in-process Qdrant: a camera's best frame at cosine
+0.4 is found under five 0.75-0.95 frames of another camera); search over a large collection
+(TC-4, OMNI-715); one run.
 

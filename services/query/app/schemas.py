@@ -242,6 +242,49 @@ class DashboardActivityOut(BaseModel):
     alerts: int | None
 
 
+class SearchCameraOut(BaseModel):
+    id: int
+    name: str
+
+
+class SearchHitOut(BaseModel):
+    """OMNI-707: one ranked moment."""
+
+    segment_id: int
+    video_id: int | None
+    camera: SearchCameraOut | None
+    timestamp_s: float
+    captured_at: datetime
+    # Cosine similarity of the query and the frame (higher is closer).
+    score: float
+    # Which index found it: "frame" until clip vectors exist (OMNI-710, OMNI-711).
+    matched_by: str
+    thumb_url: str | None
+
+
+class SearchTimingsOut(BaseModel):
+    """Where `elapsed_ms` went, measured inside query."""
+
+    encode_ms: float
+    search_ms: float
+    join_ms: float
+    # True when the query's vector came from the cache (a repeated query, NFR-2).
+    encode_cached: bool
+
+
+class SearchOut(BaseModel):
+    results: list[SearchHitOut]
+    mode: str
+    elapsed_ms: float
+    timings: SearchTimingsOut
+    # How many hits were returned.
+    total: int
+    # Hits whose segment no longer exists, or is no longer admitted (K-24): left out.
+    dropped: int
+    # Set when there is nothing to search yet (no frame has a vector of the pinned model).
+    message: str | None = None
+
+
 class EmbeddingStatusOut(BaseModel):
     """OMNI-705: one video's (or one camera's live) admitted frames against their vectors."""
 

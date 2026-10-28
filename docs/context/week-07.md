@@ -504,3 +504,71 @@ an L4: SigLIP 2 about 110 ms a frame and 13 ms a query, InternVideo2 about 300 m
 and 7 ms a query; batching no cheaper per item. **The motion check is weak:** 2 of 10 own
 caption first, 4 of 10 own type, trunk opening and closing not told apart. Recorded, not
 hidden, and left to SM-1 to judge with both streams fused.
+
+## OMNI-707 · `GET /search`
+
+### Why this ticket exists
+
+FR-4: natural-language search over stored video, a ranked list of the most relevant moments.
+The frame index exists (OMNI-703 to 705); this puts an API on it, with the `mode` parameter
+in place for the clip index and fusion that come next (OMNI-710, 711).
+
+### What was done
+
+- **`services/query/app/search.py`:** `GET /search?q=&mode=&k=&camera_id=&from=&to=`. The
+  text goes to ai_workers (`POST /encode/text`), Qdrant searches `frame_vectors` (cosine,
+  top `k`, 1-50, default 5) with a filter applied inside the search: the pinned model and
+  revision always, plus `camera_id` and a `captured_at` range when given (both indexed since
+  OMNI-703). The hits are joined to `segments` and `cameras` in one query
+- **`services/query/app/ai_workers_client.py`:** the call to ai_workers, a per-encoder cache
+  of query vectors by exact text (the last 1,000, thread-safe), and a check that the vector
+  comes from the pinned model (otherwise a clear 503: it would be compared with another
+  model's vectors). The clip-text path is there for OMNI-710
+- **Answers:** `mode=clip|fused` → 503 *the clip index is not ready yet*, before anything is
+  encoded; an empty or blank query → 422 *the query is empty*; ai_workers unreachable → 503;
+  Qdrant unreachable → 503; nothing indexed → 200, no results, `message` *nothing is indexed
+  yet*; `from` after `to` → 422. A date with no zone is read as UTC. `mode` defaults to
+  `frame` (the ticket gives no default; fused is the obvious one once it exists, OMNI-711)
+- **K-24:** a hit whose segment is gone or no longer admitted is left out, counted in
+  `dropped`, and logged with its ids
+- **Timings:** `elapsed_ms` and `timings` (`encode_ms`, `search_ms`, `join_ms`,
+  `encode_cached`), measured inside query
+- **Roles (D-36):** operators, analysts and admins. The ticket says operator and admin;
+  Phase A says operators and analysts search. Phase A wins
+- **Settings and compose:** `ai_workers_base_url` (`http://ai-workers:8000` in compose; not in
+  `depends_on`, the model takes minutes to load), `ai_workers_timeout_s` 30 s,
+  `search_text_cache_size` 1,000
+- **`scripts/try_search.py`:** queries through the real API inside `query`
+
+### Verification performed
+
+- `test_search.py`, 27 tests on real Postgres with in-process Qdrant and ai_workers replaced at
+  its HTTP call: ranking and every field; `k` (default 5, 0 and 51 refused); other models'
+  vectors ignored; **the acceptance**: camera A's best frame (cosine 0.4) is not in the
+  unfiltered top 5 (five 0.75-0.95 frames of camera B) but is the one hit with
+  `camera_id=A`; a date filter inside the search (k=1 still finds the older, weaker frame);
+  zone-less dates; a deleted and a re-gated segment dropped and counted, the log line; a
+  repeated query not encoded again, a stripped duplicate too; results not cached; `clip`,
+  `fused`, unknown mode, empty query, empty index, a filter matching nothing (not an empty
+  index), ai_workers down, a wrong model, Qdrant down; no token 401; all three roles 200
+- The running stack (`results.md`): ranked hits from video 3226 with every field, the date
+  filter on the real Qdrant index, `fused` and empty query answers; a repeated query 82-133 ms
+- Full suite: 545 passed, 1 skipped, 8 deselected (the `model` tests), 7 min 47 s
+
+### Not verified
+
+- The camera filter on the real stack: no camera has vectors (D-35)
+- Relevance: 44 frames of one video (SM-1 is OMNI-713)
+- A large collection (TC-4, OMNI-715)
+
+### Detour
+
+The first query on the running stack got a 503: ai_workers had been idle about 2 h, and its
+first text encode ran past query's 30 s timeout; the next took 9 s, then about 2 s.
+Recorded as K-26 (memory-mapped weights read back from disk), to measure in OMNI-714.
+
+### Result
+
+`GET /search` works in frame mode, end to end, with filters inside the vector search and a
+clear answer for every failure; clip and fused answer *not ready* until OMNI-710 and 711.
+

@@ -41,6 +41,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-33 | **Deviation:** the InternVideo2 checkpoint (`OpenGVLab/InternVideo2_CLIP_S` @ `1f9fca13`), 512-D not 768, float32, its model code copied into the repo | 2026-10-28 | Done |
 | D-34 | Embed jobs: a frame's domain, and the model pin shared by every service | 2026-10-28 | Done |
 | D-35 | OMNI-705 is proved on one video; the archive is not backfilled | 2026-10-28 | Done |
+| D-36 | Search is open to operators, analysts and admins (Phase A), not operators and admins only (the ticket) | 2026-10-28 | Done |
 
 ---
 
@@ -888,3 +889,14 @@ UCF-Crime) are not searched in this sprint, and SM-1 is measured on VIRAT only (
 Colab). The other VIRAT videos are queued when search needs them
 (`scripts/backfill_embeddings.py queue --only virat`, about 2.5 h); the rest when something
 needs it.
+
+## D-36 · Who may search: operators, analysts and admins · 2026-10-28
+
+**Why:** OMNI-707's ticket says *"Operator and admin"*. Phase A says *"Users (operators and
+analysts) upload video (Upload Video), search it in plain language"* (§3.4, use cases), and
+the analyst is the role that works with stored footage (`/windows` is analyst and admin,
+OMNI-609). Phase A is the spec, so `GET /search` takes all three roles; a request without a
+valid token is refused as on every route (NFR-7, tested).
+
+**Not a Phase A deviation:** it follows Phase A where the ticket did not.
+
