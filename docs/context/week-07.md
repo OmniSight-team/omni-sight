@@ -572,3 +572,41 @@ Recorded as K-26 (memory-mapped weights read back from disk), to measure in OMNI
 `GET /search` works in frame mode, end to end, with filters inside the vector search and a
 clear answer for every failure; clip and fused answer *not ready* until OMNI-710 and 711.
 
+## OMNI-708 · The VIRAT archive on Colab, both streams, cached and resumable
+
+### Why this ticket exists
+
+SM-1 and TC-4 need an archive with ground truth, too big for the laptop (D-26): every admitted
+frame of VIRAT's evaluation videos with a SigLIP 2 frame vector and an InternVideo2 clip
+vector, cached on Drive. The clip vectors are also what the forecasting model trains on later.
+
+### What was done
+
+- **Replanned before building (29 Oct, Ahmad's decisions):** at OMNI-706's L4 speed (about
+  0.4 s a frame for both streams) 100,000 vectors is about 11 GPU hours, most of it
+  distractors. TC-4 now runs on the 275 VIRAT evaluation videos only (**D-37**, deviation);
+  the ticket's distractor box is dropped. The product's 9 VIRAT videos get no separate
+  encoding: their vectors are matched from the archive by `clip_key` and `timestamp_s`; the
+  60 hand-check clips are left out (not searched this sprint, D-35)
+- **Step 1, the notebook's setup:** `notebooks/virat_archive_gpu.ipynb`, the setup cell of
+  OMNI-706's notebook (clone, pinned installs, Drive, GPU), then the gate and both encoders
+  from the clone. Ingestion and ai_workers both name their package `app`, so ingestion's
+  `pipeline.py` and `settings.py` are loaded by file path under their own names; the gate is
+  built as ingestion's `_gate_for` builds it for a file, from the settings' defaults (the
+  values in `.env.example`). `settings.py` needs the broker login to load, so the notebook
+  sets placeholders (Colab has no broker). A last cell checks the 275 evaluation videos are on
+  Drive
+
+### Verification performed
+
+- The notebook's loading code, run locally (`uv run`, ai_workers' environment): the gate's
+  settings are 0.5 s, 8 x 8, 25.0, 3 cells, blur 21, heartbeat 1.0 s, JPEG 85; `app` resolves
+  to ai_workers; gating video 3226 (`VIRAT_S_000207_00_000000_000045`) gives **1,350 frames,
+  44 kept, the product's own count** (OMNI-702)
+- The 9 product VIRAT videos (`datasets/demo/virat_sample.csv`): all 9 are evaluation videos
+  in `datasets/splits/virat.csv`, so the archive run covers them
+
+### Not verified
+
+- The notebook on Colab (not run yet)
+
