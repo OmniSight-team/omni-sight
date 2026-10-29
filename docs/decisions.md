@@ -42,6 +42,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-34 | Embed jobs: a frame's domain, and the model pin shared by every service | 2026-10-28 | Done |
 | D-35 | OMNI-705 is proved on one video; the archive is not backfilled | 2026-10-28 | Done |
 | D-36 | Search is open to operators, analysts and admins (Phase A), not operators and admins only (the ticket) | 2026-10-28 | Done |
+| D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
 
 ---
 
@@ -899,4 +900,23 @@ OMNI-609). Phase A is the spec, so `GET /search` takes all three roles; a reques
 valid token is refused as on every route (NFR-7, tested).
 
 **Not a Phase A deviation:** it follows Phase A where the ticket did not.
+
+## D-37 · TC-4 runs on the VIRAT evaluation archive only, not 100,000 embeddings · 2026-10-29
+
+**Deviation. Ahmad's decision.** Phase A's TC-4 pre-loads both collections with at least
+100,000 embeddings. TC-4 runs instead on every admitted frame of the 275 VIRAT evaluation
+videos (OMNI-708), whatever count Algorithm 1 gives; no CCD or UCF-Crime distractors.
+
+**Why:** every vector costs a GPU encode of both streams, about 0.4 s a frame on Colab's L4
+(SigLIP 2 about 110 ms, InternVideo2 about 300 ms; `results.md`, OMNI-706), so 100,000 is
+about 11 GPU hours. The gate keeps about 1.2 frames a second of VIRAT video (949 from 13.5
+min, OMNI-702), so the evaluation set is estimated at about 30,000 frames (an estimate from
+9 videos; OMNI-708 records the real count). The other ~70,000 would be distractors with no
+correct answers, most of the GPU time, and add nothing to SM-1.
+
+**What stays:** TC-4's pass rule (fused recall@5 at least 85%, every query under 3 s) and
+its queries (the SM-1 set). Every vector is real and every query has ground truth.
+
+**What is lost:** search speed is shown at the VIRAT archive's size, not at 100,000; TC-4's
+row in `results.md` states the size it ran at and that 100,000 was not verified.
 
