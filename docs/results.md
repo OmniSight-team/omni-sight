@@ -41,6 +41,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | InternVideo2 motion check (OMNI-706; a sanity check, not SM-1) | Record the 10 x 10 matrix and how many clips rank their own caption first (no pass mark) | 2 of 10 own caption first; 4 of 10 a caption of their own type (chance 2 of 10). Opening and closing a trunk not told apart: all 4 trunk clips rank a vehicle caption first and score *shutting a car's trunk* above both opening captions | Recorded (weak) | 2026-10-28 | OMNI-706 |
 | Encoder cost on a GPU (D-31) | No target here: NFR-1 and NFR-2 use it (OMNI-714) | NVIDIA L4, float32, from the stored input: SigLIP 2 108 / 106 / 112 ms per frame at batch 1 / 8 / 32, text 13 ms; InternVideo2 297 / 319 / 316 ms per clip, text 7 ms; peak GPU memory up to 6.9 GiB (SigLIP 2 b32) and 8.6 GiB (InternVideo2 b32), both models loaded | Information (L4, not the A100 named: none free) | 2026-10-28 | OMNI-706 |
 | FR-4, frame search (`GET /search`, OMNI-707) | Ranked moments with every field; a camera filter returns only that camera's frames even when its best match ranks below other cameras' | Running stack, video 3226 (44 frames with vectors): 3 queries, 5 ranked hits each, every field set, 0 dropped; a date filter around the top hit returns it alone. Camera filter: tested on real Postgres with in-process Qdrant (the stack has no two cameras with vectors). 27 tests | **Pass** (frame mode; clip and fused in OMNI-710, 711) | 2026-10-28 | OMNI-707 |
+| The VIRAT archive on Colab, both streams (data for SM-1, TC-4; no Phase A target, D-37) | Every admitted frame of the 275 evaluation videos cached with both vectors; the product's segments matched to it; laptop and Colab agree (cosine ≥ 0.999) | 275 of 275 videos, 0 failed; 793,686 frames gated, 35,704 admitted (8,255 motion, 27,449 heartbeat), each with both vectors; 2.52 h on one A100, 87 frames/s gated, 3.93 admitted frames/s encoded. Product: 1,039 of 1,039 segments matched. Agreement: 44 of 44 at least 0.999 (min 0.999979) | **Pass**; the kill-and-resume test not run on Colab | 2026-10-29 | OMNI-708 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -2002,3 +2003,41 @@ real stack (tested with real Postgres and in-process Qdrant: a camera's best fra
 0.4 is found under five 0.75-0.95 frames of another camera); search over a large collection
 (TC-4, OMNI-715); one run.
 
+
+## OMNI-708 · The VIRAT archive on Colab, both streams · 2026-10-29
+
+**Conditions:** Colab, one NVIDIA A100-SXM4-40GB, one session (started 09:39:10). The
+repo's code at commit `24f140f`: ingestion's Algorithm 1 gate with the settings' defaults
+(0.5 s, 8 x 8, 25.0, 3 cells, blur 21, heartbeat 1.0 s, JPEG 85); SigLIP 2 frame vector from
+the stored JPEG; InternVideo2 clip vector of `[t - 1 s, t]`, 8 frames; float32 (D-30, D-33).
+Videos read from Drive; decode and gate on Colab's CPU, encoding on the GPU overlapped with
+it. One run. `notebooks/virat_archive_gpu.ipynb`; summary in Drive
+`omnisight/results/omni708_virat_archive.json`.
+
+| | |
+|---|---:|
+| Videos (VIRAT evaluation, D-22) | 275 of 275, 0 failed |
+| Frames decoded and gated | 793,686 |
+| Admitted | 35,704 (4.5%): 8,255 motion, 27,449 heartbeat |
+| Frame vectors (1152-D) and clip vectors (512-D) | 35,704 each |
+| Run time (sum of per-video times) | 9,076 s, 2.52 h |
+| Frames gated per second | 87 |
+| Admitted frames encoded per second, both streams | 3.93 (0.25 s a frame, decode and gate included) |
+
+`check` on the archive: every video in the manifest, every file present and its rows equal to
+the manifest's counts, no file outside the manifest, 0 problems. The count is above D-37's
+estimate of about 30,000 (made from 9 videos).
+
+**The product's segments:** the 1,039 admitted segments of the product's 9 VIRAT videos
+(exported from Postgres) matched by `clip_key` and `frame_index`, with equal timestamp and
+reason: **1,039 of 1,039**, 0 unmatched; every video's segment count equals its archive
+frame count (44, 70, 57, 198, 217, 206, 61, 107, 79).
+
+**Agreement, laptop and Colab:** the 44 frames of video 3226 that have a laptop vector
+(OMNI-705, CPU) against the A100's: cosine min 0.999979, median 0.999994, max 0.999997;
+**44 of 44 at least 0.999**.
+
+**Not covered:** the kill-and-resume test on Colab (one session ran to the end; resuming is
+tested only with stand-in encoders, `scripts/tests/test_encode_virat_archive.py`); the clip
+vectors' agreement (the laptop has no video side, D-32); the split of time between decode,
+gate and encode; more than one run.

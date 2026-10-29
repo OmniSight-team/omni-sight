@@ -642,7 +642,24 @@ vector, cached on Drive. The clip vectors are also what the forecasting model tr
 - The export on the running stack: 9 videos, 1,039 admitted segments, 44 with a laptop vector
   (video 3226, OMNI-705); every video extracted with 0.5 s, 8 x 8, 25.0, 3 (the archive's)
 
+- **The archive run on Colab (Ahmad, one A100, one session, 2.52 h):** 275 of 275 videos,
+  0 failed; 793,686 frames gated, 35,704 admitted (8,255 motion, 27,449 heartbeat), each with
+  both vectors; `check` found every file present and equal to the manifest. The early pace
+  (30 videos in 45 min) was the long videos; the short ones followed
+- **The match:** 1,039 of 1,039 product segments found in the archive, 0 unmatched
+- **Agreement:** the 44 laptop vectors of video 3226 against the A100's, cosine min 0.999979,
+  44 of 44 at least 0.999 (44, not the ticket's 20: every frame with a laptop vector)
+- Results in `results.md` (scoreboard row and entry)
+
 ### Not verified
 
-- The archive run on Colab (steps 2-5), the match (6) and the agreement (7): waiting for
-  the run
+- **The kill-and-resume test on Colab:** the run finished in one session, so the runtime was
+  never killed mid-run. Resuming is tested only with stand-in encoders (the rerun, lost file
+  and failed video tests). The ticket's box is left open
+- The clip vectors' agreement: the laptop has no video side (D-32)
+
+### Result
+
+The VIRAT archive is on Drive with both vectors, 35,704 frames (above D-37's estimate of
+about 30,000), and the product's 9 videos have their vectors in `embeddings/product/`. Open:
+the kill-and-resume test.
