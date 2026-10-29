@@ -586,16 +586,38 @@ vector, cached on Drive. The clip vectors are also what the forecasting model tr
   0.4 s a frame for both streams) 100,000 vectors is about 11 GPU hours, most of it
   distractors. TC-4 now runs on the 275 VIRAT evaluation videos only (**D-37**, deviation);
   the ticket's distractor box is dropped. The product's 9 VIRAT videos get no separate
-  encoding: their vectors are matched from the archive by `clip_key` and `timestamp_s`; the
+  encoding: their vectors are matched from the archive by `clip_key` and `frame_index`; the
   60 hand-check clips are left out (not searched this sprint, D-35)
 - **Step 1, the notebook's setup:** `notebooks/virat_archive_gpu.ipynb`, the setup cell of
   OMNI-706's notebook (clone, pinned installs, Drive, GPU), then the gate and both encoders
   from the clone. Ingestion and ai_workers both name their package `app`, so ingestion's
   `pipeline.py` and `settings.py` are loaded by file path under their own names; the gate is
   built as ingestion's `_gate_for` builds it for a file, from the settings' defaults (the
-  values in `.env.example`). `settings.py` needs the broker login to load, so the notebook
-  sets placeholders (Colab has no broker). A last cell checks the 275 evaluation videos are on
-  Drive
+  values in `.env.example`). `settings.py` needs the broker login to load, so placeholders
+  are set (Colab has no broker). A last cell checks the 275 evaluation videos are on Drive
+- **Steps 2-5, the runner:** `scripts/encode_virat_archive.py`, imported by the notebook (the
+  loading code of step 1 moved into it). Per video it decodes and gates every frame with
+  ingestion's own `process_frame`, as `extract_file` does; for each admitted frame the
+  SigLIP 2 vector from the JPEG `process_frame` wrote (the stored-frame rule, OMNI-704) and
+  the InternVideo2 vector of its window `[t - 2Δ, t]`, 8 frames taken from the frames just
+  decoded (no second read of the file). Encoding runs on one background thread while the
+  next frames are decoded, so the GPU and the CPU work at once. One `.npz` per video in
+  `embeddings/virat/`, written before the manifest entry, so a lost session redoes the
+  unfinished video and never counts a missing file as done. The manifest holds the pins and
+  gate settings; a rerun with others is refused. A video that fails is recorded under
+  `failed` and tried again on the next run. The product's 9 run first
+- **`window_span`** in `clip_encoder.py`: the frames inside a stored window, with the gate's
+  microsecond margin for `index / fps` rounding. It is shared code because the GPU path of
+  ai_workers will need the same answer
+- **Step 6, `scripts/export_segments_for_colab.py`:** inside `query`, the admitted segments of
+  the product's VIRAT videos with each video's gate settings, and the laptop's own frame
+  vector where Qdrant has one; written to Drive as `embeddings/product/segments.json`.
+  `match_product` in the runner matches them by `clip_key` and `frame_index` (the timestamp
+  and reason must agree) and writes `embeddings/product/{video_id}.npz` keyed by segment id.
+  It also reports the cosine for each laptop vector (step 7)
+- **Found, corrected:** OMNI-702's total in `results.md` said 949 kept (701 heartbeats); its
+  own per-video rows add to 1,039 (791), and Postgres holds 1,039. Corrected with dated notes
+  in `results.md` and K-23; D-37's rate is now 1.3 kept frames a second
 
 ### Verification performed
 
@@ -605,8 +627,22 @@ vector, cached on Drive. The clip vectors are also what the forecasting model tr
   44 kept, the product's own count** (OMNI-702)
 - The 9 product VIRAT videos (`datasets/demo/virat_sample.csv`): all 9 are evaluation videos
   in `datasets/splits/virat.csv`, so the archive run covers them
+- Drive, read from the laptop (`G:`): all 275 evaluation videos are in
+  `omnisight/data/virat/videos_original/`, 0 missing
+- Colab, step 1 run by Ahmad: setup, the gate and both encoders loaded on the GPU, and the
+  inputs cell printed *275 evaluation videos, 275 on Drive, 0 missing*
+- `scripts/tests/test_encode_virat_archive.py`, 7 tests with stand-in encoders on generated
+  videos: the kept frames equal the gate's own; both vectors per kept frame; each clip is 8
+  frames of its own window in order (read back from a frame number painted in each frame);
+  a rerun skips finished videos and redoes none; a lost file is redone; a failed video is
+  recorded and the run goes on; other gate settings refused; the product match, including a
+  segment with no archive frame reported. 3 new `window_span` tests. 18 passed
+- The runner on video 3226 with stand-in encoders: 1,350 frames, 44 kept, all heartbeat, the
+  product's count; 15 s to decode and gate on this laptop
+- The export on the running stack: 9 videos, 1,039 admitted segments, 44 with a laptop vector
+  (video 3226, OMNI-705); every video extracted with 0.5 s, 8 x 8, 25.0, 3 (the archive's)
 
 ### Not verified
 
-- The notebook on Colab (not run yet)
-
+- The archive run on Colab (steps 2-5), the match (6) and the agreement (7): waiting for
+  the run

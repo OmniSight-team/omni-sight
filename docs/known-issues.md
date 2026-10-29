@@ -177,8 +177,9 @@ is proved on one video, and only VIRAT is queued, when search needs it.
 
 ## K-23 · On VIRAT the gate keeps almost only heartbeats
 
-2026-10-18, OMNI-702 (`results.md`). Loading the 9 VIRAT demo videos, Algorithm 1 kept 949
-of 23,057 frames (4.1%): 248 for motion, 701 heartbeats. **4 of the 9 kept no frame for
+2026-10-18, OMNI-702 (`results.md`). Loading the 9 VIRAT demo videos, Algorithm 1 kept 1,039
+of 23,057 frames (4.5%): 248 for motion, 791 heartbeats [corrected 2026-10-29: was 949 / 701,
+a mis-added total in `results.md`]. **4 of the 9 kept no frame for
 motion at all** (scenes 0002, 0100, 0101, 0400; 0502 kept 3), though every video has
 annotated VIRAT events (2-12 each: people walking, getting in and out of vehicles). VIRAT's
 cameras are far away and still; the people are a few dozen pixels in a 1280x720 or

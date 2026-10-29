@@ -75,6 +75,28 @@ def test_an_empty_span_is_refused():
         clip_encoder.uniform_indices(10, 9)
 
 
+# --- the clip window [t − 2Δ, t] in frames (OMNI-708) ----------------------------------------
+
+
+def test_the_window_holds_every_frame_from_one_second_back_to_the_admitted_frame():
+    # 30 fps, frame 300 (t = 10 s), Δ = 0.5 s: frames 270..300, both ends inside.
+    assert clip_encoder.window_span(300 / 30 - 1.0, 300 / 30, 30.0) == (270, 300)
+
+
+def test_boundary_frames_stay_inside_despite_rounding():
+    # 23.976 fps: index / fps does not multiply back exactly.
+    fps = 24000 / 1001
+    for index in (24, 1001, 2489, 7777):
+        first, last = clip_encoder.window_span(index / fps - 1.0, index / fps, fps)
+
+        assert last == index
+        assert (first - 1) / fps < index / fps - 1.0 <= first / fps + 1e-9
+
+
+def test_a_heartbeat_window_clamped_at_the_start_begins_at_frame_0():
+    assert clip_encoder.window_span(0.0, 12 / 30, 30.0) == (0, 12)
+
+
 # --- the text side (the laptop's part, D-32) ------------------------------------------------
 
 

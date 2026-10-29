@@ -14,6 +14,7 @@ tower's weights.
 """
 
 import json
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -51,6 +52,17 @@ def uniform_indices(start: int, end: int, count: int = NUM_FRAMES) -> list[int]:
     edges = np.linspace(start, end + 1, parts + 1).astype(int)
     indices = [int((edges[i] + edges[i + 1] - 1) // 2) for i in range(parts)]
     return indices + [indices[-1]] * (count - parts)
+
+
+def window_span(clip_start_s: float, clip_end_s: float, fps: float) -> tuple[int, int]:
+    """The first and last frame index inside an admitted frame's clip window `[t − 2Δ, t]`
+    (Algorithm 1 lines 7-8, stored as `clip_start_s`, `clip_end_s`): the frames whose time,
+    `index / fps`, lies in it. Its `uniform_indices` are the clip's 8 frames."""
+    # The times are index / fps, so a boundary frame lands a few ULPs either side of the
+    # exact product; a microsecond's margin keeps it inside, as the gate's own clock does.
+    first = math.ceil(clip_start_s * fps - 1e-6)
+    last = math.floor(clip_end_s * fps + 1e-6)
+    return first, last
 
 
 def read_clip(video_path: str | Path, indices: Sequence[int]) -> list[np.ndarray]:

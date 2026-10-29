@@ -31,7 +31,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
 | Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
-| VIRAT demo sample in the product (no Phase A target) | One VIRAT video per scene, through the upload path, never expiring (D-26 amended) | 9 of 9 `ready`, 0 failed, 9 scenes (0000, 0001 have no video under 500 MB), 13 min 37 s; 23,057 frames gated, 949 kept (4.1%: 248 motion, 701 heartbeat); 1.49 GB of storage | **Pass** with 9, not 11, scenes (D-26) | 2026-10-18 | OMNI-702 |
+| VIRAT demo sample in the product (no Phase A target) | One VIRAT video per scene, through the upload path, never expiring (D-26 amended) | 9 of 9 `ready`, 0 failed, 9 scenes (0000, 0001 have no video under 500 MB), 13 min 37 s; 23,057 frames gated, 1,039 kept (4.5%: 248 motion, 791 heartbeat) [corrected 2026-10-29: was 949 / 701, a mis-added total]; 1.49 GB of storage | **Pass** with 9, not 11, scenes (D-26) | 2026-10-18 | OMNI-702 |
 | TC-3, frame half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 2 runs: 1,000 of 1,000 by id (payloads equal as JSON bytes, vectors bit-identical) and by filtered search, filter counts equal, a redelivery of 100 left 1,000 points; the same after each restart (healthy again in 4.7-4.8 s). First run failed: 66 `timestamp_s` values one unit in the last place off, fixed (D-29) | **Pass, first half** (`clip_vectors` in slice 8) | 2026-10-19 | OMNI-703 |
 | TC-2, frame half | Each admitted frame of a 30 s uploaded MP4 and of 30 s from a live camera encodes to one 1152-D, unit-length vector, no error | Upload: 136 of 136 (VIRAT 0102, first 30 s, 720 frames gated). Camera `cam05`: 41 of 41. All 1152-D, finite, norms 0.9999998-1.0000001, 0 errors. One run, CPU | **Pass, first half** (clip embedding in slice 8) | 2026-10-19 | OMNI-704 |
 | SigLIP 2 cost on this laptop's CPU (information, D-31) | No target: the speed is judged on a GPU (Colab, OMNI-710) | 8.7 s per frame at batch 1, 9.3 s at batch 8; 1.2 s per text query; 4.2 GiB RSS; 80 s start to ready | Information only | 2026-10-19 | OMNI-704 |
@@ -1728,10 +1728,10 @@ extraction, one clip at a time. One run.
 | 0500 | VIRAT_S_050000_13_001722_001766 | 3232 | 1920x1080, 30 fps | 43.9 s | 57.9 MB | 1,316 | 61 | 18 | 43 | 36 s |
 | 0502 | VIRAT_S_050202_00_000000_000105 | 3233 | 1920x1080, 30 fps | 105.0 s | 139.5 MB | 3,147 | 107 | 3 | 104 | 1 min 27 s |
 | 0503 | VIRAT_S_050300_04_001057_001122 | 3234 | 1920x1080, 30 fps | 65.0 s | 85.0 MB | 1,947 | 79 | 16 | 63 | 1 min 0 s |
-| **All** | | | | **13.5 min** | **1,120.6 MB** | **23,057** | **949 (4.1%)** | **248** | **701** | |
+| **All** | | | | **13.5 min** | **1,120.6 MB** | **23,057** | **1,039 (4.5%)** | **248** | **791** | |
 
 "Extract" is from the video row's creation to its last segment row, so it includes storing
-and probing. The whole load: **13 min 37 s** (09:05:39 to 09:19:16 UTC).
+and probing. The whole load: **13 min 37 s** (09:05:39 to 09:19:16 UTC). [corrected 2026-10-29: the per-video rows add to 1,039 kept, 791 heartbeat, 4.5%; the total was mis-added. Postgres holds 1,039 admitted segments for these 9 videos (OMNI-708's export)]
 
 All 9: `source = dataset`, `retention_until` NULL, `ready` with a finished extraction,
 `dataset_manifest.video_id` set, no `error`. Two got a playback copy (3226, 3231). `GET
@@ -1739,10 +1739,10 @@ All 9: `source = dataset`, `retention_until` NULL, `ready` with a finished extra
 
 **Storage**, measured per video in the volumes (no whole-volume before/after this time):
 originals 1,120.6 MB, playback copies 60.6 MB, kept frames 296.9 MB, thumbnails 12.8 MB:
-**1.49 GB** in all. **About 326 KB per kept frame** (frame plus thumbnail), ten times
+**1.49 GB** in all. **About 298 KB per kept frame** [corrected 2026-10-29: was 326 KB, from the mis-added 949] (frame plus thumbnail), ten times
 OMNI-608's 31 KB: these are 720p and 1080p full frames, UCF-Crime's are 320x240.
 
-**The gate kept 4.1%, mostly heartbeats.** 4 of the 9 videos kept **no frame for motion**,
+**The gate kept 4.5%, mostly heartbeats** [corrected 2026-10-29: was 4.1%]**.** 4 of the 9 videos kept **no frame for motion**,
 only the heartbeat (about one a second), and a fifth kept 3, although every one has annotated events (people
 and vehicles moving). VIRAT's cameras are far and still, and the people are small in a
 1080p frame. Search on these videos therefore sees about one frame a second plus the
