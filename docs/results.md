@@ -43,6 +43,9 @@ are in `known-issues.md`; how the work went is in `context/`.
 | FR-4, frame search (`GET /search`, OMNI-707) | Ranked moments with every field; a camera filter returns only that camera's frames even when its best match ranks below other cameras' | Running stack, video 3226 (44 frames with vectors): 3 queries, 5 ranked hits each, every field set, 0 dropped; a date filter around the top hit returns it alone. Camera filter: tested on real Postgres with in-process Qdrant (the stack has no two cameras with vectors). 27 tests | **Pass** (frame mode; clip and fused in OMNI-710, 711) | 2026-10-28 | OMNI-707 |
 | The VIRAT archive on Colab, both streams (data for SM-1, TC-4; no Phase A target, D-37) | Every admitted frame of the 275 evaluation videos cached with both vectors; the product's segments matched to it; laptop and Colab agree (cosine ≥ 0.999) | 275 of 275 videos, 0 failed; 793,686 frames gated, 35,704 admitted (8,255 motion, 27,449 heartbeat), each with both vectors; 2.52 h on one A100, 87 frames/s gated, 3.93 admitted frames/s encoded. Product: 1,039 of 1,039 segments matched. Agreement: 44 of 44 at least 0.999 (min 0.999979) | **Pass**; the kill-and-resume test not run on Colab | 2026-10-29 | OMNI-708 |
 | VIRAT events the gate kept (K-23; data for SM-1, no Phase A target) | Record the share of annotated events of each type holding an admitted frame; a type with none is dropped | 1,547 of 1,555 events hold an admitted frame (99.5%; each type 95.5-100%), 339 (21.8%) a motion-admitted one. No type dropped for coverage; digging has no event in the 275 videos. Five random frames would meet SM-1's answer rules on 25.1% of the queries (actions 11.7%, scenes 38.5%) | Recorded | 2026-10-30 | OMNI-709 |
+| TC-3, clip half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 1,000 of 1,000 by id and by filtered search, payloads equal, vectors bit-identical, before and after the restart | **Pass** | 2026-10-30 | OMNI-710 |
+| TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
+| The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -2087,3 +2090,43 @@ event, which may not show the telling part of the action.
 reaching before an event's first frame (a frame counts only by its own time); search quality
 (OMNI-713); more than one run is not needed for a count, but this is one archive at one set of
 gate settings.
+
+## OMNI-710 · `clip_vectors`: TC-3 and TC-2, clip half, and the product's vectors · 2026-10-30
+
+**Conditions:** this laptop, the whole stack up, Qdrant in the stack. One run of each, plus one
+rerun of the import.
+
+**TC-3, clip half** (`scripts/verify_tc3_frame_vectors.py clip`): scratch collection
+`clip_vectors_tc3`, 512-D, made by `ensure_clip_collection`; 1,000 points from a fixed seed,
+half uploads and half live frames; the first 100 written again.
+
+| | Before the restart | After `docker compose restart qdrant` (healthy in 5.0 s) |
+|---|---|---|
+| Count | 1,000 | 1,000 |
+| By id: payload equal as a dict and as JSON bytes | 1,000 | 1,000 |
+| Vectors bit-identical | 1,000 (max difference 0) | 1,000 (max difference 0) |
+| Own top hit under its video or camera and exact `captured_at`, payload equal | 1,000 | 1,000 |
+| Counts under 5 video and 10 camera filters | Equal | Equal |
+
+Writing 1,000 points took 1.15 s. The frame half was rerun on the changed script: PASS before
+and after a restart.
+
+**TC-2, clip half** (`scripts/verify_tc2_clips.py`): `VIRAT_S_010201_08_000705_000739`, the
+evaluation video closest to 30 s: 29.8 s, 714 frames, 34 admitted, 34 clip vectors of 512
+dimensions, finite, norm 1.000000, each frame once, each window ending at its frame. Made on
+Colab's A100 by the repo's gate and encoder (OMNI-708, commit `24f140f`).
+
+**The product's vectors** (`scripts/import_clip_vectors.py`, from Drive `embeddings/product/`,
+archive pins equal to the settings):
+
+| Video | 3226 | 3227 | 3228 | 3229 | 3230 | 3231 | 3232 | 3233 | 3234 | Total |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| File rows, admitted segments and points, all three equal | 44 | 70 | 57 | 198 | 217 | 206 | 61 | 107 | 79 | **1,039** |
+
+A rerun leaves 1,039 points. `GET /embeddings/status` on the stack: `clips_embedded` equals
+`frames_total` for each of the 9, 0 elsewhere; 33,730 admitted segments of other videos and
+cameras have no clip point. `frames_embedded` is 44, video 3226 only (K-27).
+
+**Not covered:** a camera's clip vectors (D-32); a real upload through the API encoded on Colab
+(TC-2 reads OMNI-708's files, gated as an upload is); searching `clip_vectors` (OMNI-711); the 60
+hand-check clips (D-35).

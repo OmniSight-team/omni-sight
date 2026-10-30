@@ -718,3 +718,62 @@ Both files are ready to commit before any SM-1 run. 99.5% of events hold an admi
 no type is out of search's reach, but mostly through the heartbeat (21.8% hold a motion frame).
 Chance recall@5 over the set is 25.1% (actions 11.7%, scenes 38.5%), which OMNI-713 should
 report beside SM-1. K-23 stays open for Ahmad's decision.
+
+---
+
+## OMNI-710 · `clip_vectors`, loaded from the cache; InternVideo2's text side locally
+
+### Why this ticket exists
+
+FR-2 and FR-3's clip half: the product's clip vectors, made on Colab (D-32), have to be in Qdrant
+beside the frame vectors, and a query has to reach them through InternVideo2's text side.
+
+### What was done
+
+- **`omnisight_common/clip_vectors.py`:** `CLIP_VECTOR_SIZE` 512 (D-33), `clip_point`,
+  `ensure_clip_collection`; the same `FramePayload`, payload indexes and point id as
+  `frame_vectors`. `ensure_frame_collection`'s body became `ensure_collection(client, name,
+  size)`, shared by both. `query` creates both at startup
+- **`scripts/import_clip_vectors.py`:** copies the Drive files into `query`, refuses an archive of
+  another clip model or a vector that is not a unit vector of 512 dimensions, upserts by segment id
+  with the payload `jobs_for_segments` builds (the embed jobs' own), then compares file rows,
+  admitted segments and points per video
+- **`GET /embeddings/status`:** `clips_embedded` counts admitted frames with a point of the pinned
+  clip model
+- **`verify_tc3_frame_vectors.py clip`:** OMNI-703's script, now for either collection
+- **`scripts/verify_tc2_clips.py`:** TC-2's clip half from OMNI-708's files, no new Colab run: that
+  run already gated each file as an upload is and encoded it with the repo's code
+- **Different from the ticket, two text endpoints kept:** the ticket has `POST /encode/text`
+  return both vectors. OMNI-706 and OMNI-707 already built `/encode/text` and `/encode/clip-text`,
+  with a cache per encoder. One combined call would make `mode=clip` wait for SigLIP 2 (1,097 ms
+  against 131 ms a query, OMNI-706) and cache the two together. OMNI-711 asks for both. Not a Phase
+  A matter; Ahmad told
+- **Different from the ticket, 9 videos, not 69:** its acceptance says 69 product videos, but
+  OMNI-708 left the 60 hand-check clips out (D-35: not searched this sprint), and Drive holds
+  vectors for the 9 only
+
+### Verification performed
+
+- 1,039 of 1,039, per video, and a rerun leaves 1,039; TC-3's clip half passes across a Qdrant
+  restart; TC-2's clip half passes; numbers in `results.md`
+- The frame half of TC-3 rerun on the changed script: PASS across a restart
+- On the stack: `/embeddings/status` through the API as the admin (1,039 clips, on the 9 videos);
+  `/encode/text` gives 1152-D of SigLIP 2's pinned revision, `/encode/clip-text` 512-D of
+  InternVideo2's; query's log shows the collection's indexes made at startup
+- New tests: `test_clip_vectors.py` (4), `test_import_clip_vectors.py` (9 with the refusals),
+  one in `test_embeddings.py`
+- **Full `uv run pytest`, as it stands: 25 failed, 551 passed, 1 skipped, 26 errors, twice.** All
+  RabbitMQ logins refused, from OMNI-708's test file (K-28), not from this ticket. Without that
+  file: **569 passed, 1 skipped**. The file alone passes
+
+### Not verified
+
+- A camera's clip vector (D-32) and a real API upload encoded on Colab
+- Searching `clip_vectors`: OMNI-711
+- Memory or speed again: both text sides have run together since OMNI-706, unchanged
+
+### Result
+
+`clip_vectors` exists and holds every admitted segment of the product's 9 VIRAT videos. Two issues
+found and not fixed: `frame_vectors` holds only 44 of those frames (K-27), and a full pytest run
+fails because of OMNI-708's test file (K-28).

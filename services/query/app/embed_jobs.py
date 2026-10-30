@@ -89,6 +89,13 @@ def jobs_missing_from(db: Session, embedded: set[int]) -> Iterator[EmbedJob]:
             yield _job(row)
 
 
+def jobs_for_segments(db: Session, segment_ids: list[int]) -> dict[int, EmbedJob]:
+    """The jobs of these segments, by id: the payload of a vector made elsewhere (OMNI-710).
+    A segment that is not an admitted frame with a file has none."""
+    rows = db.execute(_jobs_query().where(Segment.id.in_(segment_ids)))
+    return {row.id: _job(row) for row in rows}
+
+
 def publish_jobs(channel, queue: str, jobs: Iterable[EmbedJob]) -> int:
     """Persistent and, on a channel in confirm mode, confirmed one by one, like a segment
     (OMNI-311). Raises on any failure: a job neither queued nor reported is a frame that

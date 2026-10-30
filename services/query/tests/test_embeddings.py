@@ -30,6 +30,7 @@ from omnisight_common import (
     dead_letter_queue,
     declare_segment_queue,
 )
+from omnisight_common.clip_vectors import CLIP_VECTOR_SIZE, clip_point, ensure_clip_collection
 from omnisight_common.embed_queue import EmbedJob
 from omnisight_common.frame_vectors import (
     FRAME_VECTOR_SIZE,
@@ -328,6 +329,7 @@ def test_a_consumer_killed_after_the_commit_still_gets_the_job_out(queues):
 def qdrant(monkeypatch):
     memory = QdrantClient(":memory:")
     ensure_frame_collection(memory, settings.frame_collection)
+    ensure_clip_collection(memory, settings.clip_collection)
     app.dependency_overrides[get_qdrant] = lambda: memory
     yield memory
     app.dependency_overrides.pop(get_qdrant, None)
@@ -339,6 +341,12 @@ def _point(job: EmbedJob, *, model=None):
     vector[job.segment_id % FRAME_VECTOR_SIZE] = 1.0
     payload = job.payload(model or settings.frame_model_id, settings.frame_model_revision)
     return frame_point(payload, vector)
+
+
+def _clip_point(job: EmbedJob, *, model=None):
+    vector = [0.0] * CLIP_VECTOR_SIZE
+    vector[job.segment_id % CLIP_VECTOR_SIZE] = 1.0
+    return clip_point(job.payload(model or settings.clip_model_id, settings.clip_model_revision), vector)
 
 
 def _headers() -> dict[str, str]:
@@ -371,6 +379,24 @@ def test_status_counts_admitted_frames_against_points_of_the_pinned_model(qdrant
     }
     assert rows[(None, camera_id)]["frames_total"] == 3
     assert rows[(None, camera_id)]["frames_embedded"] == 1
+
+
+def test_status_counts_clip_points_of_the_pinned_clip_model(qdrant):
+    video_id = _video()
+    frames = [_message(video_id, i) for i in range(4)]
+    for message in frames:
+        _store(message)
+    jobs = [_job(m) for m in frames]
+    qdrant.upsert(settings.clip_collection, points=[_clip_point(j) for j in jobs[:2]])
+    # Another model's clip vector is not counted, and a clip point is not a frame point.
+    qdrant.upsert(settings.clip_collection, points=[_clip_point(jobs[2], model="another/model")])
+
+    response = client.get("/embeddings/status", headers=_headers())
+
+    rows = {(r["video_id"], r["camera_id"]): r for r in response.json()}
+    assert rows[(video_id, None)]["frames_total"] == 4
+    assert rows[(video_id, None)]["clips_embedded"] == 2
+    assert rows[(video_id, None)]["frames_embedded"] == 0
 
 
 def test_status_needs_a_login(qdrant):

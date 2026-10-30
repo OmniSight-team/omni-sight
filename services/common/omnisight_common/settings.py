@@ -47,6 +47,7 @@ class CommonSettings(BaseSettings):
     qdrant_timeout_s: float = 10.0
     # Overridable so a test can use a collection of its own (OMNI-703's TC-3 does).
     frame_collection: str = "frame_vectors"
+    clip_collection: str = "clip_vectors"
 
     # OMNI-704: Algorithm 2's frame encoder (Phase A §3.5.2), pinned to one revision so
     # this machine and Colab run the same weights (D-30). Changing either is a new model:

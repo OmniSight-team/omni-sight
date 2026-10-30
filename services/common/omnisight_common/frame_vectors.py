@@ -116,6 +116,10 @@ def qdrant_client(settings: CommonSettings) -> QdrantClient:
 
 
 def ensure_frame_collection(client: QdrantClient, name: str) -> bool:
+    return ensure_collection(client, name, FRAME_VECTOR_SIZE)
+
+
+def ensure_collection(client: QdrantClient, name: str, size: int) -> bool:
     """Create the collection if it is missing; never recreate it. True if it was created.
 
     The payload indexes are asked for every time: creating one that exists changes
@@ -129,7 +133,7 @@ def ensure_frame_collection(client: QdrantClient, name: str) -> bool:
             # ef_construct.
             client.create_collection(
                 collection_name=name,
-                vectors_config=models.VectorParams(size=FRAME_VECTOR_SIZE, distance=models.Distance.COSINE),
+                vectors_config=models.VectorParams(size=size, distance=models.Distance.COSINE),
             )
             created = True
         except UnexpectedResponse:

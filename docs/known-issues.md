@@ -22,6 +22,8 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-24 | Deleting or re-gating a video leaves its old frames' points in `frame_vectors` | Disk, and a search slot: since OMNI-707 search drops them, so a query can return fewer than `k` | OMNI-705 | Slice 16 (retention deletes videos) |
 | K-26 | After ai_workers sits idle for a while, the first search waits for SigLIP 2's weights to be read back from disk: over 30 s (a 503 at query's timeout), then 9 s, then about 2 s | NFR-2 on this laptop | OMNI-707 | OMNI-714 (NFR-2) |
 | K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
+| K-27 | `frame_vectors` holds 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
+| K-28 | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
 
 ---
 
@@ -129,6 +131,29 @@ each burst restarts the read timeout; and the age a tile shows ("last frame 11 s
 from when the late frames *arrived*, not from when they were captured, so it understates how
 old the picture is. Both are the second fix candidate above (stamp frames by the stream's own
 time, or treat a worker that is not receiving for a read timeout as lost).
+
+## K-28 · One test file's placeholder login breaks every later RabbitMQ test
+
+2026-10-30, found in OMNI-710. `load_gate` (`scripts/encode_virat_archive.py`, OMNI-708) sets
+`RABBITMQ_USER` and `RABBITMQ_PASSWORD` to `unused` so ingestion's settings load on Colab. Its
+test file calls it at import, so pytest's collection leaves those values in the environment
+and later tests log in with them. Evidence: `test_publisher.py` alone, 6 passed; with that file
+first, 5 failed and 6 errors. Full suite, twice: 25 failed, 551 passed, 1 skipped, 26 errors, in
+`test_embed_worker.py`, `test_publisher.py`, `test_embeddings.py` and `test_segment_consumer.py`.
+Without that file: 569 passed, 1 skipped. OMNI-708 and OMNI-709 ran `scripts/tests` alone, so
+neither saw it.
+**Fix candidate, not tried:** in the test file, call `load_gate` under a fixture that restores
+the environment, or have `load_gate` remove the placeholders after the settings load.
+
+## K-27 · The product's frame vectors are behind its clip vectors
+
+2026-10-30, OMNI-710. `GET /embeddings/status`: `clips_embedded` 1,039, `frames_embedded` 44
+(video 3226; D-35 proved OMNI-705 on one video). Algorithm 3 gives a missing rank ∞, so the
+other 995 frames can only match through the clip list, and `mode=frame` can only return video
+3226. SM-1 is not affected: it runs on the Colab archive.
+**Fix candidates, neither tried:** import the frame vectors from the same
+`embeddings/product/{video_id}.npz` (they agree with the laptop's at cosine 0.999979 or better
+on 44 of 44, OMNI-708), which takes seconds; or D-35's backfill, about 2.5 h on this CPU.
 
 ## K-24 · Old points left behind by a deleted or re-gated video
 

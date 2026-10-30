@@ -29,6 +29,10 @@ Not part of the running system.
 - `hand_check_report.py` — the hand check's result from the verdicts given on `/windows` (D-27):
   correct out of checked per dataset and source, with a 95% Wilson interval, and every Wrong with its
   reason (OMNI-609).
+- `import_clip_vectors.py` — the product's clip vectors from Drive into `clip_vectors`, by segment id;
+  rerunnable; reports the count against the admitted segments (OMNI-710). Needs the stack up.
+- `verify_tc2_clips.py` — TC-2's clip half: the archive's vectors of the evaluation video closest to 30 s
+  (OMNI-710). Reads Drive.
 - `virat_event_coverage.py` — the share of VIRAT's annotated events of each type holding an admitted frame
   of the archive (OMNI-708), and the chance recall@5 of SM-1's answer rules (OMNI-709, K-23). Reads Drive.
 - `ccd_pre_event.py` — CCD's footage before the first accident frame, all crash clips and per split,

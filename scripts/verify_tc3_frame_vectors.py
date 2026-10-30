@@ -1,14 +1,14 @@
-"""TC-3, frame half (OMNI-703): 1,000 vectors with payloads into Qdrant, read back by id and
+"""TC-3 (OMNI-703, frame half; OMNI-710, clip half with `clip`): 1,000 vectors with payloads into Qdrant, read back by id and
 by filtered search, every field compared; then Qdrant restarted and everything compared again.
 
 Qdrant publishes no port to the host, so the checks run inside `query` (which reaches it as
 `qdrant`) and this script, run on the host, drives them and the restart:
 
     docker compose up -d
-    uv run python scripts/verify_tc3_frame_vectors.py
+    uv run python scripts/verify_tc3_frame_vectors.py [clip]
 
-1. `write` (in query): a scratch collection `frame_vectors_tc3`, made by the product's own
-   `ensure_frame_collection`, gets 1,000 points built by `frame_point` from a fixed seed:
+1. `write` (in query): a scratch collection `frame_vectors_tc3` (or `clip_vectors_tc3`), made by the product's own
+   `ensure_frame_collection` (`ensure_clip_collection`), gets 1,000 points built by `frame_point` (`clip_point`) from a fixed seed:
    half uploads (5 videos), half live frames (10 cameras), all three domains, some without a
    thumbnail. The first 100 are then written again (a redelivery): the count must stay 1,000.
    Then `check`.
@@ -19,7 +19,7 @@ Qdrant publishes no port to the host, so the checks run inside `query` (which re
 expected one as a dict and as canonical JSON bytes, its vector equal to the expected float32
 vector; every point found again as the top hit of a search with its own vector, filtered by
 its video or camera and by its exact `captured_at`, with the same payload; the point count
-under each video and camera filter. The real `frame_vectors` is only checked to exist.
+under each video and camera filter. The real collection is only checked to exist.
 Rerunnable; the points are regenerated from the seed, so nothing is carried between stages.
 """
 
@@ -29,7 +29,13 @@ import sys
 import time
 from pathlib import Path
 
-COLLECTION = "frame_vectors_tc3"
+# Scratch collection, the size and model of its vectors, by stream.
+STREAMS = {
+    "frame": ("frame_vectors_tc3", 1152, "google/siglip2-so400m-patch14-384"),
+    "clip": ("clip_vectors_tc3", 512, "OpenGVLab/InternVideo2_CLIP_S"),
+}
+STREAM = sys.argv[2] if len(sys.argv) > 2 else "frame"
+COLLECTION, VECTOR_SIZE, MODEL = STREAMS[STREAM]
 POINTS = 1000
 REDELIVERED = 100
 SEED = 703
@@ -44,7 +50,7 @@ def _expected():
     from datetime import UTC, datetime
 
     from omnisight_common.domain import Domain
-    from omnisight_common.frame_vectors import FRAME_VECTOR_SIZE, FramePayload, captured_at
+    from omnisight_common.frame_vectors import FramePayload, captured_at
     from omnisight_common.segment_source_type import SegmentSourceType
 
     rng = np.random.default_rng(SEED)
@@ -53,7 +59,7 @@ def _expected():
     points = []
     for i in range(POINTS):
         segment_id = 1_000_001 + i
-        vector = rng.standard_normal(FRAME_VECTOR_SIZE).astype(np.float32)
+        vector = rng.standard_normal(VECTOR_SIZE).astype(np.float32)
         vector /= np.linalg.norm(vector)
         if i % 2 == 0:
             source, video_id, camera_id = SegmentSourceType.UPLOAD, 3226 + i % 5, None
@@ -77,7 +83,7 @@ def _expected():
             captured_at=at,
             frame_path=f"/data/frames/{folder}/{i:06d}.jpg",
             thumb_path=None if i % 7 == 0 else f"/data/thumbs/{folder}/{i:06d}.jpg",
-            model="google/siglip2-so400m-patch14-384",
+            model=MODEL,
             model_revision="tc3",
         )
         points.append((payload, vector))
@@ -92,22 +98,24 @@ def _client():
 
 
 def _write() -> int:
+    from omnisight_common.clip_vectors import clip_point, ensure_clip_collection
     from omnisight_common.frame_vectors import ensure_frame_collection, frame_point
 
+    ensure, make_point = (ensure_clip_collection, clip_point) if STREAM == "clip" else (ensure_frame_collection, frame_point)
     client = _client()
     if client.collection_exists(COLLECTION):
         client.delete_collection(COLLECTION)
-    assert ensure_frame_collection(client, COLLECTION), "the scratch collection was not created"
+    assert ensure(client, COLLECTION), "the scratch collection was not created"
     points = _expected()
     started = time.perf_counter()
     for start in range(0, POINTS, BATCH):
         batch = points[start : start + BATCH]
-        client.upsert(COLLECTION, [frame_point(p, v.tolist()) for p, v in batch], wait=True)
+        client.upsert(COLLECTION, [make_point(p, v.tolist()) for p, v in batch], wait=True)
     print(f"wrote {POINTS} points in {time.perf_counter() - started:.2f} s")
     # A redelivery: the same segments again. Same ids, so the same points.
-    client.upsert(COLLECTION, [frame_point(p, v.tolist()) for p, v in points[:REDELIVERED]], wait=True)
+    client.upsert(COLLECTION, [make_point(p, v.tolist()) for p, v in points[:REDELIVERED]], wait=True)
     print(f"wrote the first {REDELIVERED} again")
-    assert not ensure_frame_collection(client, COLLECTION), "an existing collection was created again"
+    assert not ensure(client, COLLECTION), "an existing collection was created again"
     client.close()
     return _check(drop=False)
 
@@ -131,7 +139,7 @@ def _check(drop: bool) -> int:
 
     info = client.get_collection(COLLECTION)
     params = info.config.params.vectors
-    if (params.size, params.distance) != (1152, models.Distance.COSINE):
+    if (params.size, params.distance) != (VECTOR_SIZE, models.Distance.COSINE):
         fail(f"collection shape {params.size} {params.distance}")
     for field, schema in PAYLOAD_INDEXES.items():
         got = info.payload_schema.get(field)
@@ -199,7 +207,7 @@ def _check(drop: bool) -> int:
 
     from omnisight_common.settings import CommonSettings
 
-    real = CommonSettings().frame_collection
+    real = CommonSettings().clip_collection if STREAM == "clip" else CommonSettings().frame_collection
     if not client.collection_exists(real):
         fail(f"{real} does not exist (query creates it at startup)")
     else:
@@ -219,7 +227,7 @@ def _check(drop: bool) -> int:
 def _in_query(stage: str) -> int:
     source = Path(__file__).read_bytes()
     return subprocess.run(
-        ["docker", "compose", "exec", "-T", "query", "uv", "run", "--package", "omnisight-query", "python", "-", stage],
+        ["docker", "compose", "exec", "-T", "query", "uv", "run", "--package", "omnisight-query", "python", "-", stage, STREAM],
         input=source,
     ).returncode
 
@@ -252,6 +260,10 @@ def main() -> int:
 
 if __name__ == "__main__":
     stage = sys.argv[1] if len(sys.argv) > 1 else None
+    if stage == "clip":  # on the host: `verify_tc3_frame_vectors.py clip`
+        STREAM = "clip"
+        COLLECTION, VECTOR_SIZE, MODEL = STREAMS[STREAM]
+        sys.exit(main())
     if stage == "write":
         sys.exit(_write())
     if stage == "check":
