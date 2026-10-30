@@ -46,6 +46,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-3, clip half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 1,000 of 1,000 by id and by filtered search, payloads equal, vectors bit-identical, before and after the restart | **Pass** | 2026-10-30 | OMNI-710 |
 | TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
 | The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
+| Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -2130,3 +2131,46 @@ cameras have no clip point. `frames_embedded` is 44, video 3226 only (K-27).
 **Not covered:** a camera's clip vectors (D-32); a real upload through the API encoded on Colab
 (TC-2 reads OMNI-708's files, gated as an upload is); searching `clip_vectors` (OMNI-711); the 60
 hand-check clips (D-35).
+
+## OMNI-711 · The modality classifier, and fused search on the stack · 2026-10-30
+
+**The classifier** (`scripts/train_modality_classifier.py`): this laptop, SigLIP 2 text vectors
+from ai_workers on the stack, `datasets/eval/modality_train.csv` (100 queries, 50 scene, 50 action,
+SHA-256 `42ab19d4...`), logistic regression with scikit-learn's defaults, 5 stratified folds, seed
+711. One run.
+
+| | |
+|---|---:|
+| Cross-validated accuracy | **98.0%** (98 of 100) |
+| Held-out mean `w_f`, scene queries | 0.695 |
+| Held-out mean `w_f`, action queries | 0.302 |
+| Wrong | *a car turning left at an intersection*, *a truck reversing into a loading bay* (both action) |
+| File | 25,230 bytes |
+
+Written by one author in one style, so 98% says little about other wordings. The weights are soft:
+a mean `w_f` of 0.695 leaves the other list about 30%.
+
+**Fused search on the running stack** (exploration, not a measurement): through the API inside
+`query`, as the admin, one run. `frame_vectors` 44 points (video 3226), `clip_vectors` 1,039 (K-27).
+Two queries chosen to be outside the SM-1 set; no SM-1 query was run.
+
+| Query, `(w_f, w_c)` | Mode, k | Results by `matched_by` | Videos |
+|---|---|---|---|
+| *a van parked next to a fence* (0.591, 0.409) | frame, 5 | frame 5 | 3226 |
+| | clip, 5 | clip 5 | 3230, 3233 |
+| | fused, 5 | frame 5 | 3226 |
+| | fused, 50 | frame 41, clip 9 | 3226, 3230, 3233 |
+| *a man walking near a van* (0.216, 0.784) | frame, 5 | frame 5 | 3226 |
+| | clip, 5 | clip 5 | 3226, 3229 |
+| | fused, 5 | clip 5 | 3226, 3229 |
+| | fused, 50 | both 4, clip 46 | 7 of the 9 |
+
+A `from` filter on fused, k 50: 50 hits, every one inside, frame 17 and clip 33. Elapsed on a fresh
+query about 0.9-2.4 s in `frame` and `clip` (mostly encoding, on this CPU); not a timing of fused
+with both encoders uncached, and NFR-2 is OMNI-714.
+
+**What it shows:** at k 5 the merged list came from one list: without an overlap, the larger
+weight's ranks all score above the other's. Whether that helps is SM-1's question.
+
+**Not covered:** search quality (OMNI-713); a camera filter on real Qdrant (no camera has a point:
+tested in process only); the classifier on queries of another author.

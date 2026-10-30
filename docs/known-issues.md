@@ -154,6 +154,8 @@ other 995 frames can only match through the clip list, and `mode=frame` can only
 **Fix candidates, neither tried:** import the frame vectors from the same
 `embeddings/product/{video_id}.npz` (they agree with the laptop's at cosine 0.999979 or better
 on 44 of 44, OMNI-708), which takes seconds; or D-35's backfill, about 2.5 h on this CPU.
+**Seen 2026-10-30 (OMNI-711):** fused *a van parked next to a fence*, k 5, returned 5 frames of
+video 3226, the only video in the frame list, ahead of the other 8 videos.
 
 ## K-24 · Old points left behind by a deleted or re-gated video
 

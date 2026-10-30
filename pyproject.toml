@@ -10,7 +10,13 @@ package = false
 members = ["services/*"]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "jupyter", "matplotlib"]
+dev = [
+    "pytest",
+    "ruff",
+    "jupyter",
+    "matplotlib",
+    "scikit-learn>=1.9.1",
+]
 
 # OMNI-704: PyTorch's CPU-only wheels for ai_workers. PyPI's Linux wheels pull the CUDA
 # libraries (several GB) into an image that runs on a CPU; Colab brings its own GPU build.

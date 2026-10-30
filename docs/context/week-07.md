@@ -777,3 +777,51 @@ beside the frame vectors, and a query has to reach them through InternVideo2's t
 `clip_vectors` exists and holds every admitted segment of the product's 9 VIRAT videos. Two issues
 found and not fixed: `frame_vectors` holds only 44 of those frames (K-27), and a full pytest run
 fails because of OMNI-708's test file (K-28).
+
+---
+
+## OMNI-711 · Algorithm 3: fused search
+
+### Why this ticket exists
+
+FR-4 for actions: a single frame cannot tell opening a door from closing one, so the frame list and
+the clip list are merged, weighted by what the query describes. Appendix B.3, line by line.
+
+### What was done
+
+- **`omnisight_common/fusion.py`:** `fuse` (B.3 lines 4-9: union, ranks from 1, `w_f / (60 + r_f) +
+  w_c / (60 + r_c)`, a missing rank adds nothing, top K) and `ModalityClassifier` (line 1). No model
+  and no store, so Colab can run it. Equal scores come out by segment id (D-38)
+- **`scripts/train_modality_classifier.py`:** vectors from ai_workers on the stack, 5-fold
+  cross-validation, then `omnisight_common/modality_classifier.json`. **D-38**, not the ticket's
+  D-34, which was taken. scikit-learn added to the dev group only
+- **`GET /search`:** a `Stream` per side (text encoder, collection, pin); `clip` and `fused` work;
+  filters built per stream and applied inside each search; `matched_by` `frame`, `clip` or `both`;
+  `timings.fusion_ms` added for OMNI-714; `encode_cached` true only when every vector was cached. The
+  "clip index not ready" answer is gone. An empty index gives the same message in every mode
+
+### Verification performed
+
+- `test_fusion.py` (12): B.3's arithmetic, a missing rank, equal weights, ties, top K, the weights
+  deciding, an empty list, the softmax, a file of another encoder refused, the committed file's pin
+- `test_search.py` (39, 14 new): clip mode, pinned clip model, labels, weights from the
+  classifier, k, camera and date filters inside both searches, a dropped hit, both caches, the
+  errors. The old "clip index not ready" test removed. Uses in-process Qdrant
+- On the stack, the acceptance: fused *a man walking near a van*, k 50: both 4, clip 46; *a van parked
+  next to a fence*, k 50: frame 41, clip 9. Numbers in `results.md`. **No SM-1 query was searched:**
+  those two were written to be outside the set. A date filter on fused on the real Qdrant holds
+- Full suite without K-28's file: **593 passed, 1 skipped**; that file alone: 7 passed. With it, the
+  run still fails as in K-28 (not rerun for this ticket; K-28 is unchanged)
+
+### Not verified
+
+- `fusion.py` imported on Colab: OMNI-713 does it. `omnisight_common/__init__.py` imports pika and
+  pydantic-settings, which Colab's setup must have
+- Search quality: OMNI-713
+- A camera filter on the real Qdrant: no camera has a point; in-process only
+- Fused on a fresh query with both encoders timed: the stack runs cached it here; OMNI-714
+
+### Result
+
+Fused search follows B.3, each hit labelled. Classifier 98.0% in cross-validation on its own training
+set. On the product it still shows K-27: fused at k 5 can return only video 3226's frames.

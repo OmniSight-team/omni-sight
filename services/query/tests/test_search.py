@@ -16,8 +16,9 @@ import httpx
 import pytest
 from app import ai_workers_client
 from app import consumer as consumer_module
+from app import search as search_module
 from app.db import SessionLocal
-from app.embed_jobs import job_for_frame
+from app.embed_jobs import job_for_frame, jobs_for_segments
 from app.embeddings import get_qdrant
 from app.main import app
 from app.models import Camera, Segment, User, Video
@@ -25,7 +26,17 @@ from app.security import hash_password
 from app.settings import settings
 from fastapi.testclient import TestClient
 from omnisight_common import Domain, Role, SegmentMessage, VideoSource, VideoStatus
-from omnisight_common.frame_vectors import FRAME_VECTOR_SIZE, ensure_frame_collection, frame_point
+from omnisight_common.clip_vectors import (
+    CLIP_VECTOR_SIZE,
+    clip_point,
+    ensure_clip_collection,
+)
+from omnisight_common.frame_vectors import (
+    FRAME_VECTOR_SIZE,
+    ensure_frame_collection,
+    frame_point,
+)
+from omnisight_common.fusion import ModalityClassifier
 from qdrant_client import QdrantClient
 
 NAME_PREFIX = "omni707-"
@@ -65,6 +76,7 @@ def cleanup():
 def qdrant():
     memory = QdrantClient(":memory:")
     ensure_frame_collection(memory, settings.frame_collection)
+    ensure_clip_collection(memory, settings.clip_collection)
     app.dependency_overrides[get_qdrant] = lambda: memory
     yield memory
     app.dependency_overrides.pop(get_qdrant, None)
@@ -72,7 +84,7 @@ def qdrant():
 
 
 class FakeAiWorkers:
-    """ai_workers' `/encode/text`: every query is e0, of the pinned model unless told
+    """ai_workers' two text encoders: every query is e0, of the pinned model unless told
     otherwise. Counts the calls, to see the cache."""
 
     def __init__(self, model=None, down=False):
@@ -85,9 +97,12 @@ class FakeAiWorkers:
         request = httpx.Request("POST", url)
         if self.down:
             raise httpx.ConnectError("connection refused", request=request)
-        vector = [0.0] * FRAME_VECTOR_SIZE
+        is_clip = url.endswith(ai_workers_client.CLIP_TEXT)
+        vector = [0.0] * (CLIP_VECTOR_SIZE if is_clip else FRAME_VECTOR_SIZE)
         vector[0] = 1.0
-        body = {"vector": vector, "model": self.model, "model_revision": settings.frame_model_revision}
+        model = settings.clip_model_id if is_clip and self.model == settings.frame_model_id else self.model
+        revision = settings.clip_model_revision if is_clip else settings.frame_model_revision
+        body = {"vector": vector, "model": model, "model_revision": revision}
         return httpx.Response(200, json=body, request=request)
 
 
@@ -146,6 +161,30 @@ def _frame(qdrant, cosine, *, video_id=None, camera_id=None, at=None, model=None
     return job.segment_id
 
 
+def _clip(qdrant, segment_id, cosine, *, model=None) -> None:
+    """The clip point of a stored frame, with the given cosine to the query."""
+    with SessionLocal() as db:
+        job = jobs_for_segments(db, [segment_id])[segment_id]
+    vector = [0.0] * CLIP_VECTOR_SIZE
+    vector[0], vector[1] = cosine, math.sqrt(1 - cosine**2)
+    payload = job.payload(model or settings.clip_model_id, settings.clip_model_revision)
+    qdrant.upsert(settings.clip_collection, points=[clip_point(payload, vector)])
+
+
+def _clip_only(qdrant, cosine, **where) -> int:
+    """A stored frame with a clip point and no frame point (K-27's case)."""
+    # Half the cosine: only to give the frame an index of its own, its point goes next.
+    segment_id = _frame(qdrant, cosine / 2, **where)
+    qdrant.delete(settings.frame_collection, points_selector=[segment_id])
+    _clip(qdrant, segment_id, cosine)
+    return segment_id
+
+
+@pytest.fixture
+def equal_weights(monkeypatch):
+    monkeypatch.setattr(search_module, "_classifier", lambda: ModalityClassifier([0.0] * FRAME_VECTOR_SIZE, 0.0))
+
+
 def _search(**params):
     return client.get("/search", params={"q": "a person", **params}, headers=params.pop("headers", None) or _headers())
 
@@ -174,7 +213,7 @@ def test_a_query_returns_ranked_moments_with_every_field(qdrant, ai_workers):
     assert body["total"] == 3
     assert body["dropped"] == 0
     assert body["message"] is None
-    assert set(body["timings"]) == {"encode_ms", "search_ms", "join_ms", "encode_cached"}
+    assert set(body["timings"]) == {"encode_ms", "search_ms", "fusion_ms", "join_ms", "encode_cached"}
     assert body["elapsed_ms"] >= body["timings"]["search_ms"]
 
 
@@ -313,15 +352,6 @@ def test_results_are_not_cached(qdrant, ai_workers):
 # --- clear answers --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("mode", ["clip", "fused"])
-def test_clip_and_fused_say_the_clip_index_is_not_ready(qdrant, ai_workers, mode):
-    response = _search(mode=mode)
-
-    assert response.status_code == 503
-    assert "clip index is not ready" in response.json()["detail"]
-    assert ai_workers.calls == []
-
-
 def test_an_unknown_mode_is_refused(qdrant, ai_workers):
     assert _search(mode="audio").status_code == 422
 
@@ -382,6 +412,159 @@ def test_qdrant_down_is_a_clear_503(ai_workers):
 
     assert response.status_code == 503
     assert response.json()["detail"] == "the vector store is unreachable"
+
+
+# --- clip and fused (OMNI-711) --------------------------------------------------------------
+
+
+def test_clip_mode_searches_clip_vectors_with_the_clip_text_encoder(qdrant, ai_workers):
+    video_id = _video()
+    low, high = _frame(qdrant, 0.9, video_id=video_id), _frame(qdrant, 0.3, video_id=video_id)
+    _clip(qdrant, low, 0.2)
+    _clip(qdrant, high, 0.8)
+
+    body = _search(mode="clip").json()
+
+    assert [h["segment_id"] for h in body["results"]] == [high, low]
+    assert [round(h["score"], 4) for h in body["results"]] == [0.8, 0.2]
+    assert {h["matched_by"] for h in body["results"]} == {"clip"}
+    assert [url.rsplit("/", 1)[1] for url, _ in ai_workers.calls] == ["clip-text"]
+
+
+def test_clip_mode_searches_only_vectors_of_the_pinned_clip_model(qdrant, ai_workers):
+    video_id = _video()
+    ours, other = _frame(qdrant, 0.1, video_id=video_id), _frame(qdrant, 0.2, video_id=video_id)
+    _clip(qdrant, ours, 0.5)
+    _clip(qdrant, other, 0.9, model="another/model")
+
+    assert [h["segment_id"] for h in _search(mode="clip").json()["results"]] == [ours]
+
+
+def test_fused_returns_segments_of_both_lists_each_labelled(qdrant, ai_workers, equal_weights):
+    video_id = _video()
+    both = _frame(qdrant, 0.9, video_id=video_id)
+    _clip(qdrant, both, 0.9)
+    frame_only = _frame(qdrant, 0.8, video_id=video_id)
+    clip_only = _clip_only(qdrant, 0.8, video_id=video_id)
+
+    body = _search(mode="fused").json()
+
+    assert body["mode"] == "fused"
+    assert {h["segment_id"]: h["matched_by"] for h in body["results"]} == {both: "both", frame_only: "frame", clip_only: "clip"}
+    assert body["results"][0]["segment_id"] == both
+    # Ranks 1 and 1, at equal weights: B.3's score, not a cosine.
+    assert body["results"][0]["score"] == pytest.approx(0.5 / 61 + 0.5 / 61)
+    assert [url.rsplit("/", 1)[1] for url, _ in ai_workers.calls] == ["text", "clip-text"]
+
+
+def test_fused_takes_the_weights_from_the_classifier_of_the_query(qdrant, ai_workers, monkeypatch):
+    video_id = _video()
+    frame_top = _frame(qdrant, 0.9, video_id=video_id)
+    clip_top = _clip_only(qdrant, 0.9, video_id=video_id)
+    # Every query is e0, so the coefficient on e0 alone decides.
+    coefficients = [0.0] * FRAME_VECTOR_SIZE
+
+    coefficients[0] = 5.0  # a scene
+    monkeypatch.setattr(search_module, "_classifier", lambda: ModalityClassifier(coefficients, 0.0))
+    assert _search(mode="fused").json()["results"][0]["segment_id"] == frame_top
+
+    monkeypatch.setattr(search_module, "_classifier", lambda: ModalityClassifier([-c for c in coefficients], 0.0))
+    assert _search(mode="fused").json()["results"][0]["segment_id"] == clip_top
+
+
+def test_fused_returns_only_k(qdrant, ai_workers, equal_weights):
+    video_id = _video()
+    for c in (0.9, 0.8, 0.7):
+        _frame(qdrant, c, video_id=video_id)
+    for c in (0.6, 0.5, 0.4):
+        _clip_only(qdrant, c, video_id=video_id)
+
+    assert _search(mode="fused", k=2).json()["total"] == 2
+
+
+def test_a_camera_filter_is_applied_inside_both_searches(qdrant, ai_workers, equal_weights):
+    camera_a, camera_b = _camera(), _camera()
+    a = _frame(qdrant, 0.2, camera_id=camera_a, at=1_790_000_000.0)
+    _clip(qdrant, a, 0.2)
+    for i, c in enumerate((0.95, 0.9, 0.85, 0.8, 0.75)):
+        other = _frame(qdrant, c, camera_id=camera_b, at=1_790_000_100.0 + i)
+        _clip(qdrant, other, c)
+
+    for mode in ("clip", "fused"):
+        body = _search(mode=mode, k=5, camera_id=camera_a).json()
+        assert [h["segment_id"] for h in body["results"]] == [a]
+    assert body["results"][0]["matched_by"] == "both"
+
+
+def test_a_date_filter_is_applied_inside_both_searches(qdrant, ai_workers, equal_weights):
+    camera_id = _camera()
+    early = 1_790_000_000.0
+    in_window = _frame(qdrant, 0.3, camera_id=camera_id, at=early)
+    _clip(qdrant, in_window, 0.3)
+    late = _frame(qdrant, 0.9, camera_id=camera_id, at=early + 3600)
+    _clip(qdrant, late, 0.9)
+    window = {"from": datetime.fromtimestamp(early - 60, UTC).isoformat(), "to": datetime.fromtimestamp(early + 60, UTC).isoformat()}
+
+    assert [h["segment_id"] for h in _search(mode="fused", k=1, **window).json()["results"]] == [in_window]
+
+
+def test_a_fused_hit_whose_segment_is_gone_is_dropped_and_counted(qdrant, ai_workers, equal_weights):
+    video_id = _video()
+    kept = _frame(qdrant, 0.5, video_id=video_id)
+    gone = _clip_only(qdrant, 0.9, video_id=video_id)
+    with SessionLocal() as session:
+        session.query(Segment).filter(Segment.id == gone).delete()
+        session.commit()
+
+    body = _search(mode="fused").json()
+
+    assert [h["segment_id"] for h in body["results"]] == [kept]
+    assert body["dropped"] == 1
+
+
+def test_a_repeated_fused_query_encodes_nothing_and_each_encoder_keeps_its_own_vector(qdrant, ai_workers, equal_weights):
+    _frame(qdrant, 0.5, video_id=_video())
+
+    first = _search(mode="fused", q="a red car").json()
+    second = _search(mode="fused", q="a red car").json()
+    clip_alone = _search(mode="clip", q="a red car").json()
+
+    assert len(ai_workers.calls) == 2
+    assert (first["timings"]["encode_cached"], second["timings"]["encode_cached"]) == (False, True)
+    assert clip_alone["timings"]["encode_cached"] is True
+
+
+def test_a_query_cached_on_one_side_only_is_not_reported_as_cached(qdrant, ai_workers, equal_weights):
+    _frame(qdrant, 0.5, video_id=_video())
+    _search(mode="frame", q="a red car")
+
+    assert _search(mode="fused", q="a red car").json()["timings"]["encode_cached"] is False
+
+
+@pytest.mark.parametrize("mode", ["clip", "fused"])
+def test_an_empty_index_says_nothing_is_indexed_in_every_mode(qdrant, ai_workers, equal_weights, mode):
+    body = _search(mode=mode).json()
+
+    assert body["results"] == []
+    assert body["message"] == "nothing is indexed yet: no frame has a vector"
+
+
+def test_fused_with_a_classifier_of_another_encoder_is_a_clear_503(qdrant, ai_workers, monkeypatch):
+    def wrong():
+        raise ValueError("trained on another/model")
+
+    monkeypatch.setattr(search_module, "_classifier", wrong)
+
+    response = _search(mode="fused")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "the modality classifier was trained on another text encoder"
+
+
+def test_a_clip_text_vector_of_another_model_is_refused(qdrant, monkeypatch):
+    monkeypatch.setattr(ai_workers_client.httpx, "post", FakeAiWorkers(model="another/model").post)
+
+    assert _search(mode="clip").status_code == 503
 
 
 # --- who may search (NFR-7) -----------------------------------------------------------------

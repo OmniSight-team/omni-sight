@@ -255,9 +255,9 @@ class SearchHitOut(BaseModel):
     camera: SearchCameraOut | None
     timestamp_s: float
     captured_at: datetime
-    # Cosine similarity of the query and the frame (higher is closer).
+    # Higher is closer. Cosine similarity in `frame` and `clip`; B.3's reciprocal rank score in `fused`.
     score: float
-    # Which index found it: "frame" until clip vectors exist (OMNI-710, OMNI-711).
+    # Which index found it: "frame", "clip" or "both" (OMNI-711).
     matched_by: str
     thumb_url: str | None
 
@@ -267,8 +267,10 @@ class SearchTimingsOut(BaseModel):
 
     encode_ms: float
     search_ms: float
+    # Algorithm 3's classifier and merge; about nothing in the other modes.
+    fusion_ms: float
     join_ms: float
-    # True when the query's vector came from the cache (a repeated query, NFR-2).
+    # True when every vector of the query came from the cache (a repeated query, NFR-2).
     encode_cached: bool
 
 

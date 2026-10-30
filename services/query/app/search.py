@@ -1,14 +1,14 @@
-"""`GET /search` (OMNI-707): natural-language search over stored video, a ranked list of the
-most relevant moments (Phase A FR-4).
+"""`GET /search` (OMNI-707, OMNI-711): natural-language search over stored video, a ranked list
+of the most relevant moments (Phase A FR-4).
 
-    query text -> ai_workers (SigLIP 2 text, cached by exact text)
-               -> Qdrant `frame_vectors`: cosine, top k, camera and date filtered inside
-                  the search, only vectors of the pinned model
+    query text -> ai_workers (SigLIP 2 and / or InternVideo2 text, cached by exact text)
+               -> Qdrant `frame_vectors` and / or `clip_vectors`: cosine, top k, camera and
+                  date filtered inside the search, only vectors of the pinned model
+               -> `fused`: Algorithm 3, the two lists merged by rank (`omnisight_common.fusion`)
                -> Postgres: each hit joined to its segment, video and camera
 
-`mode` is part of the API from the start: `frame` works now; `clip` and `fused` need the
-clip index (OMNI-710) and Algorithm 3 (OMNI-711), and until then answer that the clip index
-is not ready.
+`mode=frame` and `mode=clip` score by cosine; `mode=fused` by B.3's reciprocal rank score,
+which is on another scale.
 
 A hit whose segment no longer exists or is no longer admitted (a deleted or re-gated
 video's old point, K-24) is left out, counted in `dropped` and logged; the response then
@@ -17,11 +17,14 @@ holds fewer than `k` moments.
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from omnisight_common import Role
+from omnisight_common.fusion import ModalityClassifier, fuse
 from qdrant_client import QdrantClient, models
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -40,9 +43,9 @@ router = APIRouter(prefix="/search", tags=["search"])
 
 MAX_K = 50
 EMPTY_QUERY = "the query is empty"
-CLIP_INDEX_NOT_READY = "the clip index is not ready yet: only mode=frame can search for now"
 ENCODER_UNAVAILABLE = "the text encoder (ai_workers) is unreachable"
 WRONG_MODEL = "the text encoder runs another model than the stored vectors"
+WRONG_CLASSIFIER = "the modality classifier was trained on another text encoder"
 STORE_UNAVAILABLE = "the vector store is unreachable"
 NOTHING_INDEXED = "nothing is indexed yet: no frame has a vector"
 
@@ -51,6 +54,28 @@ class SearchMode(StrEnum):
     FRAME = "frame"
     CLIP = "clip"
     FUSED = "fused"
+
+
+@dataclass(frozen=True)
+class Stream:
+    """One of Algorithm 3's two sides: its text encoder and its index."""
+
+    path: str
+    collection: str
+    model: str
+    model_revision: str
+
+
+FRAME = Stream(ai_workers_client.FRAME_TEXT, settings.frame_collection, settings.frame_model_id, settings.frame_model_revision)
+CLIP = Stream(ai_workers_client.CLIP_TEXT, settings.clip_collection, settings.clip_model_id, settings.clip_model_revision)
+
+
+@dataclass(frozen=True)
+class RankedHit:
+    segment_id: int
+    score: float
+    matched_by: str
+    captured_at: str
 
 
 def _ms(since: float) -> float:
@@ -64,22 +89,46 @@ def _utc(moment: datetime | None) -> datetime | None:
     return moment.replace(tzinfo=UTC)
 
 
-def _same_model() -> list[models.FieldCondition]:
+def _same_model(stream: Stream) -> list[models.FieldCondition]:
     return [
-        models.FieldCondition(key="model", match=models.MatchValue(value=settings.frame_model_id)),
-        models.FieldCondition(key="model_revision", match=models.MatchValue(value=settings.frame_model_revision)),
+        models.FieldCondition(key="model", match=models.MatchValue(value=stream.model)),
+        models.FieldCondition(key="model_revision", match=models.MatchValue(value=stream.model_revision)),
     ]
 
 
-def _filter(camera_id: int | None, start: datetime | None, end: datetime | None) -> models.Filter:
+def _filter(stream: Stream, camera_id: int | None, start: datetime | None, end: datetime | None) -> models.Filter:
     """Applied by Qdrant during the search (indexed payload, OMNI-703), so a camera's best
     match is found even when other cameras' frames rank above it."""
-    must = _same_model()
+    must = _same_model(stream)
     if camera_id is not None:
         must.append(models.FieldCondition(key="camera_id", match=models.MatchValue(value=camera_id)))
     if start is not None or end is not None:
         must.append(models.FieldCondition(key="captured_at", range=models.DatetimeRange(gte=start, lte=end)))
     return models.Filter(must=must)
+
+
+def _text_vector(text: str, stream: Stream) -> tuple[list[float], bool]:
+    try:
+        return ai_workers_client.text_vector(text, path=stream.path, model=stream.model, model_revision=stream.model_revision)
+    except ai_workers_client.AiWorkersUnavailableError as exc:
+        logger.warning("search: text encoder unreachable", extra={"extra_fields": {"error": str(exc)}})
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=ENCODER_UNAVAILABLE) from exc
+    except ai_workers_client.WrongModelError as exc:
+        logger.error("search: text encoder model mismatch", extra={"extra_fields": {"error": str(exc)}})
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=WRONG_MODEL) from exc
+
+
+@lru_cache(maxsize=1)
+def _classifier() -> ModalityClassifier:
+    return ModalityClassifier.load(settings.frame_model_id, settings.frame_model_revision)
+
+
+def _weights(frame_vector: list[float]) -> tuple[float, float]:
+    try:
+        return _classifier().weights(frame_vector)
+    except ValueError as exc:
+        logger.error("search: modality classifier mismatch", extra={"extra_fields": {"error": str(exc)}})
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=WRONG_CLASSIFIER) from exc
 
 
 @router.get("", response_model=SearchOut)
@@ -102,44 +151,48 @@ def search(
     start, end = _utc(start), _utc(end)
     if start is not None and end is not None and start > end:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="`from` is after `to`")
-    if mode is not SearchMode.FRAME:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=CLIP_INDEX_NOT_READY)
+    streams = {SearchMode.FRAME: [FRAME], SearchMode.CLIP: [CLIP], SearchMode.FUSED: [FRAME, CLIP]}[mode]
 
     step = time.perf_counter()
-    try:
-        vector, cached = ai_workers_client.text_vector(
-            text,
-            path=ai_workers_client.FRAME_TEXT,
-            model=settings.frame_model_id,
-            model_revision=settings.frame_model_revision,
-        )
-    except ai_workers_client.AiWorkersUnavailableError as exc:
-        logger.warning("search: text encoder unreachable", extra={"extra_fields": {"error": str(exc)}})
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=ENCODER_UNAVAILABLE) from exc
-    except ai_workers_client.WrongModelError as exc:
-        logger.error("search: text encoder model mismatch", extra={"extra_fields": {"error": str(exc)}})
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=WRONG_MODEL) from exc
+    encoded = [_text_vector(text, stream) for stream in streams]
+    cached = all(from_cache for _, from_cache in encoded)
     encode_ms = _ms(step)
 
     step = time.perf_counter()
     try:
-        hits = qdrant.query_points(
-            collection_name=settings.frame_collection,
-            query=vector,
-            query_filter=_filter(camera_id, start, end),
-            limit=k,
-            with_payload=["captured_at"],
-        ).points
-        indexed = bool(hits) or qdrant.count(
-            settings.frame_collection, count_filter=models.Filter(must=_same_model()), exact=False
-        ).count > 0
+        lists = [
+            qdrant.query_points(
+                collection_name=stream.collection,
+                query=vector,
+                query_filter=_filter(stream, camera_id, start, end),
+                limit=k,
+                with_payload=["captured_at"],
+            ).points
+            for stream, (vector, _) in zip(streams, encoded, strict=True)
+        ]
+        indexed = any(lists) or any(
+            qdrant.count(stream.collection, count_filter=models.Filter(must=_same_model(stream)), exact=False).count > 0
+            for stream in streams
+        )
     except Exception as exc:  # noqa: BLE001 - any Qdrant failure means the same to the caller
         logger.warning("search: vector store unreachable", extra={"extra_fields": {"error": str(exc)}})
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=STORE_UNAVAILABLE) from exc
     search_ms = _ms(step)
 
     step = time.perf_counter()
-    ids = [int(hit.id) for hit in hits]
+    if mode is SearchMode.FUSED:
+        w_f, w_c = _weights(encoded[0][0])
+        captured = {int(hit.id): hit.payload["captured_at"] for hits in lists for hit in hits}
+        ranked = [
+            RankedHit(hit.segment_id, hit.score, hit.matched_by, captured[hit.segment_id])
+            for hit in fuse([int(h.id) for h in lists[0]], [int(h.id) for h in lists[1]], w_f, w_c, k)
+        ]
+    else:
+        ranked = [RankedHit(int(hit.id), hit.score, mode.value, hit.payload["captured_at"]) for hit in lists[0]]
+    fusion_ms = _ms(step)
+
+    step = time.perf_counter()
+    ids = [hit.segment_id for hit in ranked]
     rows = {
         row.id: row
         for row in db.execute(
@@ -149,8 +202,8 @@ def search(
         )
     }
     results = []
-    for hit in hits:
-        row = rows.get(int(hit.id))
+    for hit in ranked:
+        row = rows.get(hit.segment_id)
         if row is None:
             continue
         results.append(SearchHitOut(
@@ -158,12 +211,12 @@ def search(
             video_id=row.video_id,
             camera=None if row.camera_id is None else SearchCameraOut(id=row.camera_id, name=row.name),
             timestamp_s=row.timestamp_s,
-            captured_at=hit.payload["captured_at"],
+            captured_at=hit.captured_at,
             score=hit.score,
-            matched_by=SearchMode.FRAME.value,
+            matched_by=hit.matched_by,
             thumb_url=_thumb_url(row.thumb_path),
         ))
-    dropped = len(hits) - len(results)
+    dropped = len(ranked) - len(results)
     if dropped:
         logger.warning(
             "search: hits without an admitted segment dropped",
@@ -175,7 +228,9 @@ def search(
         results=results,
         mode=mode.value,
         elapsed_ms=_ms(started),
-        timings=SearchTimingsOut(encode_ms=encode_ms, search_ms=search_ms, join_ms=join_ms, encode_cached=cached),
+        timings=SearchTimingsOut(
+            encode_ms=encode_ms, search_ms=search_ms, fusion_ms=fusion_ms, join_ms=join_ms, encode_cached=cached
+        ),
         total=len(results),
         dropped=dropped,
         message=None if indexed else NOTHING_INDEXED,

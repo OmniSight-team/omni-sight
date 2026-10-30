@@ -43,6 +43,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-35 | OMNI-705 is proved on one video; the archive is not backfilled | 2026-10-28 | Done |
 | D-36 | Search is open to operators, analysts and admins (Phase A), not operators and admins only (the ticket) | 2026-10-28 | Done |
 | D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
+| D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
 
 ---
 
@@ -919,4 +920,28 @@ its queries (the SM-1 set). Every vector is real and every query has ground trut
 
 **What is lost:** search speed is shown at the VIRAT archive's size, not at 100,000; TC-4's
 row in `results.md` states the size it ran at and that 100,000 was not verified.
+
+## D-38 · Algorithm 3's modality classifier · 2026-10-30
+
+**Why:** B.3 line 1 is `(w_f, w_c) <- C(q)`, softmax weights; §3.5.3 calls C *"a small classifier"*
+and says no more. The ticket numbered this D-34, which OMNI-705 had already taken.
+
+**What C is:** logistic regression on the query's SigLIP 2 text vector (1152-D), scikit-learn's
+defaults, nothing searched for. A two-class logistic regression is a softmax over the logits
+`(z, 0)`, so `w_f` is the probability of *scene* and `w_c = 1 - w_f` of *action*. Trained on
+`datasets/eval/modality_train.csv` (100 queries, none in the SM-1 set) by
+`scripts/train_modality_classifier.py`; 98.0% in 5-fold cross-validation (`results.md`).
+
+**Where it runs:** the coefficients are `omnisight_common/modality_classifier.json` (25 KB),
+versioned in the repo with the text encoder's pin and the training file's SHA-256. Computing the
+weights is one dot product, so `fusion.py` needs no scikit-learn or PyTorch, and query and Colab
+run the same code. scikit-learn is only in the dev group, for training. Only `ai_workers` loads
+an encoder, as before: C reads the vector ai_workers gave. A file of another text encoder is
+refused, a 503 in the product.
+
+**Equal scores:** B.3 line 9 does not order them. They come out by segment id, so the same query
+always gives the same answer. Not a step of the ranking: it only decides what B.3 leaves open.
+
+**Not a Phase A deviation:** Phase A names a classifier and its output, not its kind. Fusion
+follows B.3 line by line, with `K` both the size of each list and of the result.
 
