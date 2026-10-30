@@ -663,3 +663,58 @@ vector, cached on Drive. The clip vectors are also what the forecasting model tr
 The VIRAT archive is on Drive with both vectors, 35,704 frames (above D-37's estimate of
 about 30,000), and the product's 9 videos have their vectors in `embeddings/product/`. Open:
 the kill-and-resume test.
+
+---
+
+## OMNI-709 · The labelled query set, written before any search
+
+### Why this ticket exists
+
+SM-1 needs at least 50 labelled queries on VIRAT, half scenes, half actions, fixed before
+anything is measured so nothing can be tuned on them. The modality classifier (OMNI-711) needs
+its own training set. K-23 asked first: how much of VIRAT's events did the gate keep?
+
+### What was done
+
+- **Coverage:** `scripts/virat_event_coverage.py`: the archive's admitted frames against every
+  annotated event, by `frame_index`, per type; numbers in `results.md`. Run first, before the
+  set was fixed: no type with events is dropped; digging has no event in the 275 videos
+- **Added to the ticket's count:** the same script reports the share of frames each answer rule
+  accepts and the recall@5 five random frames would get, because that is what SM-1's number has
+  to be read against
+- **`datasets/eval/sm1_queries.csv`:** 25 action queries over the 11 event types with events,
+  2 wordings each and 3 for opening a trunk, closing a trunk and entering a facility, with the
+  opening/closing, in/out and loading/unloading pairs; 25 scene queries over the 11 scenes, 3
+  each for the three scenes with the most videos (0102, 0100, 0002), 2 for the others.
+  `answer_rule` is `event_type=N` or `scene=NNNN`
+- **Scene queries written by looking:** a sheet per scene of each video's first frame, one per
+  camera sequence, up to 6 (`VIRAT_S_0502xx`); read from the local mirror or Drive. Scene 0500
+  has one sequence, so one frame
+- **`datasets/eval/modality_train.csv`:** 100 queries, 50 scene and 50 action, about places and
+  actions other than the test queries' wherever possible
+- Google Drive for desktop was not running; started it to reach the archive
+- `scripts/tests/test_sm1_query_set.py`: the counts, every rule names a real type or scene, the
+  two sets share no text, the coverage count at an event's ends, a frame in two events of a type
+  counted once
+
+### Verification performed
+
+- `uv run pytest scripts/tests`: 14 passed (7 new)
+- The coverage run read all 275 files: 35,704 admitted frames, OMNI-708's count
+- No search has been run on either set: `sm1_queries.csv` went to no model, and the frames were
+  looked at directly
+
+### Not verified
+
+- A second reader: Claude wrote every query and every label; nobody has checked them
+- Each scene's other videos: a scene query describes the frames on its sheet, and may fit less
+  well in other light or with other cars
+- Whether a frame inside an event shows the action (`results.md`)
+- Full `uv run pytest`: only new files and docs changed, so `scripts/tests` was run alone
+
+### Result
+
+Both files are ready to commit before any SM-1 run. 99.5% of events hold an admitted frame, so
+no type is out of search's reach, but mostly through the heartbeat (21.8% hold a motion frame).
+Chance recall@5 over the set is 25.1% (actions 11.7%, scenes 38.5%), which OMNI-713 should
+report beside SM-1. K-23 stays open for Ahmad's decision.

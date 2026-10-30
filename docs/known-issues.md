@@ -192,6 +192,10 @@ intervals that contain at least one kept frame, and at least one motion-kept fra
 annotations give the frames). Then decide with Ahmad: a heartbeat is enough for search, or
 the gate's parameters for this kind of camera are a recorded deviation. Never by changing
 the defaults to make SM-1 pass.
+**Measured 2026-10-30 (OMNI-709, `results.md`), the 275 evaluation videos:** 1,547 of 1,555
+annotated events (99.5%) hold an admitted frame, each type 95.5-100%, so no type is out of
+search's reach. 339 (21.8%) hold a motion-admitted frame; without carrying (304 of 822), 35 of
+733 (4.8%). The heartbeat is what makes events findable. Still open: Ahmad's decision above.
 
 ## K-21 · Files on disk that no row accounts for
 
