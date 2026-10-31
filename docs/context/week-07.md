@@ -935,6 +935,23 @@ OMNI-709, with the fusion of OMNI-711.
 
 ### Not verified
 
-- **SM-1 itself: not measured yet.** The run is Ahmad's, on Colab; the commit has to be pushed first
-- The notebook has not run; its cells only parse. Its setup, encoders and archive path are OMNI-708's
-- The route with a token on the stack (the browser's session had expired); tested in-process
+- The route with a token on the stack: the browser's session had expired, and the login is Ahmad's. The
+  committed result file through the route in process, and without a token on the stack: 401
+- Whether a hit shows the action, and other weights, `K` or encoders: not tried, because this set must
+  not choose them (`results.md`)
+- A second reader of the queries (OMNI-709)
+- Full `uv run pytest`: only the new files and the result file changed since 712's run
+
+### The run
+
+Ahmad ran the notebook once on an A100 at commit `8b872e6`. The labels' assert passed, so the chance level
+was OMNI-709's before the search. The classifier's hash differed from the laptop's: the laptop's file has
+CRLF endings and the clone LF; with LF it is equal. The queries' hash is equal.
+
+### Result
+
+**SM-1 fails, both parts.** Fused 60.0% against 85%; on actions fused 32.0%, frame only 60.0%. Frame only is
+the best mode overall (74.0%), scenes are strong in every mode but clip (88.0%). The stored result shows
+why: with `k0` 60, `K` 5 and lists that hardly overlap, every fused hit of all 50 queries comes from the
+heavier list, and the classifier sends actions to the weaker one. OMNI-711's *"whether that helps is SM-1's
+question"* now has its answer. Recorded as measured; nothing changed. K-30 for Ahmad and the supervisor.

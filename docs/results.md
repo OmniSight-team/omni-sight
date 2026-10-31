@@ -47,6 +47,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
 | The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
 | Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
+| SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | Fused 60.0% overall (frame only 74.0%, clip only 46.0%, fused at 0.5 / 0.5 68.0%). Action queries: fused 32.0%, frame only 60.0%, a drop of 28 points. Scene queries: fused 88.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: one run, 50 queries by one author) | 2026-10-31 | OMNI-713 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -2174,3 +2175,59 @@ weight's ranks all score above the other's. Whether that helps is SM-1's questio
 
 **Not covered:** search quality (OMNI-713); a camera filter on real Qdrant (no camera has a point:
 tested in process only); the classifier on queries of another author.
+
+## OMNI-713 · SM-1 on VIRAT · 2026-10-31
+
+**Conditions:** Colab, NVIDIA A100-SXM4-80GB, torch 2.11.0, `notebooks/sm1_gpu.ipynb` at commit
+`8b872e6`, run by Ahmad, one run. The archive of OMNI-708: 35,704 admitted frames of the 275 evaluation
+videos, no distractors. Exact search, every vector compared. `K` = 5 for each list and for the result
+(D-38). `datasets/eval/sm1_queries.csv` (SHA-256 `225da577...`) as committed before any search; classifier
+`c6d3b9a0...` (the repo's file with LF endings; the laptop's working copy has CRLF, so its own hash
+differs). SigLIP 2 `e8e48729...`, InternVideo2 `1f9fca13...`. Output: Drive
+`omnisight/results/sm1_result.json`, copied to `services/query/app/sm1_result.json`.
+
+| Recall@5 | Frame only | Clip only | Fused | Fused 0.5 / 0.5 | Chance |
+|---|---:|---:|---:|---:|---:|
+| **All (50)** | 74.0% | 46.0% | **60.0%** | 68.0% | 25.1% |
+| Scene (25) | 88.0% | 60.0% | 88.0% | 92.0% | 38.5% |
+| Action (25) | 60.0% | 32.0% | **32.0%** | 44.0% | 11.7% |
+| Action without the 2 carrying queries (23) | 56.5% | 26.1% | 26.1% | 39.1% | 4.9% |
+
+**Fail, both parts:** fused 60.0% against 85%, and on action queries fused is 28 points below frame only,
+not above it. No mode reaches 85%. No query changed, no weight tuned.
+
+**Why, from the stored result (no search rerun):**
+
+- **The fused top 5 is one list.** In all 50 queries every fused hit comes from the list with the larger
+  weight. The two lists share 0.44 of 5 hits on action queries and 0.04 on scene queries, and with `k0` 60
+  and `K` 5 a list's rank 5 beats the other's rank 1 from a weight of 0.516. The classifier gives `w_f`
+  0.17-0.31 on action queries and 0.63-0.79 on scene queries, so B.3 here chooses a list, it does not
+  blend two
+- **The classifier sends action queries to the weaker list.** Fused equals clip only on actions (32.0%)
+  and frame only on scenes (88.0%). 7 action queries found by frame only are lost by fused; fused
+  finds none that frame only misses
+- **The clip list is weak on actions, though above chance:** 26.1% against 4.9% without carrying. Of the
+  50, clip finds 1 that frame misses (`s25`); frame finds 15 that clip misses. OMNI-706's check said the same
+
+| Found, of the queries of each type | Queries | Frame | Clip | Fused | 0.5 / 0.5 | Chance |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 Loading | 2 | 0 | 0 | 0 | 0 | 2.0% |
+| 2 Unloading | 2 | 2 | 1 | 1 | 1 | 3.7% |
+| 3 Opening a trunk | 3 | 3 | 0 | 0 | 1 | 1.6% |
+| 4 Closing a trunk | 3 | 1 | 0 | 0 | 0 | 2.3% |
+| 5 Getting into a vehicle | 2 | 2 | 2 | 2 | 2 | 10.5% |
+| 6 Getting out of a vehicle | 2 | 2 | 2 | 2 | 2 | 10.6% |
+| 7 Gesturing | 2 | 0 | 0 | 0 | 0 | 7.8% |
+| 9 Carrying | 2 | 2 | 2 | 2 | 2 | 89.5% |
+| 10 Running | 2 | 0 | 0 | 0 | 0 | 1.9% |
+| 11 Entering a facility | 3 | 3 | 1 | 1 | 3 | 6.0% |
+| 12 Exiting a facility | 2 | 0 | 0 | 0 | 0 | 5.3% |
+
+**Preliminary:** one run (the search is exact, so a rerun gives the same list), 50 queries, 1 to 3 per type,
+written and labelled by one author with no second reader. One query is 2 points overall and 4 within a kind.
+
+**Not covered:** whether a hit shows the action: a frame counts by its time inside an event, so a frame-only
+hit on opening a trunk may be right by being near the car, not by seeing it open (frame only found opening
+3 of 3 and closing 1 of 3); K-23's effect (78.2% of events hold no motion frame) is not separated from the
+encoder's; other weights, `K` or encoders were not tried, because this set must not choose them. The set
+has now been seen: a later change needs other queries to be judged on.
