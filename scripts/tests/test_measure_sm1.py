@@ -33,6 +33,7 @@ def _write_video(archive: Path, key: str, frame_index: list[int], frame_vectors:
         archive / f"{key}.npz",
         frame_index=np.array(frame_index, np.int32),
         timestamp_s=np.array(frame_index, np.float64) / 30,
+        fps=np.float64(30),
         frame_vectors=frame_vectors,
         clip_vectors=clip_vectors,
     )
@@ -116,6 +117,33 @@ def test_two_events_of_a_type_count_each_frame_once():
     frames = np.array([10, 15, 20])
     mask = sm1.answer_mask("event_type=3", A, [Event(0, 3, 10, 15), Event(1, 3, 15, 20)], frames)
     assert mask.sum() == 3
+
+
+def test_a_margin_widens_an_event_on_both_sides():
+    frames = np.array([7, 8, 15, 22, 23])
+    mask = sm1.answer_mask("event_type=3", A, [Event(0, 3, 10, 20)], frames, margin_frames=2)
+    assert mask.tolist() == [False, True, True, True, False]
+
+
+def test_the_archive_keeps_the_strict_and_the_near_labels_apart(world):
+    archive, dataset = world
+    loaded = sm1.load_archive([A, B], archive, dataset, {"event_type=3"})
+    # MARGIN_S at 30 fps is 60 frames: type 3 in frames 10-20 now reaches A's every frame up to 50.
+    assert loaded.correct["event_type=3"].sum() == 2
+    assert loaded.correct_near["event_type=3"].tolist() == [True] * 6 + [False, False]
+
+
+def test_the_tuning_set_shares_no_text_with_the_test_or_the_classifier():
+    import csv
+
+    with open(ROOT / "datasets" / "eval" / "modality_train.csv", newline="", encoding="utf-8") as f:
+        trained = {row["text"] for row in csv.DictReader(f)}
+    dev = sm1.read_queries(ROOT / "datasets" / "eval" / "sm1_dev_queries.csv")
+    test = {q["text"] for q in sm1.read_queries()}
+    assert len(dev) == 50 and {q["kind"] for q in dev} == {"action", "scene"}
+    assert sum(q["kind"] == "action" for q in dev) == 25
+    assert len({q["text"] for q in dev}) == 50
+    assert not {q["text"] for q in dev} & (test | trained)
 
 
 def test_a_scene_rule_takes_the_scene_from_the_file_name():
@@ -207,12 +235,31 @@ def test_each_mode_gets_its_own_list(world):
     assert row["modes"]["clip"]["hits"][0]["correct"] is True
 
 
-def test_fused_mixes_the_lists_by_rank_with_the_classifiers_weights(world):
-    # All the weight on the clip list: fused equals the clip list, in B.3's scores.
+def test_b3_as_written_mixes_the_lists_by_rank_with_the_classifiers_weights(world):
+    # All the weight on the clip list: it equals the clip list, in B.3's scores.
     row = _result(world, BOTH_KINDS, z=-50.0)["queries"][0]
-    assert [h["frame_index"] for h in row["modes"]["fused"]["hits"]] == [h["frame_index"] for h in row["modes"]["clip"]["hits"]]
-    assert row["modes"]["fused"]["hits"][0]["score"] == pytest.approx(row["w_c"] / 61)
+    hits = row["modes"]["fused_classifier"]["hits"]
+    assert [h["frame_index"] for h in hits] == [h["frame_index"] for h in row["modes"]["clip"]["hits"]]
+    assert hits[0]["score"] == pytest.approx(row["w_c"] / 61)
     assert row["w_c"] == pytest.approx(1.0)
+
+
+def test_fused_is_the_products_tuned_weights(world):
+    # C calls it an action: 0.6 on the frame list, so the top 5 is the frame list's (D-40).
+    action = _result(world, BOTH_KINDS, z=-50.0)["queries"][0]["modes"]
+    assert {(h["clip_key"], h["frame_index"]) for h in action["fused"]["hits"]} == {(h["clip_key"], h["frame_index"]) for h in action["frame"]["hits"]}
+    # C calls it a scene: an even blend, the same as the equal mode.
+    scene = _result(world, BOTH_KINDS, z=50.0)["queries"][0]["modes"]
+    assert scene["fused"] == scene["fused_equal"]
+
+
+def test_a_hit_near_an_event_counts_only_in_near(world):
+    # A's frame 50 is outside type 3's frames 10-20, and within 60 frames of them.
+    archive, dataset = world
+    loaded = sm1.load_archive([A, B], archive, dataset, {"event_type=3"})
+    scored = sm1._scored(loaded, "event_type=3", [5], [0.5])
+    assert scored["found"] is False
+    assert scored["found_near"] is True
 
 
 def test_fused_equal_ignores_the_classifier(world):
@@ -225,7 +272,7 @@ def _row(kind: str, frame: bool, clip: bool, fused: bool, equal: bool = False, c
     return {
         "kind": kind,
         "chance": chance,
-        "modes": {"frame": {"found": frame}, "clip": {"found": clip}, "fused": {"found": fused}, "fused_equal": {"found": equal}},
+        "modes": {"frame": {"found": frame}, "clip": {"found": clip}, "fused": {"found": fused}, "fused_classifier": {"found": False}, "fused_equal": {"found": equal}},
     }
 
 
@@ -263,6 +310,47 @@ def test_the_result_says_what_it_ran_on_and_is_json(world):
     assert result["videos"] == 2
     assert result["measured_at"]
     assert json.loads(json.dumps(result))["queries"][1]["answer_rule"] == "scene=0100"
+
+
+_tune_spec = importlib.util.spec_from_file_location("tune_fusion", ROOT / "scripts" / "tune_fusion.py")
+tune = importlib.util.module_from_spec(_tune_spec)
+importlib.sys.modules[_tune_spec.name] = tune
+_tune_spec.loader.exec_module(tune)
+
+
+def _tuning_rows() -> list[dict]:
+    # Frame 0 is right for the action, frame 9 for the scene; each is only at the top of one list.
+    action_correct = np.zeros(10, bool)
+    action_correct[0] = True
+    scene_correct = np.zeros(10, bool)
+    scene_correct[9] = True
+    return [
+        {"query_id": "a", "kind": "action", "w_f": 0.2, "frame": [0, 1, 2, 3, 4, 5], "clip": [6, 7, 8, 5, 4, 3], "correct": action_correct, "near": action_correct},
+        {"query_id": "s", "kind": "scene", "w_f": 0.8, "frame": [1, 2, 3, 4, 5, 6], "clip": [9, 7, 8, 0, 1, 2], "correct": scene_correct, "near": scene_correct},
+    ]
+
+
+def test_tuning_reads_a_setting_through_the_products_fusion():
+    # C's own weights: the action goes to the clip list (misses), the scene to the frame list (misses).
+    assert tune.evaluate(_tuning_rows(), 5, lambda r: r["w_f"], sm1)["all"] == 0.0
+    # The reverse finds both.
+    reverse = tune.evaluate(_tuning_rows(), 5, lambda r: 0.9 if r["kind"] == "action" else 0.1, sm1)
+    assert (reverse["all"], reverse["action"], reverse["scene"]) == (1.0, 1.0, 1.0)
+
+
+def test_tuning_ranks_recall_then_actions_then_the_shallower_list_then_nearest_even():
+    best = {"all": 0.7, "action": 0.5, "depth": 5, "action_w_f": 0.6, "scene_w_f": 0.5}
+    assert tune.order(best) < tune.order({**best, "all": 0.6})
+    assert tune.order(best) < tune.order({**best, "action": 0.4})
+    assert tune.order(best) < tune.order({**best, "depth": 20})
+    assert tune.order(best) < tune.order({**best, "action_w_f": 0.9})
+
+
+def test_tuning_never_reads_the_test_set():
+    source = (ROOT / "scripts" / "tune_fusion.py").read_text(encoding="utf-8")
+    assert "sm1_dev_queries.csv" in source
+    assert "sm1_queries.csv" not in source
+    assert "read_queries()" not in source
 
 
 def test_the_committed_set_is_what_a_run_reads():

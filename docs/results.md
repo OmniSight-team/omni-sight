@@ -2231,3 +2231,33 @@ hit on opening a trunk may be right by being near the car, not by seeing it open
 3 of 3 and closing 1 of 3); K-23's effect (78.2% of events hold no motion frame) is not separated from the
 encoder's; other weights, `K` or encoders were not tried, because this set must not choose them. The set
 has now been seen: a later change needs other queries to be judged on.
+
+## D-40 · Tuning fused search on other queries (exploration, not SM-1) · 2026-10-31
+
+**Conditions:** this laptop, whole stack up, `scripts/tune_fusion.py`, one run. 50 new queries,
+`datasets/eval/sm1_dev_queries.csv`; text vectors from ai_workers on this CPU; OMNI-708's archive read from
+Drive, 35,704 frames, exact search. 205 settings. Output not committed. **Exploration: these numbers chose
+the settings, so they overstate them.** C's kind was right on all 50.
+
+| Recall@5, tuning set | All | Action | Scene | All, within 2 s |
+|---|---:|---:|---:|---:|
+| Frame only | 66% | 56% | 76% | 68% |
+| Clip only | 40% | 16% | 64% | 48% |
+| Fused, C's own weights, depth 5 (B.3 as written) | 46% | 16% | 76% | 54% |
+| **Chosen: depth 5, `w_f` action 0.6, scene 0.5** | **74%** | 56% | 92% | 76% |
+
+| Depth | C's own weights: all | Best weights: all | Best weights: action |
+|---:|---:|---:|---:|
+| 5 | 46% | 74% | 56% |
+| 20 | 56% | 72% | 52% |
+| 50 | 58% | 70% | 48% |
+| 100 | 60% | 70% | 52% |
+| 200 | 60% | 66% | 48% |
+
+**What it shows:** the weights matter, depth does not: longer lists help C's own weights but never reach
+depth 5 with better ones. **No setting of the 205 beats frame only on action queries (56%).** `w_f` 0.6 to 0.9
+on actions tie, so the rule took the one nearest 0.5. The whole gain over frame only is on scene queries.
+The 2 s margin moves the chosen setting by 2 points.
+
+**Not covered:** these queries were written by the same author as SM-1's, after seeing SM-1's result; text
+vectors from the CPU, not the GPU; the result on SM-1's queries (the notebook's next run).

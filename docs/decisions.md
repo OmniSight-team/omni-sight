@@ -45,6 +45,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
 | D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
 | D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
+| D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done; its SM-1 run is Ahmad's, on Colab |
 
 ---
 
@@ -981,4 +982,31 @@ now calls it right after a successful upload; the API's own upload route is unch
 
 **Open:** OMNI-716's comparison view and OMNI-717's demo were written *"from the search screen"*.
 The comparison belongs in the video player, on one video.
+
+## D-40 · **Deviation:** fixed weights per kind of query in fused search · 2026-10-31
+
+**Ahmad's decision,** after SM-1 failed (OMNI-713, K-30): improve the results with the two pinned models,
+85% not required; no model changes. **Departs from** Appendix B.3 line 1, *`(w_f, w_c) <- C(q)`*: C still
+says what the query describes, but the weights are `tuned_weights`: `w_f` 0.5 for a scene, 0.6 for an action.
+
+**Why:** with C's own weights every action query went to the clip list, the weaker one, and fused fell to
+32.0% on actions against frame only's 60.0%.
+
+**How it was chosen:** `datasets/eval/sm1_dev_queries.csv`, 50 new queries, written and fixed before any
+search, none in the SM-1 set or C's training set. `scripts/tune_fusion.py`, 205 settings: list depth 5, 20,
+50, 100, 200 and `w_f` per kind, on the same archive and labels. Best overall recall, then actions, then
+the shallower list, then the weights nearest 0.5. The numbers are in `results.md`; they flatter the choice,
+as any choice among 205 on 50 queries does, so the result is the run on SM-1's queries. SM-1's queries
+were not read, but the idea came from studying their first result: stated, not hidden.
+
+**What it does, plainly:** above 0.516 a list takes the whole top 5 when the lists share nothing, so on action
+queries the search is frame only in all but the order, and the clip list adds nothing there. No setting
+of the 205 beat frame only on action queries, so **SM-1's lift on actions stays unmet.** The clip list does
+help on scene queries, in the even blend.
+
+**Also tried and not taken:** longer candidate lists, the expected fix: each depth above 5 scored lower at
+its best. `K` stays 5 (D-38) and `k0` stays B.3's 60.
+
+**The 2 s margin:** a hit within 2 s of an event is reported beside the strict number, never instead of it.
+`fused_classifier` stays in the result, so B.3 as written is still shown beside the product's search.
 

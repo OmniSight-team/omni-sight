@@ -13,6 +13,10 @@ from pathlib import Path
 
 K0 = 60  # B.3's RRF constant
 CLASSIFIER_FILE = Path(__file__).with_name("modality_classifier.json")
+# D-40. Above 0.516 a list takes the whole top 5 when the lists share nothing, so 0.6 is frame only in
+# all but the order; 0.5 is a real blend.
+SCENE_W_F = 0.5
+ACTION_W_F = 0.6
 
 
 @dataclass(frozen=True)
@@ -43,6 +47,13 @@ def fuse(frame_ids: Sequence[int], clip_ids: Sequence[int], w_f: float, w_c: flo
         hits.append(FusedHit(m, score, r_f, r_c))
     hits.sort(key=lambda hit: (-hit.score, hit.segment_id))
     return hits[:k]
+
+
+def tuned_weights(classifier_w_f: float) -> tuple[float, float]:
+    """D-40: C decides what a query describes; the weights are fixed per kind, chosen on the tuning set
+    (`scripts/tune_fusion.py`). C's own weights sent every action query to the weaker list (SM-1)."""
+    w_f = SCENE_W_F if classifier_w_f >= 0.5 else ACTION_W_F
+    return w_f, 1.0 - w_f
 
 
 class ModalityClassifier:

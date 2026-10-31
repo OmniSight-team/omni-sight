@@ -171,6 +171,8 @@ lists that hardly overlap, any weight above 0.516 takes the whole top 5.
 ranks better fused than frame only; Combined is the screen's default and measures below Scene.
 **Not changed:** the default, the weights, `K` and the queries. Nothing may be chosen on this set; it has
 been seen, so a change needs another query set to be judged on.
+**D-40, 2026-10-31:** weights chosen on a separate tuning set. No setting beat frame only on action queries,
+so the lift stays unmet with the two pinned models. Its run on SM-1's queries is the next entry here.
 
 ## K-24 · Old points left behind by a deleted or re-gated video
 

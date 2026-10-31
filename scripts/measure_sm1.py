@@ -9,13 +9,16 @@ exactly, in four modes:
 
 - `frame`: SigLIP 2 only, the baseline
 - `clip`: InternVideo2 only
-- `fused`: Algorithm 3 with the classifier's weights, `omnisight_common.fusion` as in the product,
+- `fused`: the product's search: Algorithm 3 with `tuned_weights` (D-40), `omnisight_common.fusion`,
   `K` = 5 both for each list and for the result (D-38)
-- `fused_equal`: the same with weights 0.5 / 0.5, so the classifier's own effect shows
+- `fused_classifier`: the same with the classifier's own weights, B.3 as written, the first run's `fused`
+- `fused_equal`: the same with weights 0.5 / 0.5
 
 A query is found when any of its 5 hits meets its `answer_rule`: `event_type=N`, a frame inside an
-annotated event of that type; `scene=NNNN`, a frame of that scene. `chance` is the recall@5 of five
-frames drawn at random (OMNI-709). Nothing here chooses queries, weights or thresholds.
+annotated event of that type; `scene=NNNN`, a frame of that scene. `near` is the same with each event
+widened by 2 s on both sides, reported beside it, never instead (D-40). `chance` is the recall@5 of five
+frames drawn at random (OMNI-709). Nothing here chooses queries, weights or thresholds:
+`scripts/tune_fusion.py` chose the weights, on other queries.
 
 Pass: `fused` at least 85% overall, and `fused` above `frame` on action queries.
 
@@ -38,14 +41,15 @@ from pathlib import Path
 
 import numpy as np
 from omnisight_common.datasets import virat
-from omnisight_common.fusion import ModalityClassifier, fuse
+from omnisight_common.fusion import ModalityClassifier, fuse, tuned_weights
 
 ROOT = Path(__file__).resolve().parents[1]
 QUERIES = ROOT / "datasets" / "eval" / "sm1_queries.csv"
 ARCHIVE = Path("G:/My Drive/omnisight/embeddings/virat")
 K = 5
 TARGET = 0.85
-MODES = ("frame", "clip", "fused", "fused_equal")
+MARGIN_S = 2.0
+MODES = ("frame", "clip", "fused", "fused_classifier", "fused_equal")
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,8 @@ class Archive:
     clip_vectors: np.ndarray | None
     # One boolean per frame, per answer rule.
     correct: dict[str, np.ndarray]
+    # The same with each event widened by MARGIN_S on both sides (D-40): reported beside it.
+    correct_near: dict[str, np.ndarray]
 
     def __len__(self) -> int:
         return len(self.frame_index)
@@ -72,9 +78,9 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def answer_mask(rule: str, clip_key: str, events: list[virat.Event], frame_index: np.ndarray) -> np.ndarray:
+def answer_mask(rule: str, clip_key: str, events: list[virat.Event], frame_index: np.ndarray, margin_frames: int = 0) -> np.ndarray:
     """Which of one video's frames meet a rule. An event's frames include both ends, as in
-    `virat_event_coverage.py`."""
+    `virat_event_coverage.py`; `margin_frames` widens each event by that many on both sides."""
     name, value = rule.split("=")
     if name == "scene":
         return np.full(len(frame_index), virat.scene_of(clip_key) == value)
@@ -83,7 +89,7 @@ def answer_mask(rule: str, clip_key: str, events: list[virat.Event], frame_index
     mask = np.zeros(len(frame_index), bool)
     for event in events:
         if event.event_type == int(value):
-            mask |= (frame_index >= event.start_frame) & (frame_index <= event.end_frame)
+            mask |= (frame_index >= event.start_frame - margin_frames) & (frame_index <= event.end_frame + margin_frames)
     return mask
 
 
@@ -99,9 +105,11 @@ def load_archive(keys: list[str], archive_dir: Path, dataset_dir: Path, rules: s
 
     names, frames, times, frame_rows, clip_rows = [], [], [], [], []
     masks: dict[str, list[np.ndarray]] = {rule: [] for rule in rules}
+    near: dict[str, list[np.ndarray]] = {rule: [] for rule in rules}
     for key in keys:
         with np.load(archive_dir / f"{key}.npz") as data:
             frame_index = data["frame_index"]
+            margin_frames = round(MARGIN_S * float(data["fps"]))
             names.append(np.full(len(frame_index), key))
             frames.append(frame_index)
             times.append(data["timestamp_s"])
@@ -113,6 +121,7 @@ def load_archive(keys: list[str], archive_dir: Path, dataset_dir: Path, rules: s
         events = virat.read_events(dataset_dir, key)
         for rule in rules:
             masks[rule].append(answer_mask(rule, key, events, frame_index))
+            near[rule].append(answer_mask(rule, key, events, frame_index, margin_frames))
 
     correct = {rule: np.concatenate(parts) for rule, parts in masks.items()}
     empty = sorted(rule for rule, mask in correct.items() if not mask.any())
@@ -125,6 +134,7 @@ def load_archive(keys: list[str], archive_dir: Path, dataset_dir: Path, rules: s
         np.concatenate(frame_rows) if vectors else None,
         np.concatenate(clip_rows) if vectors else None,
         correct,
+        {rule: np.concatenate(parts) for rule, parts in near.items()},
     )
 
 
@@ -140,6 +150,7 @@ def _exact_top(vectors: np.ndarray, query: np.ndarray) -> tuple[list[int], np.nd
 
 def _scored(archive: Archive, rule: str, rows: list[int], scores: list[float]) -> dict:
     mask = archive.correct[rule]
+    near = archive.correct_near[rule]
     hits = [
         {
             "clip_key": str(archive.clip_keys[row]),
@@ -151,7 +162,7 @@ def _scored(archive: Archive, rule: str, rows: list[int], scores: list[float]) -
         for row, score in zip(rows, scores, strict=True)
     ]
     first = next((rank for rank, hit in enumerate(hits, 1) if hit["correct"]), None)
-    return {"found": first is not None, "first_correct_rank": first, "hits": hits}
+    return {"found": first is not None, "found_near": bool(near[rows].any()) if rows else False, "first_correct_rank": first, "hits": hits}
 
 
 def measure_query(query: dict, frame_text: np.ndarray, clip_text: np.ndarray, archive: Archive, classifier: ModalityClassifier) -> dict:
@@ -159,7 +170,8 @@ def measure_query(query: dict, frame_text: np.ndarray, clip_text: np.ndarray, ar
     frame_rows, frame_scores = _exact_top(archive.frame_vectors, frame_text)
     clip_rows, clip_scores = _exact_top(archive.clip_vectors, clip_text)
     w_f, w_c = classifier.weights(frame_text.tolist())
-    fused = fuse(frame_rows, clip_rows, w_f, w_c, K)
+    fused = fuse(frame_rows, clip_rows, *tuned_weights(w_f), K)
+    as_written = fuse(frame_rows, clip_rows, w_f, w_c, K)
     equal = fuse(frame_rows, clip_rows, 0.5, 0.5, K)
     return {
         "query_id": query["query_id"],
@@ -174,6 +186,7 @@ def measure_query(query: dict, frame_text: np.ndarray, clip_text: np.ndarray, ar
             "frame": _scored(archive, rule, frame_rows, [frame_scores[r] for r in frame_rows]),
             "clip": _scored(archive, rule, clip_rows, [clip_scores[r] for r in clip_rows]),
             "fused": _scored(archive, rule, [h.segment_id for h in fused], [h.score for h in fused]),
+            "fused_classifier": _scored(archive, rule, [h.segment_id for h in as_written], [h.score for h in as_written]),
             "fused_equal": _scored(archive, rule, [h.segment_id for h in equal], [h.score for h in equal]),
         },
     }
@@ -181,7 +194,8 @@ def measure_query(query: dict, frame_text: np.ndarray, clip_text: np.ndarray, ar
 
 def _recalls(rows: list[dict]) -> dict:
     recalls = {mode: sum(row["modes"][mode]["found"] for row in rows) / len(rows) for mode in MODES}
-    return {**recalls, "chance": sum(row["chance"] for row in rows) / len(rows), "n_queries": len(rows)}
+    near = {mode: sum(row["modes"][mode].get("found_near", False) for row in rows) / len(rows) for mode in MODES}
+    return {**recalls, "near": near, "chance": sum(row["chance"] for row in rows) / len(rows), "n_queries": len(rows)}
 
 
 def summarise(rows: list[dict]) -> dict:

@@ -15,6 +15,14 @@ from omnisight_common.fusion import (
 from omnisight_common.settings import CommonSettings
 
 
+def test_the_tuned_weights_go_by_what_the_classifier_says_the_query_is():
+    from omnisight_common.fusion import tuned_weights
+
+    assert tuned_weights(0.8) == (0.5, 0.5)
+    assert tuned_weights(0.5) == (0.5, 0.5)
+    assert tuned_weights(0.2) == pytest.approx((0.6, 0.4))
+
+
 def test_k0_is_b3s():
     assert K0 == 60
 

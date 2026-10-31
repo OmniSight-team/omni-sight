@@ -955,3 +955,19 @@ the best mode overall (74.0%), scenes are strong in every mode but clip (88.0%).
 why: with `k0` 60, `K` 5 and lists that hardly overlap, every fused hit of all 50 queries comes from the
 heavier list, and the classifier sends actions to the weaker one. OMNI-711's *"whether that helps is SM-1's
 question"* now has its answer. Recorded as measured; nothing changed. K-30 for Ahmad and the supervisor.
+
+### After the result: improving it (D-40, Ahmad's decision)
+
+Ahmad committed the failure as the "before", then asked for better results with the two pinned models,
+85% not required.
+
+- **Tuning set:** `datasets/eval/sm1_dev_queries.csv`, 50 new queries; the scene ones written from a sheet of
+  two frames per scene read from Drive. Fixed before any search; a test keeps it apart from SM-1's and C's sets
+- **`scripts/tune_fusion.py`:** 205 settings on that set only; a test checks it never names SM-1's file
+- **My expectation was wrong:** longer lists were meant to be the fix, and every depth above 5 scored lower
+  at its best. The gain is all in the weights, and all on scenes. No setting beat frame only on actions
+- **`tuned_weights`** in `omnisight_common/fusion.py`, used by `GET /search` and by `measure_sm1.py` as `fused`;
+  `fused_classifier` keeps B.3 as written beside it; `near` is the 2 s margin. The notebook saves to
+  `sm1_result_tuned.json`, so the first run's file stays
+- Tests: 73 passed on the affected files before `tuned_weights`' own test was added. The final score is
+  not measured yet: Ahmad's Colab run

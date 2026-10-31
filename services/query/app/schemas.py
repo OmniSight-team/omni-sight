@@ -296,7 +296,10 @@ class Sm1KindOut(BaseModel):
 
     frame: float
     clip: float
+    # The product's fused search.
     fused: float
+    # Fused with the classifier's own weights, B.3 as written (D-40). None in a result from before D-40.
+    fused_classifier: float | None = None
     # Fused with fixed weights 0.5 / 0.5, so the classifier's own effect shows.
     fused_equal: float
     chance: float

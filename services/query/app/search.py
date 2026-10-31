@@ -24,7 +24,7 @@ from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from omnisight_common import Role
-from omnisight_common.fusion import ModalityClassifier, fuse
+from omnisight_common.fusion import ModalityClassifier, fuse, tuned_weights
 from qdrant_client import QdrantClient, models
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -129,7 +129,7 @@ def _classifier() -> ModalityClassifier:
 
 def _weights(frame_vector: list[float]) -> tuple[float, float]:
     try:
-        return _classifier().weights(frame_vector)
+        return tuned_weights(_classifier().weights(frame_vector)[0])
     except ValueError as exc:
         logger.error("search: modality classifier mismatch", extra={"extra_fields": {"error": str(exc)}})
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=WRONG_CLASSIFIER) from exc

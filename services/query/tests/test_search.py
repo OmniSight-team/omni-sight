@@ -491,11 +491,16 @@ def test_fused_takes_the_weights_from_the_classifier_of_the_query(qdrant, ai_wor
     coefficients = [0.0] * FRAME_VECTOR_SIZE
 
     coefficients[0] = 5.0  # a scene
+    # D-40: a query C calls a scene is an even blend, one it calls an action leans to the frame list.
     monkeypatch.setattr(search_module, "_classifier", lambda: ModalityClassifier(coefficients, 0.0))
-    assert _search(mode="fused").json()["results"][0]["segment_id"] == frame_top
+    scene = _search(mode="fused").json()["results"]
+    assert {h["segment_id"]: h["score"] for h in scene} == {frame_top: pytest.approx(0.5 / 61), clip_top: pytest.approx(0.5 / 61)}
 
     monkeypatch.setattr(search_module, "_classifier", lambda: ModalityClassifier([-c for c in coefficients], 0.0))
-    assert _search(mode="fused").json()["results"][0]["segment_id"] == clip_top
+    action = _search(mode="fused").json()["results"]
+    assert [h["segment_id"] for h in action] == [frame_top, clip_top]
+    assert action[0]["score"] == pytest.approx(0.6 / 61)
+    assert action[1]["score"] == pytest.approx(0.4 / 61)
 
 
 def test_fused_returns_only_k(qdrant, ai_workers, equal_weights):
