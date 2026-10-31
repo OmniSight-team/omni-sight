@@ -204,6 +204,7 @@ def test_a_query_returns_ranked_moments_with_every_field(qdrant, ai_workers):
     assert [round(hit["score"], 4) for hit in body["results"]] == [0.9, 0.6, 0.3]
     hit = body["results"][0]
     assert hit["video_id"] == video_id
+    assert hit["filename"].startswith(NAME_PREFIX)
     assert hit["camera"] is None
     assert hit["timestamp_s"] == pytest.approx(900 / 30)
     assert hit["captured_at"]
@@ -281,6 +282,31 @@ def test_a_date_without_a_zone_is_utc(qdrant, ai_workers):
     body = _search(**{"from": (naive - timedelta(seconds=1)).isoformat(), "to": (naive + timedelta(seconds=1)).isoformat()}).json()
 
     assert [h["segment_id"] for h in body["results"]] == [segment]
+
+
+def test_a_live_camera_frame_has_a_camera_and_no_recording(qdrant, ai_workers):
+    camera_id = _camera()
+    _frame(qdrant, 0.5, camera_id=camera_id, at=1_790_000_000.0)
+
+    hit = _search().json()["results"][0]
+
+    assert hit["camera"]["id"] == camera_id
+    assert hit["video_id"] is None
+    assert hit["filename"] is None
+    assert hit["frame_url"] == f"/cameras/{camera_id}/frames/{hit['segment_id']}/image"
+
+
+def test_a_video_filter_finds_that_videos_frames_even_below_other_videos_top_k(qdrant, ai_workers):
+    video_a, video_b = _video(), _video()
+    a = _frame(qdrant, 0.4, video_id=video_a)
+    for c in (0.95, 0.9, 0.85, 0.8, 0.75):
+        _frame(qdrant, c, video_id=video_b)
+    assert a not in [h["segment_id"] for h in _search(k=5).json()["results"]]
+
+    filtered = _search(k=5, video_id=video_a).json()
+
+    assert [h["segment_id"] for h in filtered["results"]] == [a]
+    assert filtered["results"][0]["frame_url"] is None
 
 
 def test_from_after_to_is_refused(qdrant, ai_workers):

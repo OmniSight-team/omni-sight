@@ -11,6 +11,7 @@ import {
   type VideoSource,
   type VideoStatus,
   deleteVideo,
+  extractVideo,
   listCameras,
   listVideos,
   uploadVideo,
@@ -76,9 +77,11 @@ export default function VideosPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadMessage, setUploadMessage] = useState<{ kind: "success" | "error"; text: string } | null>(
-    null,
-  );
+  const [uploadMessage, setUploadMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+    videoId?: number;
+  } | null>(null);
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -145,10 +148,12 @@ export default function VideosPage() {
     setUploadMessage(null);
     try {
       const result = await uploadVideo(file, setUploadProgress);
+      // Extraction is what gives a video its frames, and so its vectors: without it there is nothing to search.
+      if (result.status !== "failed") await extractVideo(result.id);
       setUploadMessage(
         result.status === "failed"
           ? { kind: "error", text: `${file.name}: ${result.error ?? "processing failed"}` }
-          : { kind: "success", text: `${file.name} uploaded — ${result.status}` },
+          : { kind: "success", text: `${file.name} uploaded — extracting its frames`, videoId: result.id },
       );
       await refreshVideos();
     } catch (err) {
@@ -220,6 +225,11 @@ export default function VideosPage() {
           }`}
         >
           {uploadMessage.text}
+          {uploadMessage.videoId != null && (
+            <Link href={`/videos/${uploadMessage.videoId}`} className="ml-2 font-medium underline">
+              Watch and search it
+            </Link>
+          )}
         </p>
       )}
 

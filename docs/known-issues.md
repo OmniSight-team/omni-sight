@@ -24,6 +24,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
 | K-27 | `frame_vectors` holds 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
 | K-28 | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
+| K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
 
 ---
 
@@ -156,6 +157,8 @@ other 995 frames can only match through the clip list, and `mode=frame` can only
 on 44 of 44, OMNI-708), which takes seconds; or D-35's backfill, about 2.5 h on this CPU.
 **Seen 2026-10-30 (OMNI-711):** fused *a van parked next to a fence*, k 5, returned 5 frames of
 video 3226, the only video in the frame list, ahead of the other 8 videos.
+**Seen 2026-10-31 (OMNI-712, D-39):** with search per video, the other 8 videos have Action only:
+their Scene answers *nothing indexed*, and Combined ranks by clip alone.
 
 ## K-24 · Old points left behind by a deleted or re-gated video
 

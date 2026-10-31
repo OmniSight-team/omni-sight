@@ -825,3 +825,77 @@ the clip list are merged, weighted by what the query describes. Appendix B.3, li
 
 Fused search follows B.3, each hit labelled. Classifier 98.0% in cross-validation on its own training
 set. On the product it still shows K-27: fused at k 5 can return only video 3226's frames.
+
+---
+
+## OMNI-712 · Search inside the video player and the live viewer
+
+### Why this ticket exists
+
+FR-4 on the screen: type a description, get the moments, jump to that second. The ticket asked for a
+Search screen. Ahmad changed that mid-ticket (D-39): search belongs where the footage is watched, on
+that footage only, for an uploaded video and for a camera, any day.
+
+### What was done
+
+- **First a `/search` page, as the ticket says,** working in all three modes with filters and the
+  states. Then Ahmad's change: the page and the nav entry removed, never committed
+- **`frontend/src/components/moment-search.tsx`:** the one search panel: box, Scene / Action /
+  Combined (Combined by default), result count and time, thumbnails with score and what matched,
+  *searchable so far: N of M frames by scene, C by action*, refreshed every 10 s while frames are
+  still being encoded. An older, slower answer never replaces a newer search's
+- **Video player:** the panel under the player; a result seeks the player to its second
+- **Live viewer:** a Search button beside Rewind; a date range; a result opens the stored frame,
+  and going back keeps the results (K-29: a camera has no recording)
+- **`GET /search`:** `video_id` filter inside both vector searches; `filename` and `frame_url` on each
+  hit. `filename` was added for the first page and is not shown any more; left in the response
+- **`GET /embeddings/status`:** `video_id` and `camera_id` narrow it
+- **Found while testing: uploading from the screen never extracted the video.** No code in the
+  frontend called `POST /videos/{id}/extract`, so an upload had no frames and nothing to search. The
+  Video Archive now calls it after the upload, its message links to the video, and the player
+  follows a video that is still extracting
+- **`D-39`** (Deviation), **K-29** (no camera recording)
+
+### Verification performed
+
+- `test_search.py` and `test_embeddings.py`: a video's weak frame found below another video's top 5
+  only with `video_id`; a live hit's `frame_url`, none for a video; status narrowed each way
+- Full suite without K-28's file: **596 passed, 1 skipped, 8 deselected** (the `model` tests), 10 min 12 s.
+  `tsc` clean, ESLint no errors
+- Real stack through nginx, in Chrome, on queries outside the SM-1 set:
+  - **Upload:** a 5 s clip through the screen's file input (re-uploaded from the stack's own hand-check
+    clip): *extracting*, the link, 20 admitted frames in the player, 20 of 20 encoded. Combined and
+    Scene returned 5 hits, all of this video; a click put the player at 1.0 s for a hit at 0:01.0
+  - **An imported video (3226):** Combined with both labels; a click put the player at 14.0 s for a hit
+    at 0:14.0
+  - **Camera:** a temporary camera on the simulator (`omni712-test`, 2446), 15 s, 21 frames, all
+    encoded. All hits of that camera; 30 Oct gives *no results*, 31 Oct 5 results; a click opens the
+    1280 x 720 frame; back keeps the results
+  - **States:** Action on footage with no clip vectors, *nothing indexed for this search yet*; no
+    results; `ai_workers` stopped, *the search model is unavailable* after 7.7 s; `from` after `to`, the
+    API's message (on the first page, the same code path)
+
+### Not verified
+
+- **An index empty everywhere:** the message state was only seen with a stubbed response, on the first
+  page. The panel's version was seen through the Action case above
+- **Search on a camera over several days:** the test camera's frames are all from one day. cam01 and
+  cam02 hold older frames with no vectors (D-35), and both are disabled
+- **Search on a running camera:** the capture was stopped before searching
+- A single role only (admin). `/live` is operator and admin; an analyst has search through the player only
+- Speed: the times seen are not measurements. The first searches after a start took 3 to 21 s (K-26,
+  the suite running beside it); repeats under 0.2 s. NFR-2 is OMNI-714
+- `next build`: only `tsc` and the dev server
+
+### Detours
+
+- The dev server does not see new or edited files on this Windows bind mount: an upload kept running old
+  code until the frontend was restarted, and a restarted frontend gives 502 until nginx is restarted
+- `ai_workers`' exit code 137 looked like a crash; a plain `docker compose stop` gives the same code
+
+### Result
+
+Search works inside the player and the live viewer, each on its own footage. The Search screen is
+gone (D-39); `GET /search` without a scope stays for SM-1, NFR-2 and TC-4. On this laptop new footage
+fills in at about 9 s a frame with scene vectors only, and 8 of the 9 VIRAT videos show 0 by scene
+until K-27 is dealt with. Left on the stack for a look: video 3239 and camera 2446.

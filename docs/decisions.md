@@ -44,6 +44,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-36 | Search is open to operators, analysts and admins (Phase A), not operators and admins only (the ticket) | 2026-10-28 | Done |
 | D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
 | D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
+| D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
 
 ---
 
@@ -944,4 +945,40 @@ always gives the same answer. Not a step of the ranking: it only decides what B.
 
 **Not a Phase A deviation:** Phase A names a classifier and its output, not its kind. Fusion
 follows B.3 line by line, with `K` both the size of each list and of the result.
+
+## D-39 · **Deviation:** search lives inside the player and the camera viewer · 2026-10-31
+
+**Ahmad's decision,** during OMNI-712. No Search page and no Search entry in the nav. A user
+searches one piece of footage where they are watching it:
+
+- **An uploaded video:** a search box under the player, on that video only. A result moves the
+  player to that second
+- **A camera:** a Search view in the enlarged live viewer, on that camera's stored frames, any
+  day through a date range. A result opens that frame
+
+**Departs from:** the product document's Search screen (Phase A Appendix, *"Users find moments by
+typing a plain-language query; results are ranked clips with their camera, timestamp, and match
+score"*), and OMNI-712's camera filter and nav lines. FR-4 (*"search for the stored video"*) and
+FR-9 (*"search for videos"*) are now met per video or per camera; **no screen searches across the
+archive.**
+
+**Kept:** `GET /search` without a scope still searches everything, so SM-1 (OMNI-713, on Colab),
+NFR-2 (OMNI-714) and TC-4 (OMNI-715) are measured as Phase A writes them. `video_id` is one more
+filter inside both vector searches, on the payload index from OMNI-703.
+
+**What it cannot do on this laptop (not hidden on the screen, which shows *searchable so far: N
+of M frames by scene, C by action*):**
+
+- New footage gets scene vectors only (D-32) at about 9 s a frame (K-25), so a new upload fills
+  in over minutes and a running camera falls behind; Action finds nothing there
+- A camera stores admitted frames, never a recording: nothing in ingestion creates a camera
+  video. So a camera hit opens a still frame, not playback at that second (K-29)
+- Stored footage not encoded (D-35, K-27) shows 0 scene vectors until it is
+
+**Upload now starts extraction.** The Video Archive's upload never called `POST
+/videos/{id}/extract`, so an upload had no frames, no vectors and nothing to search. The screen
+now calls it right after a successful upload; the API's own upload route is unchanged.
+
+**Open:** OMNI-716's comparison view and OMNI-717's demo were written *"from the search screen"*.
+The comparison belongs in the video player, on one video.
 

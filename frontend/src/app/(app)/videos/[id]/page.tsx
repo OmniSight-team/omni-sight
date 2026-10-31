@@ -14,6 +14,9 @@ import {
   listAllFrames,
   regateVideo,
 } from "@/lib/api-client";
+import { MomentSearch } from "@/components/moment-search";
+
+const EXTRACTION_POLL_MS = 3000;
 
 const STATUS_STYLES: Record<VideoStatus, string> = {
   uploaded: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
@@ -295,6 +298,24 @@ export default function VideoPlayerPage() {
       });
   }, [videoId]);
 
+  // A video opened right after its upload is still extracting: follow it until its frames are in.
+  useEffect(() => {
+    if (video?.status !== "extracting") return;
+    const timer = setTimeout(() => {
+      getVideo(videoId)
+        .then((loaded) => {
+          setVideo(loaded);
+          if (loaded.status === "extracting") return;
+          setThreshold(loaded.gate_cell_threshold);
+          appliedRef.current = loaded.gate_cell_threshold;
+          wantedRef.current = loaded.gate_cell_threshold;
+          return listAllFrames(videoId, "all").then(setAllFrames);
+        })
+        .catch(() => setVideo((current) => (current ? { ...current } : current)));
+    }, EXTRACTION_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [video, videoId]);
+
   const admittedFrames = useMemo(() => allFrames.filter((frame) => frame.admitted), [allFrames]);
   const gridFrames = useMemo(() => {
     if (gridFilter === "all") return allFrames;
@@ -372,6 +393,16 @@ export default function VideoPlayerPage() {
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-black dark:border-zinc-800">
             <video ref={videoRef} src={video.playback_url} controls className="aspect-video w-full" />
           </div>
+
+          {video.status !== "failed" && (
+            <MomentSearch
+              scope={{ video_id: videoId }}
+              onPick={(hit) => {
+                seekTo(hit.timestamp_s);
+                videoRef.current?.scrollIntoView({ block: "center" });
+              }}
+            />
+          )}
 
           {video.duration_s == null ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">

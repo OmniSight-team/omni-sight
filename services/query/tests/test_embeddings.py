@@ -399,6 +399,23 @@ def test_status_counts_clip_points_of_the_pinned_clip_model(qdrant):
     assert rows[(video_id, None)]["frames_embedded"] == 0
 
 
+def test_status_narrows_to_one_video_or_one_camera(qdrant):
+    video_id, other_video = _video(), _video()
+    camera_id = _camera()
+    for message in (
+        _message(video_id, 0), _message(other_video, 0),
+        _message(None, 0, camera_id=camera_id, timestamp_s=1_790_000_000.0),
+    ):
+        _store(message)
+    headers = _headers()
+
+    by_video = client.get("/embeddings/status", params={"video_id": video_id}, headers=headers).json()
+    by_camera = client.get("/embeddings/status", params={"camera_id": camera_id}, headers=headers).json()
+
+    assert [(r["video_id"], r["camera_id"]) for r in by_video] == [(video_id, None)]
+    assert [(r["video_id"], r["camera_id"]) for r in by_camera] == [(None, camera_id)]
+
+
 def test_status_needs_a_login(qdrant):
     assert client.get("/embeddings/status").status_code == 401
 

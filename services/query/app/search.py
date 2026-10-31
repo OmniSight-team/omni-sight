@@ -33,7 +33,7 @@ from app import ai_workers_client
 from app.db import get_db
 from app.deps import require_role
 from app.embeddings import get_qdrant
-from app.models import Camera, Segment, User
+from app.models import Camera, Segment, User, Video
 from app.schemas import SearchCameraOut, SearchHitOut, SearchOut, SearchTimingsOut
 from app.settings import settings
 from app.videos import _thumb_url
@@ -96,10 +96,14 @@ def _same_model(stream: Stream) -> list[models.FieldCondition]:
     ]
 
 
-def _filter(stream: Stream, camera_id: int | None, start: datetime | None, end: datetime | None) -> models.Filter:
-    """Applied by Qdrant during the search (indexed payload, OMNI-703), so a camera's best
-    match is found even when other cameras' frames rank above it."""
+def _filter(
+    stream: Stream, video_id: int | None, camera_id: int | None, start: datetime | None, end: datetime | None
+) -> models.Filter:
+    """Applied by Qdrant during the search (indexed payload, OMNI-703), so a video's or a
+    camera's best match is found even when other footage ranks above it."""
     must = _same_model(stream)
+    if video_id is not None:
+        must.append(models.FieldCondition(key="video_id", match=models.MatchValue(value=video_id)))
     if camera_id is not None:
         must.append(models.FieldCondition(key="camera_id", match=models.MatchValue(value=camera_id)))
     if start is not None or end is not None:
@@ -136,6 +140,7 @@ def search(
     q: str = Query(..., max_length=1000),
     mode: SearchMode = SearchMode.FRAME,
     k: int = Query(5, ge=1, le=MAX_K),
+    video_id: int | None = None,
     camera_id: int | None = None,
     start: datetime | None = Query(None, alias="from"),
     end: datetime | None = Query(None, alias="to"),
@@ -164,7 +169,7 @@ def search(
             qdrant.query_points(
                 collection_name=stream.collection,
                 query=vector,
-                query_filter=_filter(stream, camera_id, start, end),
+                query_filter=_filter(stream, video_id, camera_id, start, end),
                 limit=k,
                 with_payload=["captured_at"],
             ).points
@@ -196,8 +201,9 @@ def search(
     rows = {
         row.id: row
         for row in db.execute(
-            select(Segment.id, Segment.video_id, Segment.timestamp_s, Segment.thumb_path, Camera.id.label("camera_id"), Camera.name)
+            select(Segment.id, Segment.video_id, Segment.timestamp_s, Segment.thumb_path, Camera.id.label("camera_id"), Camera.name, Video.filename)
             .outerjoin(Camera, Camera.id == Segment.camera_id)
+            .outerjoin(Video, Video.id == Segment.video_id)
             .where(Segment.id.in_(ids), Segment.admitted.is_(True))
         )
     }
@@ -209,12 +215,14 @@ def search(
         results.append(SearchHitOut(
             segment_id=row.id,
             video_id=row.video_id,
+            filename=row.filename,
             camera=None if row.camera_id is None else SearchCameraOut(id=row.camera_id, name=row.name),
             timestamp_s=row.timestamp_s,
             captured_at=hit.captured_at,
             score=hit.score,
             matched_by=hit.matched_by,
             thumb_url=_thumb_url(row.thumb_path),
+            frame_url=f"/cameras/{row.camera_id}/frames/{row.id}/image" if row.video_id is None else None,
         ))
     dropped = len(ranked) - len(results)
     if dropped:

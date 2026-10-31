@@ -33,12 +33,15 @@ def get_qdrant() -> Iterator[QdrantClient]:
 
 @router.get("/status", response_model=list[EmbeddingStatusOut])
 def embeddings_status(
+    video_id: int | None = None,
+    camera_id: int | None = None,
     db: Session = Depends(get_db),
     qdrant: QdrantClient = Depends(get_qdrant),
     _user: User = Depends(get_current_user),
 ) -> list[EmbeddingStatusOut]:
     """One row per video with admitted frames (its camera too, if it has one), then one per
-    camera with live admitted frames (no video)."""
+    camera with live admitted frames (no video). `video_id` and `camera_id` narrow it to that
+    footage, for the search panel of one video or one camera (D-39)."""
     try:
         embedded = embedded_segment_ids(
             qdrant, settings.frame_collection, settings.frame_model_id, settings.frame_model_revision
@@ -52,13 +55,15 @@ def embeddings_status(
     total: Counter[tuple[int | None, int | None]] = Counter()
     done: Counter[tuple[int | None, int | None]] = Counter()
     clips_done: Counter[tuple[int | None, int | None]] = Counter()
-    frames = db.execute(
-        select(Segment.id, Segment.video_id, Segment.camera_id).where(
-            Segment.admitted.is_(True), Segment.frame_path.is_not(None)
-        )
+    query = select(Segment.id, Segment.video_id, Segment.camera_id).where(
+        Segment.admitted.is_(True), Segment.frame_path.is_not(None)
     )
-    for segment_id, video_id, camera_id in frames:
-        key = (video_id, camera_id)
+    if video_id is not None:
+        query = query.where(Segment.video_id == video_id)
+    if camera_id is not None:
+        query = query.where(Segment.camera_id == camera_id)
+    for segment_id, row_video_id, row_camera_id in db.execute(query):
+        key = (row_video_id, row_camera_id)
         total[key] += 1
         if segment_id in embedded:
             done[key] += 1
@@ -66,17 +71,16 @@ def embeddings_status(
             clips_done[key] += 1
 
     def order(key: tuple[int | None, int | None]) -> tuple:
-        video_id, camera_id = key
-        return (video_id is None, video_id or 0, camera_id or 0)
+        return (key[0] is None, key[0] or 0, key[1] or 0)
 
     return [
         EmbeddingStatusOut(
-            video_id=video_id,
-            camera_id=camera_id,
-            frames_total=total[(video_id, camera_id)],
-            frames_embedded=done[(video_id, camera_id)],
-            clips_embedded=clips_done[(video_id, camera_id)],
+            video_id=key[0],
+            camera_id=key[1],
+            frames_total=total[key],
+            frames_embedded=done[key],
+            clips_embedded=clips_done[key],
             model=settings.frame_model_id,
         )
-        for video_id, camera_id in sorted(total, key=order)
+        for key in sorted(total, key=order)
     ]

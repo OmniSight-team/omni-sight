@@ -10,14 +10,14 @@ class NavRoute:
     roles: tuple[Role, ...]
 
 
-# The nine in-app screens, from the product document. Sign In is the tenth
-# screen but sits outside the shell, so it isn't listed here. Single source
+# The in-app screens, from the product document, less Search, which lives inside
+# the video player and the camera viewer (D-39). Sign In sits outside the
+# shell, so it isn't listed here. Single source
 # of truth for both the frontend sidebar and, from slice 16 on, server-side
 # route enforcement — two copies of this map would drift.
 NAV_ROUTES: tuple[NavRoute, ...] = (
     NavRoute("/", "Operations Dashboard", (Role.OPERATOR, Role.ANALYST, Role.ADMIN)),
     NavRoute("/live", "Live Monitoring", (Role.OPERATOR, Role.ADMIN)),
-    NavRoute("/search", "Search", (Role.OPERATOR, Role.ANALYST, Role.ADMIN)),
     NavRoute("/alerts", "Alerts", (Role.OPERATOR, Role.ANALYST, Role.ADMIN)),
     NavRoute("/reports", "Incident Reports", (Role.ANALYST, Role.ADMIN)),
     NavRoute("/videos", "Video Archive", (Role.OPERATOR, Role.ANALYST, Role.ADMIN)),

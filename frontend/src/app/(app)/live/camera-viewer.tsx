@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { MomentSearch } from "@/components/moment-search";
 import {
   ApiError,
   type BufferFrame,
@@ -9,6 +10,7 @@ import {
   fetchFrameImage,
   getCameraBuffer,
   type LiveCamera,
+  type SearchHit,
 } from "@/lib/api-client";
 
 // One camera, enlarged (OMNI-508). Its preview is asked for twice as often as on
@@ -313,11 +315,62 @@ function Rewind({ camera, onBack }: { camera: LiveCamera; onBack: () => void }) 
   );
 }
 
+// A camera stores admitted frames, not video, so a result opens its frame (D-39). The
+// results stay mounted underneath, so going back to them does not search again.
+function CameraSearch({ camera }: { camera: LiveCamera }) {
+  const [picked, setPicked] = useState<SearchHit | null>(null);
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function pick(hit: SearchHit) {
+    if (!hit.frame_url) return;
+    setPicked(hit);
+    setSrc(null);
+    setError(null);
+    fetchFrameImage(hit.frame_url)
+      .then((blob) => setSrc(URL.createObjectURL(blob)))
+      .catch(() => setError("Could not load this frame."));
+  }
+
+  function back() {
+    if (src) URL.revokeObjectURL(src);
+    setPicked(null);
+    setSrc(null);
+  }
+
+  return (
+    <div className="h-full">
+      {picked && (
+        <div className="flex h-full flex-col gap-3">
+          <div className="relative min-h-0 flex-1 bg-black">
+            {src && (
+              // An object URL from an authenticated fetch.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={src} alt={`Frame at ${picked.captured_at}`} className="h-full w-full object-contain" />
+            )}
+            {error && <p className="p-6 text-sm text-red-300">{error}</p>}
+            <span className="absolute left-3 top-3 rounded-md bg-black/70 px-2 py-1 text-xs font-semibold text-zinc-100">
+              {new Date(picked.captured_at).toLocaleString()}
+            </span>
+          </div>
+          <button type="button" onClick={back}
+            className="self-end rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-zinc-200">
+            Back to results
+          </button>
+        </div>
+      )}
+      <div className={picked ? "hidden" : "h-full overflow-y-auto rounded-xl bg-white p-4 dark:bg-zinc-900"}>
+        <MomentSearch scope={{ camera_id: camera.camera_id }} withDates onPick={pick} />
+      </div>
+    </div>
+  );
+}
+
 // The enlarged view (OMNI-508): over the whole window, and the browser's full
 // screen when it allows it. Esc closes it (in full screen the browser leaves
 // full screen on Esc first, and that closes it too).
 export function CameraViewer({ camera, onClose }: { camera: LiveCamera; onClose: () => void }) {
-  const [rewinding, setRewinding] = useState(false);
+  const [view, setView] = useState<"live" | "rewind" | "search">("live");
   const root = useRef<HTMLDivElement>(null);
   // The latest onClose, without re-running the effect below (which would ask
   // for full screen again) every time the page re-renders.
@@ -361,11 +414,24 @@ export function CameraViewer({ camera, onClose }: { camera: LiveCamera; onClose:
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!rewinding && (
-            <button type="button" onClick={() => setRewinding(true)}
-              className="rounded-lg bg-amber-400 px-3 py-1.5 text-sm font-medium text-black hover:bg-amber-300">
-              Rewind
-            </button>
+          {view === "live" ? (
+            <>
+              <button type="button" onClick={() => setView("rewind")}
+                className="rounded-lg bg-amber-400 px-3 py-1.5 text-sm font-medium text-black hover:bg-amber-300">
+                Rewind
+              </button>
+              <button type="button" onClick={() => setView("search")}
+                className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-zinc-200">
+                Search
+              </button>
+            </>
+          ) : (
+            view === "search" && (
+              <button type="button" onClick={() => setView("live")}
+                className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-zinc-200">
+                Back to live
+              </button>
+            )
           )}
           <button type="button" onClick={onClose} aria-label="Close"
             className="rounded-lg bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20">
@@ -374,8 +440,10 @@ export function CameraViewer({ camera, onClose }: { camera: LiveCamera; onClose:
         </div>
       </div>
       <div className="min-h-0 flex-1">
-        {rewinding ? (
-          <Rewind camera={camera} onBack={() => setRewinding(false)} />
+        {view === "rewind" ? (
+          <Rewind camera={camera} onBack={() => setView("live")} />
+        ) : view === "search" ? (
+          <CameraSearch camera={camera} />
         ) : (
           <div className="h-full bg-black">
             <LivePicture camera={camera} />

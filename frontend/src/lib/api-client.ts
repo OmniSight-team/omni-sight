@@ -362,6 +362,11 @@ export async function getVideo(id: number): Promise<Video> {
   return request<Video>(`/videos/${id}`);
 }
 
+// Starts frame extraction and returns at once; the video is `extracting` until it finishes.
+export async function extractVideo(id: number): Promise<void> {
+  await request(`/videos/${id}/extract`, { method: "POST" });
+}
+
 export async function deleteVideo(id: number): Promise<{ id: number; deleted: boolean }> {
   return request(`/videos/${id}`, { method: "DELETE" });
 }
@@ -567,6 +572,46 @@ export async function getDashboardActivity(hours = 24): Promise<DashboardHour[]>
   return request<DashboardHour[]>(`/dashboard/activity?hours=${hours}`);
 }
 
+// --- Search (OMNI-712) --------------------------------------------------------------
+
+export type SearchMode = "frame" | "clip" | "fused";
+export type MatchedBy = "frame" | "clip" | "both";
+
+export interface SearchHit {
+  segment_id: number;
+  // Null for a live camera frame, which has no recording to play.
+  video_id: number | null;
+  filename: string | null;
+  camera: { id: number; name: string } | null;
+  // Seconds into the recording; Unix time for a live camera frame.
+  timestamp_s: number;
+  captured_at: string;
+  // Higher is closer. Cosine in `frame` and `clip`; B.3's reciprocal rank score in `fused`.
+  score: number;
+  matched_by: MatchedBy;
+  thumb_url: string | null;
+  // A live camera frame's stored picture, an API path (see fetchFrameImage). Null for a video.
+  frame_url: string | null;
+}
+
+export interface SearchResponse {
+  results: SearchHit[];
+  mode: SearchMode;
+  elapsed_ms: number;
+  total: number;
+  // Set when nothing is indexed yet.
+  message: string | null;
+}
+
+export interface SearchParams {
+  q: string;
+  mode: SearchMode;
+  video_id?: number;
+  camera_id?: number;
+  from?: string;
+  to?: string;
+}
+
 export interface Dataset {
   name: string;
   domain: CameraDomain;
@@ -588,6 +633,31 @@ export async function listDatasets(): Promise<Dataset[]> {
 }
 
 // Admin only. Queues up to `limit` clips not loaded yet; poll listDatasets for progress.
+export async function searchMoments(params: SearchParams): Promise<SearchResponse> {
+  const query = new URLSearchParams({ q: params.q, mode: params.mode });
+  if (params.video_id != null) query.set("video_id", String(params.video_id));
+  if (params.camera_id != null) query.set("camera_id", String(params.camera_id));
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  return request<SearchResponse>(`/search?${query}`);
+}
+
+export interface EmbeddingStatus {
+  video_id: number | null;
+  camera_id: number | null;
+  frames_total: number;
+  frames_embedded: number;
+  clips_embedded: number;
+}
+
+export type SearchScope = { video_id: number } | { camera_id: number };
+
+// How much of one video's or one camera's footage can be searched so far.
+export async function getEmbeddingStatus(scope: SearchScope): Promise<EmbeddingStatus[]> {
+  const query = new URLSearchParams(Object.entries(scope).map(([name, id]) => [name, String(id)]));
+  return request<EmbeddingStatus[]>(`/embeddings/status?${query}`);
+}
+
 export async function loadDataset(name: string, limit: number): Promise<{ queued: number }> {
   return request(`/datasets/${name}/load`, { method: "POST", body: JSON.stringify({ limit }) });
 }

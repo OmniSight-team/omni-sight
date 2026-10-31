@@ -252,6 +252,8 @@ class SearchHitOut(BaseModel):
 
     segment_id: int
     video_id: int | None
+    # The recording's name; None for a live camera frame, which has no recording.
+    filename: str | None
     camera: SearchCameraOut | None
     timestamp_s: float
     captured_at: datetime
@@ -260,6 +262,8 @@ class SearchHitOut(BaseModel):
     # Which index found it: "frame", "clip" or "both" (OMNI-711).
     matched_by: str
     thumb_url: str | None
+    # A live camera frame has no recording: this API path gives its stored picture. None for a video.
+    frame_url: str | None
 
 
 class SearchTimingsOut(BaseModel):
