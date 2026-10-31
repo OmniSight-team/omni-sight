@@ -899,3 +899,42 @@ Search works inside the player and the live viewer, each on its own footage. The
 gone (D-39); `GET /search` without a scope stays for SM-1, NFR-2 and TC-4. On this laptop new footage
 fills in at about 9 s a frame with scene vectors only, and 8 of the 9 VIRAT videos show 0 by scene
 until K-27 is dealt with. Left on the stack for a look: video 3239 and camera 2446.
+
+---
+
+## OMNI-713 · SM-1 on VIRAT
+
+### Why this ticket exists
+
+SM-1: the correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a
+frame-only baseline. Measured on Colab (D-26) over the archive of OMNI-708, on the query set fixed in
+OMNI-709, with the fusion of OMNI-711.
+
+### What was done
+
+- **`scripts/measure_sm1.py`:** loads all 275 videos' vectors and works out which frames meet each
+  `answer_rule`; every query, exact search, four modes: `frame`, `clip`, `fused` (the product's `fuse`
+  and classifier, `K` 5), `fused_equal` (0.5 / 0.5). Recall@5 overall and per kind, chance beside it,
+  each query's hits and first correct rank. Refuses an archive that is not whole or was made with other
+  checkpoints, and a rule no frame meets. Nothing in it chooses queries, weights or thresholds
+- **`notebooks/sm1_gpu.ipynb`:** clone, both text encoders, the archive, the labels asserted against
+  OMNI-709's chance before any search, SM-1, the table, saved with the commit, GPU, pins and the SHA-256
+  of the query set and of the classifier to Drive `omnisight/results/sm1_result.json`
+- **`GET /metrics/sm1`** (`services/query/app/metrics.py`): reads `services/query/app/sm1_result.json`, the
+  run's file copied in; answers `recall_at_5`, `baseline`, `n_queries`, `by_kind`, `measured_at`, and 404
+  *SM-1 has not been measured yet* until then
+
+### Verification performed
+
+- `test_measure_sm1.py` (21, stand-in encoders on generated archives) and `test_metrics.py` (3): rules at
+  an event's ends, a frame in two events once, the refusals, exact search and ties, each mode's list,
+  the weights, the pass rule at and below the target. With `test_search.py`: 65 passed
+- **The labels on the real archive, no model and no search** (`--check-labels`, reading Drive): 275 videos,
+  35,704 frames, every rule's frame count equal to OMNI-709's table, chance 25.1%, actions 11.7%, scenes 38.5%
+- The route on the stack without a token: 401. **No SM-1 query has gone to a model**
+
+### Not verified
+
+- **SM-1 itself: not measured yet.** The run is Ahmad's, on Colab; the commit has to be pushed first
+- The notebook has not run; its cells only parse. Its setup, encoders and archive path are OMNI-708's
+- The route with a token on the stack (the browser's session had expired); tested in-process

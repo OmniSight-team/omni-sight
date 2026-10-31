@@ -291,6 +291,30 @@ class SearchOut(BaseModel):
     message: str | None = None
 
 
+class Sm1KindOut(BaseModel):
+    """Recall@5 of one kind of query, per mode, and what five random frames would get."""
+
+    frame: float
+    clip: float
+    fused: float
+    # Fused with fixed weights 0.5 / 0.5, so the classifier's own effect shows.
+    fused_equal: float
+    chance: float
+    n_queries: int
+
+
+class Sm1Out(BaseModel):
+    """OMNI-713: SM-1 as measured on Colab."""
+
+    # Fused, overall.
+    recall_at_5: float
+    # Frame only, overall.
+    baseline: float
+    n_queries: int
+    by_kind: dict[str, Sm1KindOut]
+    measured_at: datetime
+
+
 class EmbeddingStatusOut(BaseModel):
     """OMNI-705: one video's (or one camera's live) admitted frames against their vectors."""
 
