@@ -47,7 +47,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
 | The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
 | Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
-| SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | Fused 60.0% overall (frame only 74.0%, clip only 46.0%, fused at 0.5 / 0.5 68.0%). Action queries: fused 32.0%, frame only 60.0%, a drop of 28 points. Scene queries: fused 88.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: one run, 50 queries by one author) | 2026-10-31 | OMNI-713 |
+| SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -2260,4 +2260,30 @@ on actions tie, so the rule took the one nearest 0.5. The whole gain over frame 
 The 2 s margin moves the chosen setting by 2 points.
 
 **Not covered:** these queries were written by the same author as SM-1's, after seeing SM-1's result; text
-vectors from the CPU, not the GPU; the result on SM-1's queries (the notebook's next run).
+vectors from the CPU, not the GPU; the result on SM-1's queries (the next entry).
+
+## OMNI-713 · SM-1 on VIRAT, after D-40 · 2026-10-31
+
+**Conditions:** as the first run: A100, the same session, its encoders kept in memory, the new code pulled at
+commit `b867420` and reloaded (not a fresh runtime). The same archive, the same query file (SHA-256 equal), one
+run of the chosen setting on SM-1's queries. `w_f` action 0.6, scene 0.5, `K` 5. Output: Drive
+`omnisight/results/sm1_result_tuned.json`, copied to `services/query/app/sm1_result.json`; the first run's file
+stays on Drive and in git. Frame, clip and B.3 as written found exactly the same queries as in the first run.
+
+| Recall@5 | Frame only | Clip only | **Fused (the product)** | B.3 as written | Fused 0.5 / 0.5 | Chance | Fused, within 2 s | Frame only, within 2 s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **All (50)** | 74.0% | 46.0% | **76.0%** | 60.0% | 68.0% | 25.1% | 80.0% | 78.0% |
+| Scene (25) | 88.0% | 60.0% | **92.0%** | 88.0% | 92.0% | 38.5% | 92.0% | 88.0% |
+| Action (25) | 60.0% | 32.0% | **60.0%** | 32.0% | 44.0% | 11.7% | 68.0% | 68.0% |
+
+**Fail, both parts:** 76.0% against 85%, and no lift on action queries (+0.0).
+
+**What it shows:** fused gains 16 points on B.3 as written: 8 queries found now and not then (7 action, 1 scene),
+none lost. Against frame only it gains one query, `s25`, the one query clip finds and frame misses; 2 points on
+50 queries is not a difference to lean on. Action queries are frame only by construction (D-40). 12 queries are
+found by no mode: loading, gesturing, running and exiting a facility (all 8 of their queries), closing a trunk
+(2 of 3) and 2 scenes. Within 2 s closing a trunk is found 3 of 3 and no other type moves.
+
+**Not covered:** as the first run's entry. The weights were chosen on other queries, but the same author wrote
+them after seeing this set's first result. This set has now been used twice and should not be used for a
+further choice. The 2 s numbers are beside the strict ones, not the result.

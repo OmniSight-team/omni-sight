@@ -969,5 +969,11 @@ Ahmad committed the failure as the "before", then asked for better results with 
 - **`tuned_weights`** in `omnisight_common/fusion.py`, used by `GET /search` and by `measure_sm1.py` as `fused`;
   `fused_classifier` keeps B.3 as written beside it; `near` is the 2 s margin. The notebook saves to
   `sm1_result_tuned.json`, so the first run's file stays
-- Tests: 73 passed on the affected files before `tuned_weights`' own test was added. The final score is
-  not measured yet: Ahmad's Colab run
+- Tests: 73 passed on the affected files before `tuned_weights`' own test was added
+- **The run on SM-1's queries (Ahmad, A100):** to keep the session, a new cell pulled commit `b867420` and
+  reloaded the code, using the encoders already in memory; a Run all would have kept the old modules, and the
+  old save cell would have overwritten the first result. Frame, clip and B.3 as written found the same queries
+  as the first run, which shows nothing else moved
+- **Result:** fused 76.0% (was 60.0%), frame only 74.0%; actions 60.0% (was 32.0%), no lift; scenes 92.0% (was
+  88.0%). Still a fail on both parts, K-30 open. Before the run I worked the 76% out from the first run's stored
+  lists; the run confirmed it

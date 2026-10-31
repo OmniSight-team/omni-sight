@@ -25,7 +25,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-27 | `frame_vectors` holds 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
 | K-28 | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
 | K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
-| K-30 | SM-1 fails: fused 60.0% against 85%, and on action queries 32.0% against frame only's 60.0%. The fused top 5 is always one list, and the classifier sends actions to the weaker one | SM-1, TC-4's pass, the Definition of done, the screen's default mode, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
+| K-30 | SM-1 fails: after D-40 fused is 76.0% against 85%, with no lift on action queries (60.0%, frame only 60.0%). The clip list adds nothing on actions | SM-1, TC-4's pass, the Definition of done, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
 
 ---
 
@@ -172,7 +172,9 @@ ranks better fused than frame only; Combined is the screen's default and measure
 **Not changed:** the default, the weights, `K` and the queries. Nothing may be chosen on this set; it has
 been seen, so a change needs another query set to be judged on.
 **D-40, 2026-10-31:** weights chosen on a separate tuning set. No setting beat frame only on action queries,
-so the lift stays unmet with the two pinned models. Its run on SM-1's queries is the next entry here.
+so the lift stays unmet with the two pinned models. On SM-1's queries: fused 76.0% (was 60.0%), frame only
+74.0%; actions 60.0% (was 32.0%), no lift; scenes 92.0%. Still a fail on both parts. Combined is now no longer
+below Scene. TC-4's pass and the Definition of done's lift are still not reachable with these numbers.
 
 ## K-24 · Old points left behind by a deleted or re-gated video
 

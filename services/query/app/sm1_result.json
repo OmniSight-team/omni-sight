@@ -1,12 +1,20 @@
 {
- "recall_at_5": 0.6,
+ "recall_at_5": 0.76,
  "baseline": 0.74,
  "n_queries": 50,
  "overall": {
   "frame": 0.74,
   "clip": 0.46,
-  "fused": 0.6,
+  "fused": 0.76,
+  "fused_classifier": 0.6,
   "fused_equal": 0.68,
+  "near": {
+   "frame": 0.78,
+   "clip": 0.54,
+   "fused": 0.8,
+   "fused_classifier": 0.68,
+   "fused_equal": 0.78
+  },
   "chance": 0.25085716782415424,
   "n_queries": 50
  },
@@ -14,24 +22,40 @@
   "scene": {
    "frame": 0.88,
    "clip": 0.6,
-   "fused": 0.88,
+   "fused": 0.92,
+   "fused_classifier": 0.88,
    "fused_equal": 0.92,
+   "near": {
+    "frame": 0.88,
+    "clip": 0.6,
+    "fused": 0.92,
+    "fused_classifier": 0.88,
+    "fused_equal": 0.92
+   },
    "chance": 0.38498242717733755,
    "n_queries": 25
   },
   "action": {
    "frame": 0.6,
    "clip": 0.32,
-   "fused": 0.32,
+   "fused": 0.6,
+   "fused_classifier": 0.32,
    "fused_equal": 0.44,
+   "near": {
+    "frame": 0.68,
+    "clip": 0.48,
+    "fused": 0.68,
+    "fused_classifier": 0.48,
+    "fused_equal": 0.64
+   },
    "chance": 0.11673190847097087,
    "n_queries": 25
   }
  },
- "action_lift": -0.27999999999999997,
+ "action_lift": 0.0,
  "target": 0.85,
  "passed": false,
- "measured_at": "2026-10-31T10:51:00+00:00",
+ "measured_at": "2026-10-31T12:06:06+00:00",
  "frames": 35704,
  "videos": 275,
  "queries": [
@@ -47,6 +71,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 3,
      "hits": [
       {
@@ -88,6 +113,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -128,7 +154,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 3,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24057,
+       "timestamp_s": 802.7019,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040104_09_001475_001583",
+       "frame_index": 2777,
+       "timestamp_s": 92.65923333333333,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_07_001268_001348",
+       "frame_index": 487,
+       "timestamp_s": 16.249566666666666,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -170,6 +239,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -223,6 +293,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 3,
      "hits": [
       {
@@ -264,6 +335,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -304,7 +376,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 3,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 17160,
+       "timestamp_s": 572.572,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24057,
+       "timestamp_s": 802.7019,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 777,
+       "timestamp_s": 25.925900000000002,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -346,6 +461,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -399,6 +515,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -440,6 +557,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -480,7 +598,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24057,
+       "timestamp_s": 802.7019,
+       "score": 0.00967741935483871,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24117,
+       "timestamp_s": 804.7039,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24207,
+       "timestamp_s": 807.7069,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 17160,
+       "timestamp_s": 572.572,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -522,6 +683,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 4,
      "hits": [
       {
@@ -575,6 +737,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -616,6 +779,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -657,6 +821,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": true,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24057,
+       "timestamp_s": 802.7019,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_07_001268_001348",
+       "frame_index": 487,
+       "timestamp_s": 16.249566666666666,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_09_001475_001583",
+       "frame_index": 2777,
+       "timestamp_s": 92.65923333333333,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -698,6 +905,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -751,6 +959,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -792,6 +1001,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -833,6 +1043,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": true,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24057,
+       "timestamp_s": 802.7019,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 17160,
+       "timestamp_s": 572.572,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 29234,
+       "timestamp_s": 975.4411333333334,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -874,6 +1127,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -927,6 +1181,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 4,
      "hits": [
       {
@@ -968,6 +1223,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1008,7 +1264,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 4,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24057,
+       "timestamp_s": 802.7019,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24207,
+       "timestamp_s": 807.7069,
+       "score": 0.009375,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24117,
+       "timestamp_s": 804.7039,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1050,6 +1349,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1103,6 +1403,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 3,
      "hits": [
       {
@@ -1144,6 +1445,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 5,
      "hits": [
       {
@@ -1185,6 +1487,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9932,
+       "timestamp_s": 331.39773333333335,
+       "score": 0.015927419354838712,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9962,
+       "timestamp_s": 332.3987333333333,
+       "score": 0.015528846153846153,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000004",
+       "frame_index": 7098,
+       "timestamp_s": 236.8366,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24507,
+       "timestamp_s": 817.7169,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24537,
+       "timestamp_s": 818.7179,
+       "score": 0.00923076923076923,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -1226,6 +1571,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -1279,6 +1625,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -1320,6 +1667,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 3,
      "hits": [
       {
@@ -1361,6 +1709,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9962,
+       "timestamp_s": 332.3987333333333,
+       "score": 0.015989911727616643,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24507,
+       "timestamp_s": 817.7169,
+       "score": 0.00967741935483871,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 4782,
+       "timestamp_s": 159.5594,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9932,
+       "timestamp_s": 331.39773333333335,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000004",
+       "frame_index": 7338,
+       "timestamp_s": 244.8446,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -1402,6 +1793,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -1455,6 +1847,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 4,
      "hits": [
       {
@@ -1496,6 +1889,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 5,
      "hits": [
       {
@@ -1537,6 +1931,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 23697,
+       "timestamp_s": 790.6899,
+       "score": 0.015528846153846153,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24537,
+       "timestamp_s": 818.7179,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24507,
+       "timestamp_s": 817.7169,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9962,
+       "timestamp_s": 332.3987333333333,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9992,
+       "timestamp_s": 333.39973333333336,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -1578,6 +2015,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -1631,6 +2069,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -1672,6 +2111,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 5,
      "hits": [
       {
@@ -1713,6 +2153,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9932,
+       "timestamp_s": 331.39773333333335,
+       "score": 0.016234796404019036,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000004",
+       "frame_index": 7098,
+       "timestamp_s": 236.8366,
+       "score": 0.009836065573770491,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 10524,
+       "timestamp_s": 351.1508,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9482,
+       "timestamp_s": 316.38273333333336,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9452,
+       "timestamp_s": 315.38173333333333,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 5,
      "hits": [
       {
@@ -1754,6 +2237,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -1807,6 +2291,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1848,6 +2333,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1889,6 +2375,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9572,
+       "timestamp_s": 319.38573333333335,
+       "score": 0.015625,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_04_000854_000934",
+       "frame_index": 1050,
+       "timestamp_s": 35.035000000000004,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_02_000459_000721",
+       "frame_index": 6406,
+       "timestamp_s": 213.74686666666668,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 1017,
+       "timestamp_s": 33.9339,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1930,6 +2459,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -1983,6 +2513,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2024,6 +2555,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2065,6 +2597,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9572,
+       "timestamp_s": 319.38573333333335,
+       "score": 0.015927419354838712,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_02_000459_000721",
+       "frame_index": 6046,
+       "timestamp_s": 201.73486666666668,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 1047,
+       "timestamp_s": 34.9349,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 1437,
+       "timestamp_s": 47.947900000000004,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2106,6 +2681,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2159,6 +2735,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -2200,6 +2777,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 3,
      "hits": [
       {
@@ -2241,6 +2819,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9572,
+       "timestamp_s": 319.38573333333335,
+       "score": 0.01602662570404506,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9602,
+       "timestamp_s": 320.3867333333333,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040104_02_000459_000721",
+       "frame_index": 6406,
+       "timestamp_s": 213.74686666666668,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_02_000459_000721",
+       "frame_index": 6046,
+       "timestamp_s": 201.73486666666668,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -2282,6 +2903,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -2335,6 +2957,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 5,
      "hits": [
       {
@@ -2376,6 +2999,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2416,7 +3040,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 5,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_040104_06_001121_001241",
+       "frame_index": 627,
+       "timestamp_s": 20.9209,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_02_000459_000721",
+       "frame_index": 6406,
+       "timestamp_s": 213.74686666666668,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 24147,
+       "timestamp_s": 805.7049000000001,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_04_000854_000934",
+       "frame_index": 1050,
+       "timestamp_s": 35.035000000000004,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9572,
+       "timestamp_s": 319.38573333333335,
+       "score": 0.00923076923076923,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2458,6 +3125,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2511,6 +3179,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2552,6 +3221,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2593,6 +3263,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000003",
+       "frame_index": 5220,
+       "timestamp_s": 174.174,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000003",
+       "frame_index": 5280,
+       "timestamp_s": 176.17600000000002,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 9189,
+       "timestamp_s": 306.60630000000003,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000003",
+       "frame_index": 5250,
+       "timestamp_s": 175.175,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010201_00_000000_000053",
+       "frame_index": 768,
+       "timestamp_s": 32.040050062578224,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2634,6 +3347,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2687,6 +3401,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2728,6 +3443,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2769,6 +3485,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010003_00_000000_000108",
+       "frame_index": 1793,
+       "timestamp_s": 74.80183562786817,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010003_00_000000_000108",
+       "frame_index": 1792,
+       "timestamp_s": 74.76011681268253,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010003_00_000000_000108",
+       "frame_index": 1791,
+       "timestamp_s": 74.71839799749688,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 26656,
+       "timestamp_s": 889.4218666666667,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 21348,
+       "timestamp_s": 712.3116,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2810,6 +3569,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -2863,6 +3623,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -2904,6 +3665,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -2945,6 +3707,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010203_03_000400_000435",
+       "frame_index": 216,
+       "timestamp_s": 9.011264080100126,
+       "score": 0.009836065573770491,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_03_000400_000435",
+       "frame_index": 192,
+       "timestamp_s": 8.010012515644556,
+       "score": 0.00967741935483871,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_03_000400_000435",
+       "frame_index": 168,
+       "timestamp_s": 7.008760951188987,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_03_000400_000435",
+       "frame_index": 120,
+       "timestamp_s": 5.006257822277847,
+       "score": 0.009375,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_03_000400_000435",
+       "frame_index": 96,
+       "timestamp_s": 4.005006257822278,
+       "score": 0.00923076923076923,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -2986,6 +3791,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3039,6 +3845,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -3080,6 +3887,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3121,6 +3929,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000004",
+       "frame_index": 2910,
+       "timestamp_s": 97.09700000000001,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9872,
+       "timestamp_s": 329.39573333333334,
+       "score": 0.00967741935483871,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9662,
+       "timestamp_s": 322.38873333333333,
+       "score": 0.009523809523809523,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000003",
+       "frame_index": 17811,
+       "timestamp_s": 594.2937000000001,
+       "score": 0.009375,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 9684,
+       "timestamp_s": 323.1228,
+       "score": 0.00923076923076923,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3162,6 +4013,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -3215,6 +4067,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3256,6 +4109,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3297,6 +4151,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010201_09_000770_000801",
+       "frame_index": 504,
+       "timestamp_s": 21.02628285356696,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010204_11_001524_001607",
+       "frame_index": 1431,
+       "timestamp_s": 59.699624530663336,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010207_01_000712_000752",
+       "frame_index": 624,
+       "timestamp_s": 26.032540675844807,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010200_03_000470_000567",
+       "frame_index": 1513,
+       "timestamp_s": 63.12056737588653,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010201_08_000705_000739",
+       "frame_index": 24,
+       "timestamp_s": 1.0012515644555695,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3338,6 +4235,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3391,6 +4289,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3432,6 +4331,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3473,6 +4373,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010207_01_000712_000752",
+       "frame_index": 624,
+       "timestamp_s": 26.032540675844807,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_05_000515_000593",
+       "frame_index": 1126,
+       "timestamp_s": 46.97538589904047,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010201_08_000705_000739",
+       "frame_index": 24,
+       "timestamp_s": 1.0012515644555695,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010201_09_000770_000801",
+       "frame_index": 504,
+       "timestamp_s": 21.02628285356696,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000102",
+       "frame_index": 26356,
+       "timestamp_s": 879.4118666666667,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3514,6 +4457,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3567,6 +4511,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3608,6 +4553,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3649,6 +4595,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3059,
+       "timestamp_s": 127.61785565289946,
+       "score": 0.016234796404019036,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3083,
+       "timestamp_s": 128.61910721735504,
+       "score": 0.009836065573770491,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010206_04_000720_000767",
+       "frame_index": 48,
+       "timestamp_s": 2.002503128911139,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010208_05_000591_000631",
+       "frame_index": 398,
+       "timestamp_s": 16.604088443888195,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010201_06_000550_000600",
+       "frame_index": 24,
+       "timestamp_s": 1.0012515644555695,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3690,6 +4679,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3743,6 +4733,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3784,6 +4775,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3824,7 +4816,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3059,
+       "timestamp_s": 127.61785565289946,
+       "score": 0.009836065573770491,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3083,
+       "timestamp_s": 128.61910721735504,
+       "score": 0.00967741935483871,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3005,
+       "timestamp_s": 125.36503963287443,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010200_05_000658_000700",
+       "frame_index": 775,
+       "timestamp_s": 32.332081768877764,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010204_11_001524_001607",
+       "frame_index": 625,
+       "timestamp_s": 26.074259491030457,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -3866,6 +4901,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3919,6 +4955,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -3960,6 +4997,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4000,7 +5038,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3059,
+       "timestamp_s": 127.61785565289946,
+       "score": 0.009836065573770491,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3083,
+       "timestamp_s": 128.61910721735504,
+       "score": 0.00967741935483871,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010201_06_000550_000600",
+       "frame_index": 24,
+       "timestamp_s": 1.0012515644555695,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3035,
+       "timestamp_s": 126.61660408844389,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010208_05_000591_000631",
+       "frame_index": 96,
+       "timestamp_s": 4.005006257822278,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4042,6 +5123,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -4095,6 +5177,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4136,6 +5219,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4177,6 +5261,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3059,
+       "timestamp_s": 127.61785565289946,
+       "score": 0.016234796404019036,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3083,
+       "timestamp_s": 128.61910721735504,
+       "score": 0.015989911727616643,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010201_06_000550_000600",
+       "frame_index": 24,
+       "timestamp_s": 1.0012515644555695,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010204_11_001524_001607",
+       "frame_index": 625,
+       "timestamp_s": 26.074259491030457,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3131,
+       "timestamp_s": 130.62161034626618,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4218,6 +5345,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4271,6 +5399,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4312,6 +5441,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4353,6 +5483,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3059,
+       "timestamp_s": 127.61785565289946,
+       "score": 0.009836065573770491,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3083,
+       "timestamp_s": 128.61910721735504,
+       "score": 0.00967741935483871,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3035,
+       "timestamp_s": 126.61660408844389,
+       "score": 0.009523809523809523,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3005,
+       "timestamp_s": 125.36503963287443,
+       "score": 0.009375,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010203_06_000620_000760",
+       "frame_index": 3009,
+       "timestamp_s": 125.53191489361703,
+       "score": 0.00923076923076923,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4394,6 +5567,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": true,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4447,6 +5621,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4488,6 +5663,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -4529,6 +5705,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 2954,
+       "timestamp_s": 98.56513333333334,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10322,
+       "timestamp_s": 344.4107333333333,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 2624,
+       "timestamp_s": 87.55413333333334,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10382,
+       "timestamp_s": 346.41273333333334,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1544,
+       "timestamp_s": 51.51813333333333,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4570,6 +5789,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4623,6 +5843,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4664,6 +5885,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4705,6 +5927,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 2774,
+       "timestamp_s": 92.55913333333334,
+       "score": 0.016129032258064516,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1844,
+       "timestamp_s": 61.52813333333334,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 2594,
+       "timestamp_s": 86.55313333333334,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 2864,
+       "timestamp_s": 95.56213333333334,
+       "score": 0.007936507936507936,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 17578,
+       "timestamp_s": 586.5192666666667,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4746,6 +6011,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4799,6 +6065,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4840,6 +6107,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4881,6 +6149,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10727,
+       "timestamp_s": 357.92423333333335,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10826,
+       "timestamp_s": 361.2275333333333,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10718,
+       "timestamp_s": 357.62393333333335,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10766,
+       "timestamp_s": 359.2255333333333,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10796,
+       "timestamp_s": 360.22653333333335,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4922,6 +6233,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -4975,6 +6287,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5016,6 +6329,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -5057,6 +6371,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 12116,
+       "timestamp_s": 404.27053333333333,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_06_000702_000744",
+       "frame_index": 569,
+       "timestamp_s": 23.738005840634127,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 12326,
+       "timestamp_s": 411.27753333333334,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_06_000702_000744",
+       "frame_index": 570,
+       "timestamp_s": 23.779724655819777,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000101",
+       "frame_index": 10723,
+       "timestamp_s": 357.7907666666667,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5098,6 +6455,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5151,6 +6509,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5192,6 +6551,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -5233,6 +6593,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 1200,
+       "timestamp_s": 40.04,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000200_01_000226_000268",
+       "frame_index": 460,
+       "timestamp_s": 15.333333333333334,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 1440,
+       "timestamp_s": 48.048,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000200_00_000100_000171",
+       "frame_index": 1440,
+       "timestamp_s": 48.0,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 3060,
+       "timestamp_s": 102.102,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5274,6 +6677,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -5327,6 +6731,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5368,6 +6773,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5409,6 +6815,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000200_00_000100_000171",
+       "frame_index": 270,
+       "timestamp_s": 9.0,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000207_02_000498_000530",
+       "frame_index": 120,
+       "timestamp_s": 4.0,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000200_03_000657_000899",
+       "frame_index": 3443,
+       "timestamp_s": 114.76666666666667,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000207_03_000556_000590",
+       "frame_index": 690,
+       "timestamp_s": 23.0,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000200_03_000657_000899",
+       "frame_index": 4793,
+       "timestamp_s": 159.76666666666668,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5450,6 +6899,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5503,6 +6953,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5544,6 +6995,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -5585,6 +7037,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3552,
+       "timestamp_s": 118.5184,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000200_03_000657_000899",
+       "frame_index": 2935,
+       "timestamp_s": 97.83333333333333,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3432,
+       "timestamp_s": 114.51440000000001,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000200_03_000657_000899",
+       "frame_index": 2936,
+       "timestamp_s": 97.86666666666666,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3582,
+       "timestamp_s": 119.5194,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5626,6 +7121,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -5679,6 +7175,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5720,6 +7217,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5761,6 +7259,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010000_00_000000_000165",
+       "frame_index": 768,
+       "timestamp_s": 32.040050062578224,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010001_06_000685_000722",
+       "frame_index": 408,
+       "timestamp_s": 17.02127659574468,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010000_00_000000_000165",
+       "frame_index": 1560,
+       "timestamp_s": 65.08135168961202,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010001_04_000583_000646",
+       "frame_index": 144,
+       "timestamp_s": 6.007509386733417,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010000_00_000000_000165",
+       "frame_index": 984,
+       "timestamp_s": 41.05131414267835,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5802,6 +7343,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5855,6 +7397,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5896,6 +7439,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5937,6 +7481,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010000_03_000442_000528",
+       "frame_index": 504,
+       "timestamp_s": 21.02628285356696,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010005_07_000535_000584",
+       "frame_index": 600,
+       "timestamp_s": 25.03128911138924,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010001_01_000071_000167",
+       "frame_index": 72,
+       "timestamp_s": 3.0037546933667083,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010005_07_000535_000584",
+       "frame_index": 624,
+       "timestamp_s": 26.032540675844807,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010000_01_000184_000324",
+       "frame_index": 1008,
+       "timestamp_s": 42.05256570713392,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -5978,6 +7565,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6031,6 +7619,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6072,6 +7661,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6113,6 +7703,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010001_02_000195_000498",
+       "frame_index": 6000,
+       "timestamp_s": 250.3128911138924,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010003_00_000000_000108",
+       "frame_index": 144,
+       "timestamp_s": 6.007509386733417,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010003_00_000000_000108",
+       "frame_index": 168,
+       "timestamp_s": 7.008760951188987,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010003_00_000000_000108",
+       "frame_index": 264,
+       "timestamp_s": 11.013767209011265,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010000_01_000184_000324",
+       "frame_index": 3000,
+       "timestamp_s": 125.1564455569462,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6154,6 +7787,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6207,6 +7841,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6248,6 +7883,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -6289,6 +7925,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1358,
+       "timestamp_s": 45.311933333333336,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010112_00_000015_000095",
+       "frame_index": 1656,
+       "timestamp_s": 69.0863579474343,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1363,
+       "timestamp_s": 45.478766666666665,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010112_01_000128_000187",
+       "frame_index": 384,
+       "timestamp_s": 16.020025031289112,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1387,
+       "timestamp_s": 46.27956666666667,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6330,6 +8009,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -6383,6 +8063,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6424,6 +8105,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -6465,6 +8147,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3552,
+       "timestamp_s": 118.5184,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010107_02_000282_000312",
+       "frame_index": 384,
+       "timestamp_s": 16.020025031289112,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3492,
+       "timestamp_s": 116.5164,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_010107_02_000282_000312",
+       "frame_index": 432,
+       "timestamp_s": 18.022528160200253,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3582,
+       "timestamp_s": 119.5194,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6506,6 +8231,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -6559,6 +8285,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6600,6 +8327,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6641,6 +8369,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010200_02_000349_000398",
+       "frame_index": 48,
+       "timestamp_s": 2.002503128911139,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_04_000568_000620",
+       "frame_index": 624,
+       "timestamp_s": 26.032540675844807,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_02_000349_000398",
+       "frame_index": 24,
+       "timestamp_s": 1.0012515644555695,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_04_000568_000620",
+       "frame_index": 696,
+       "timestamp_s": 29.036295369211516,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_00_000060_000218",
+       "frame_index": 3021,
+       "timestamp_s": 126.03254067584481,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6682,6 +8453,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6735,6 +8507,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6776,6 +8549,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6817,6 +8591,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010202_06_000784_000873",
+       "frame_index": 309,
+       "timestamp_s": 12.891113892365457,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010202_06_000784_000873",
+       "frame_index": 1343,
+       "timestamp_s": 56.02836879432624,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_00_000060_000218",
+       "frame_index": 990,
+       "timestamp_s": 41.30162703379224,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010202_06_000784_000873",
+       "frame_index": 1367,
+       "timestamp_s": 57.02962035878181,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010202_06_000784_000873",
+       "frame_index": 48,
+       "timestamp_s": 2.002503128911139,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6858,6 +8675,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6911,6 +8729,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6952,6 +8771,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -6993,6 +8813,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_010200_10_000923_000959",
+       "frame_index": 600,
+       "timestamp_s": 25.03128911138924,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010206_00_000007_000035",
+       "frame_index": 380,
+       "timestamp_s": 15.853149770546517,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_10_000923_000959",
+       "frame_index": 720,
+       "timestamp_s": 30.037546933667084,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010206_05_000797_000823",
+       "frame_index": 432,
+       "timestamp_s": 18.022528160200253,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_010200_09_000886_000915",
+       "frame_index": 216,
+       "timestamp_s": 9.011264080100126,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7034,6 +8897,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7087,6 +8951,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7128,6 +8993,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -7169,6 +9035,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1844,
+       "timestamp_s": 61.52813333333334,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040005_07_001026_001223",
+       "frame_index": 3690,
+       "timestamp_s": 123.123,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 2834,
+       "timestamp_s": 94.56113333333333,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040005_06_000886_001016",
+       "frame_index": 660,
+       "timestamp_s": 22.022000000000002,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 1754,
+       "timestamp_s": 58.525133333333336,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7210,6 +9119,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -7263,6 +9173,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7304,6 +9215,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7345,6 +9257,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_040000_07_000966_001071",
+       "frame_index": 150,
+       "timestamp_s": 5.005,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040005_07_001026_001223",
+       "frame_index": 4230,
+       "timestamp_s": 141.141,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040001_02_001102_001530",
+       "frame_index": 10470,
+       "timestamp_s": 349.349,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040005_07_001026_001223",
+       "frame_index": 3870,
+       "timestamp_s": 129.129,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_040000_09_001194_001574",
+       "frame_index": 5310,
+       "timestamp_s": 177.177,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7386,6 +9341,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7439,6 +9395,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -7480,6 +9437,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -7521,6 +9479,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 3180,
+       "timestamp_s": 106.10600000000001,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 16847,
+       "timestamp_s": 562.1282333333334,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 3150,
+       "timestamp_s": 105.105,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 16857,
+       "timestamp_s": 562.4619,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 3270,
+       "timestamp_s": 109.10900000000001,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -7562,6 +9563,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -7615,6 +9617,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -7656,6 +9659,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -7697,6 +9701,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 4,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3702,
+       "timestamp_s": 123.5234,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 11109,
+       "timestamp_s": 370.6703,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3432,
+       "timestamp_s": 114.51440000000001,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_040104_02_000459_000721",
+       "frame_index": 6976,
+       "timestamp_s": 232.76586666666668,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 3672,
+       "timestamp_s": 122.5224,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -7738,6 +9785,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 4,
      "hits": [
       {
@@ -7791,6 +9839,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7832,6 +9881,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7873,6 +9923,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_050000_04_000640_000690",
+       "frame_index": 954,
+       "timestamp_s": 31.8318,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050000_06_000908_000970",
+       "frame_index": 1127,
+       "timestamp_s": 37.60423333333333,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050000_04_000640_000690",
+       "frame_index": 984,
+       "timestamp_s": 32.8328,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050000_06_000908_000970",
+       "frame_index": 1126,
+       "timestamp_s": 37.57086666666667,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050000_04_000640_000690",
+       "frame_index": 1436,
+       "timestamp_s": 47.91453333333333,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7914,6 +10007,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -7967,6 +10061,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -8008,6 +10103,7 @@
     },
     "clip": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -8049,6 +10145,49 @@
     },
     "fused": {
      "found": false,
+     "found_near": false,
+     "first_correct_rank": null,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_050200_00_000106_000380",
+       "frame_index": 1084,
+       "timestamp_s": 36.169466666666665,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_050300_01_000148_000396",
+       "frame_index": 6361,
+       "timestamp_s": 212.24536666666668,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000202_00_000000_000977",
+       "frame_index": 23562,
+       "timestamp_s": 785.4,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_050200_00_000106_000380",
+       "frame_index": 1083,
+       "timestamp_s": 36.1361,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_050200_00_000106_000380",
+       "frame_index": 1082,
+       "timestamp_s": 36.10273333333333,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -8090,6 +10229,7 @@
     },
     "fused_equal": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -8143,6 +10283,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8184,6 +10325,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8225,6 +10367,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_050202_02_000447_000577",
+       "frame_index": 139,
+       "timestamp_s": 4.637966666666666,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050202_08_001410_001494",
+       "frame_index": 1380,
+       "timestamp_s": 46.046,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050202_07_001126_001301",
+       "frame_index": 4135,
+       "timestamp_s": 137.97116666666668,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050203_07_001288_001531",
+       "frame_index": 6260,
+       "timestamp_s": 208.87533333333334,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050202_02_000447_000577",
+       "frame_index": 108,
+       "timestamp_s": 3.6036,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8266,6 +10451,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8319,6 +10505,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8360,6 +10547,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8401,6 +10589,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_050200_00_000106_000380",
+       "frame_index": 240,
+       "timestamp_s": 8.008000000000001,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050201_11_002090_002220",
+       "frame_index": 120,
+       "timestamp_s": 4.0040000000000004,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050200_00_000106_000380",
+       "frame_index": 360,
+       "timestamp_s": 12.012,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050201_11_002090_002220",
+       "frame_index": 30,
+       "timestamp_s": 1.0010000000000001,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050200_00_000106_000380",
+       "frame_index": 270,
+       "timestamp_s": 9.009,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8442,6 +10673,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8495,6 +10727,7 @@
    "modes": {
     "frame": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8536,6 +10769,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8577,6 +10811,49 @@
     },
     "fused": {
      "found": true,
+     "found_near": true,
+     "first_correct_rank": 1,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_050300_04_001057_001122",
+       "frame_index": 1128,
+       "timestamp_s": 37.6376,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050301_03_000933_001046",
+       "frame_index": 1933,
+       "timestamp_s": 64.49776666666666,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050300_04_001057_001122",
+       "frame_index": 1723,
+       "timestamp_s": 57.490766666666666,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050301_03_000933_001046",
+       "frame_index": 1903,
+       "timestamp_s": 63.496766666666666,
+       "score": 0.008064516129032258,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_050300_04_001057_001122",
+       "frame_index": 1363,
+       "timestamp_s": 45.478766666666665,
+       "score": 0.007936507936507936,
+       "correct": true
+      }
+     ]
+    },
+    "fused_classifier": {
+     "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8618,6 +10895,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8671,6 +10949,7 @@
    "modes": {
     "frame": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -8712,6 +10991,7 @@
     },
     "clip": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 1,
      "hits": [
       {
@@ -8752,7 +11032,50 @@
      ]
     },
     "fused": {
+     "found": true,
+     "found_near": true,
+     "first_correct_rank": 2,
+     "hits": [
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 13799,
+       "timestamp_s": 460.4266333333333,
+       "score": 0.00819672131147541,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_050301_03_000933_001046",
+       "frame_index": 2443,
+       "timestamp_s": 81.51476666666667,
+       "score": 0.00819672131147541,
+       "correct": true
+      },
+      {
+       "clip_key": "VIRAT_S_000001",
+       "frame_index": 1830,
+       "timestamp_s": 61.061,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 13798,
+       "timestamp_s": 460.39326666666665,
+       "score": 0.008064516129032258,
+       "correct": false
+      },
+      {
+       "clip_key": "VIRAT_S_000006",
+       "frame_index": 13797,
+       "timestamp_s": 460.3599,
+       "score": 0.007936507936507936,
+       "correct": false
+      }
+     ]
+    },
+    "fused_classifier": {
      "found": false,
+     "found_near": false,
      "first_correct_rank": null,
      "hits": [
       {
@@ -8794,6 +11117,7 @@
     },
     "fused_equal": {
      "found": true,
+     "found_near": true,
      "first_correct_rank": 2,
      "hits": [
       {
@@ -8837,7 +11161,10 @@
   }
  ],
  "conditions": {
-  "commit": "8b872e6 feat: add the SM-1 measuring script, its Colab notebook and GET /metrics/sm1",
+  "action_w_f": 0.6,
+  "scene_w_f": 0.5,
+  "chosen_on_sha256": "50b444f8a9123952564ded62127b56503be532f42e9c2bfe0bf2af38f4608b17",
+  "commit": "b867420 feat: use fusion weights chosen on a separate tuning set instead of the classifier's own",
   "gpu": "NVIDIA A100-SXM4-80GB",
   "torch": "2.11.0+cu130",
   "pins": {
@@ -8849,6 +11176,7 @@
   "queries_sha256": "225da57798e57ffc2e65761f46b08734d46ce4db8d764cfa3edbc53a41e87b10",
   "classifier_sha256": "c6d3b9a05783d26ac9c8834fd2202860d26d0dcd10e50352aa2db7870e65bcb0",
   "k": 5,
-  "search": "exact, every vector compared"
+  "search": "exact, every vector compared",
+  "session": "the first run's session, new code pulled and reloaded"
  }
 }

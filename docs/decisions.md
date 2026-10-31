@@ -45,7 +45,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
 | D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
 | D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
-| D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done; its SM-1 run is Ahmad's, on Colab |
+| D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done |
 
 ---
 
@@ -1009,4 +1009,7 @@ its best. `K` stays 5 (D-38) and `k0` stays B.3's 60.
 
 **The 2 s margin:** a hit within 2 s of an event is reported beside the strict number, never instead of it.
 `fused_classifier` stays in the result, so B.3 as written is still shown beside the product's search.
+
+**Result on SM-1's queries:** 76.0% (B.3 as written 60.0%, frame only 74.0%); actions 60.0%, no lift; scenes
+92.0%. SM-1 still fails on both parts; the target is not revised here (`results.md`, K-30).
 
