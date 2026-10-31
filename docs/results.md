@@ -47,6 +47,8 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
 | The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
 | Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
+| NFR-1, complete (combined figure, D-31) | From capture, searchable in under 5 s | One camera (`cam05`), 10 min, 784 frames, the real queue, batching and Qdrant, the encode at the GPU's measured 108 ms a frame (L4): p50 1.06 s, p95 3.14 s, **max 3.35 s**, no trend, none lost. On this laptop's CPU encoder: not end to end, a frame alone takes 8.7-9.3 s (OMNI-704), so it fails there | **Pass** on the combined figure (preliminary: one camera, one run, GPU time not run live); laptop CPU run not done | 2026-10-31 | OMNI-714 |
+| NFR-2 | Search results in under 3 s | 1,800 requests through nginx, 50 queries, 3 rounds, 3 modes, on the product's vectors: fused uncached on this CPU p50 1.14 s, p95 1.62 s, **max 2.02 s**; combined figure (GPU text, D-31) max 217 ms; repeated or filtered about 55-65 ms, max 264 ms; 0 errors | **Pass**, on the CPU too (preliminary: one machine, small collections; TC-4 is the large one) | 2026-10-31 | OMNI-714 |
 | SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
@@ -2287,3 +2289,65 @@ found by no mode: loading, gesturing, running and exiting a facility (all 8 of t
 **Not covered:** as the first run's entry. The weights were chosen on other queries, but the same author wrote
 them after seeing this set's first result. This set has now been used twice and should not be used for a
 further choice. The 2 s numbers are beside the strict ones, not the result.
+
+## OMNI-714 · NFR-2: search in under 3 s · 2026-10-31
+
+**Conditions:** this laptop (no GPU), whole stack up, no camera capturing, nothing encoding.
+`scripts/measure_nfr2.py`: the 50 queries of `sm1_queries.csv` as texts (relevance ignored), from the host
+through nginx and TLS, `k` 5, 3 rounds, 3 modes, 1,800 requests. `query` restarted before each mode and round,
+which empties its text cache, so `first` is uncached. The filters: camera 2446 and video 3226, the scopes D-39's
+screens use. Collections: `frame_vectors` 85 product points (K-27), `clip_vectors` 1,039.
+
+| ms, all 3 rounds | Client: p50 | p95 | **max** | Combined: p50 | p95 | **max** | Encode p50 | Search p50 | Fusion p50 | Join p50 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Frame, first | 992 | 1,461 | 1,720 | 90 | 134 | 167 | 904 | 13 | 0.0 | 5 |
+| Clip, first | 190 | 429 | 642 | 76 | 121 | 203 | 119 | 13 | 0.0 | 4 |
+| **Fused, first** | **1,138** | **1,616** | **2,021** | 108 | 160 | 217 | 1,049 | 24 | 0.4 | 4 |
+| Frame, repeated | 64 | 117 | 188 | | | | 0 | 9 | 0.0 | 4 |
+| Clip, repeated | 58 | 82 | 180 | | | | 0 | 10 | 0.0 | 3 |
+| Fused, repeated | 63 | 150 | 264 | | | | 0 | 17 | 0.3 | 3 |
+| Frame, camera / video filter | 54 / 52 | 86 / 75 | 193 / 107 | | | | 0 | 8 / 8 | 0.0 | 3 / 3 |
+| Clip, camera / video filter | 66 / 53 | 102 / 88 | 164 / 131 | | | | 0 | 11 / 7 | 0.0 | 3 / 3 |
+| Fused, camera / video filter | 55 / 62 | 78 / 90 | 104 / 250 | | | | 0 | 13 / 14 | 0.2 / 0.3 | 3 / 3 |
+
+**Combined (D-31):** the client's time with the laptop's encode replaced by OMNI-706's GPU text encode (L4: SigLIP 2
+13 ms, InternVideo2 7 ms). Not a run on a GPU.
+
+**Pass: 0 of 1,800 over 3 s, on the CPU as well as combined; 0 errors.** Nearly all the time on this laptop is
+SigLIP 2's text encode.
+
+**K-26, the first search after ai_workers sat idle** (since the tuning run, tens of minutes, not timed; not K-26's 2 h): one query, fused, 2.36 s,
+encode 2.04 s. K-26's 30 s did not appear; not settled. Under load it is slower: OMNI-712 saw 3 to 21 s while the
+test suite ran beside it, not measured.
+
+**Not covered:** a large collection (TC-4, OMNI-715); search while a camera captures or frames encode; more than
+one client at a time; a real GPU; the first request of a browser, only this script's.
+
+## OMNI-714 · NFR-1 complete: from capture, searchable · 2026-10-31
+
+**Conditions:** this laptop, whole stack up. `scripts/measure_nfr1.py --gpu`: one camera for 10 min, ai_workers' own
+`EmbedWorker` on the real embed queue (batch 8, wait 0.5 s) and the real Qdrant, into a scratch collection. **Its
+encoder is a stand-in that takes the GPU's measured time, 108 ms a frame (OMNI-706, L4), so this is the combined
+figure of D-31 and not a run on a GPU.** Capture, stored, batched and upserted are on one clock, the Docker VM's.
+
+| s | Frames | Capture to stored: max | Stored to batch closed: p50 / max | Encode and return: p50 / max | Upsert: max | **Capture to searchable: p50** | p95 | **max** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **`cam05`, 10 min** (210 motion, 571 heartbeat) | 784 of 784 | 0.80 | 0.53 / 2.56 | 0.52 / 1.54 | 0.07 | **1.06** | 3.14 | **3.35** |
+| `cam01`, 3 min (172 heartbeat, no motion) | 177 of 177 | 0.05 | 0.53 / 0.56 | 0.49 / 1.00 | 0.03 | 1.05 | 1.09 | 1.56 |
+
+No trend on `cam05`: first half p50 1.06, max 3.35; second half p50 1.06, max 3.27. 0 dropped, 0 dead-lettered.
+
+**Pass on the combined figure:** max 3.35 s against 5 s.
+
+**Where the time goes (K-31):** capture to stored is milliseconds. About 0.5 s is the batch's wait for no further job.
+Another 0.5 s or more, up to 1.5 s, is the step around a 108 ms encode: the worker checks that the encode finished
+only between its 1 s heartbeat services. Most of the 3 s tail is a burst: batches of 8 waiting behind each other.
+
+**Laptop's CPU, end to end: not measured.** The `--cpu` run was stopped by the machine running low on memory (1.4 of
+15.7 GB free afterwards), and not started again. What is known: 8.7-9.3 s a frame (OMNI-704), and 33 frames took 416 s
+to drain (OMNI-712, seen, not a measurement of this). So NFR-1 is not met on this laptop's CPU.
+
+**Not covered:** the real encoder on a real GPU, with reading the JPEGs from disk inside the worker's loop (the
+108 ms includes it, the stand-in sleeps it); an A100; a heavy camera: `cam01` was to be the heavy case and now
+admits 1 frame a second, all heartbeat; several cameras (K-31); clip vectors, which cameras do not get (D-32), so
+a live frame is searchable by scene only; one run each.

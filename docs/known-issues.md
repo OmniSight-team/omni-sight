@@ -25,6 +25,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-27 | `frame_vectors` holds 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
 | K-28 | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
 | K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
+| K-31 | The embed worker adds up to about 1.5 s around each batch, and one GPU at 108 ms a frame holds about 9 frames a second: 10 cameras at `cam05`'s 1.3 a second would be about 13 | NFR-1's margin, NFR-4 with search | OMNI-714 | Before NFR-1 is judged with several cameras |
 | K-30 | SM-1 fails: after D-40 fused is 76.0% against 85%, with no lift on action queries (60.0%, frame only 60.0%). The clip list adds nothing on actions | SM-1, TC-4's pass, the Definition of done, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
 
 ---
@@ -161,6 +162,14 @@ video 3226, the only video in the frame list, ahead of the other 8 videos.
 **Seen 2026-10-31 (OMNI-712, D-39):** with search per video, the other 8 videos have Action only:
 their Scene answers *nothing indexed*, and Combined ranks by clip alone.
 
+## K-31 · The embed worker's added time, and one GPU's limit
+
+2026-10-31, OMNI-714 (`results.md`). With a 108 ms encode, the step from batch closed to upsert took p50 0.52 s and up
+to 1.54 s. `_while_serviced` only checks that the encode is done between calls of `process_data_events(time_limit=1.0)`.
+NFR-1 still passes, at 3.35 s. **Not measured:** several cameras. At OMNI-706's L4 speed one GPU holds about 9 frames
+a second, so 10 cameras like `cam05` (about 1.3 a second on average) are by arithmetic above it, and their queue would
+grow. **Fix candidates, not tried:** a shorter service interval; more than one GPU worker.
+
 ## K-30 · SM-1 fails, and fusion lowers action recall
 
 2026-10-31, OMNI-713 (`results.md`). Recall@5 over the VIRAT archive: frame only 74.0%, clip only 46.0%,
@@ -204,6 +213,8 @@ startup warm-up existed. Not seen on a GPU machine with the weights in GPU memor
 **Fix candidates, none tried:** a periodic keep-warm text encode in ai_workers; or load the
 weights into memory instead of mapping them (about 4 GiB held, D-32's budget allows it).
 Measure first in OMNI-714, where NFR-2 is judged.
+**Measured 2026-10-31 (OMNI-714):** after tens of minutes idle (not timed), one fused query took 2.36 s, under NFR-2's 3 s.
+The 30 s did not appear, but the idle was shorter than the 2 h that showed it, so this stays open.
 
 ## K-25 · The embed queue cannot keep up on this laptop
 

@@ -977,3 +977,52 @@ Ahmad committed the failure as the "before", then asked for better results with 
 - **Result:** fused 76.0% (was 60.0%), frame only 74.0%; actions 60.0% (was 32.0%), no lift; scenes 92.0% (was
   88.0%). Still a fail on both parts, K-30 open. Before the run I worked the 76% out from the first run's stored
   lists; the run confirmed it
+
+---
+
+## OMNI-714 · NFR-1 complete and NFR-2
+
+### Why this ticket exists
+
+NFR-2: results in under 3 seconds. NFR-1: from capture, searchable in under 5 seconds; its first half passed in
+slice 5. This laptop has no GPU, so D-31 judges the stack's own times plus the GPU's encode.
+
+### What was done
+
+- **`scripts/measure_nfr2.py`:** the 50 SM-1 texts from the host through nginx, 3 rounds, 3 modes; `query` restarted
+  before each mode, which empties the text cache, then uncached, repeated, camera filter, video filter. The ticket's
+  filter was a camera; the video filter is added because D-39's screens use it. Combined = the client's time with
+  the CPU encode replaced by OMNI-706's GPU text encode
+- **`scripts/measure_nfr1.py`:** the ticket said to add up the stages. Instead the real `EmbedWorker` runs with a
+  stand-in encoder that takes the GPU's 108 ms a frame, into a scratch collection, so queueing and batching are in the
+  figure, not summed around it. The real ai_workers is stopped during the run
+- `scripts/tests/test_measure_nfr.py`: the arithmetic of both, on made-up rows
+- **K-31** added, K-26 updated
+
+### Verification performed
+
+- NFR-2: 1,800 requests, 0 errors, none over 3 s on the CPU or combined. Worst 2.02 s (fused, uncached)
+- NFR-1: `cam05`, 10 min, 784 of 784 frames with a point, max 3.35 s, no trend, 0 dropped. `cam01`, 3 min, 177 of 177,
+  max 1.56 s. The stack afterwards: no camera running, the test camera and scratch collection gone, the queue at 0
+- 9 script tests pass. Only scripts, their tests and docs changed, so the full suite was not rerun
+
+### Not verified
+
+- **The laptop's CPU end to end (`--cpu`), the ticket's "information" line: not run.** Claude Code stopped the background
+  run because the machine was low on memory (1.4 of 15.7 GB free), after both GPU-timed runs had saved. Not started
+  again; the ticket's box stays open. The command is in the script's docstring
+- A real encode on a real GPU, an A100, a heavy camera, several cameras, search while a camera captures. See `results.md`
+
+### Detours
+
+- The first try of `measure_nfr1.py` could not import `app`, and the second finished before the camera started (the
+  worker's quiet timer ran out), leaving 19 jobs of the deleted test camera on the queue. Clearing them with a purge was
+  refused by the permission check and did not run; the next try's stand-in worker consumed them into the scratch
+  collection, and they matched no frame of that run, so they count nowhere
+- `cam01` was meant as the heavy case, from OMNI-502's *constant motion*, about 12 frames a second. It now admits 1 a
+  second, all heartbeat, so the heavy case is not covered. My assumption, not checked first
+
+### Result
+
+NFR-2 passes, on the CPU too. NFR-1 passes on the combined figure, labelled so, at 3.35 s; on this laptop's CPU it does
+not (8.7-9.3 s a frame). Both preliminary: one machine, one camera, small collections.
