@@ -1117,3 +1117,40 @@ column: that video had 0 frame vectors, only video 3226 had them (K-27). Ahmad a
 
 Built, type-checked, and confirmed working by Ahmad in the browser. Both boxes ticked.
 
+---
+
+## OMNI-717 · Diagram, docs, merge, and the demo
+
+### Why this ticket exists
+
+Close slices 7 and 8: the diagram, the notes, the scoreboard, a demo for the supervisor, a green suite, the merge.
+
+### What was done
+
+- **`docs/architecture/slice-07-08-search.md`:** the pipeline in one diagram (gate, embed queue, `ai_workers`, the two Qdrant collections,
+  the Colab archive and the two imports, search, fusion, the join, the panel) and what to know when reading it
+- **`docs/demo.md`:** five minutes: a scene query ("a blue car"), an action query on video 3231 in Compare ("a person unloading an object
+  from a car": Scene and Combined find the moment, Action does not), playback from a hit, and the NFR-1, NFR-2, SM-1 and TC-4 numbers with
+  the two fails said plainly. The ticket's *opening against closing a trunk* step was dropped: Ahmad could not see a trunk scene in the
+  footage (the annotated events are small and long), so it was struck through in the ticket
+- **K-28 fixed:** `scripts/tests/test_encode_virat_archive.py` restores `RABBITMQ_USER` and `RABBITMQ_PASSWORD` after `load_gate`
+- Checked, not changed: `week-07.md` has a section for every ticket from OMNI-700; the scoreboard has NFR-1, NFR-2, SM-1, TC-2, TC-3 and
+  TC-4; `decisions.md` holds D-32 to D-40; `known-issues.md` is current
+
+### Verification performed
+
+- `uv run pytest`, whole repository: **653 passed, 1 skipped, 8 deselected, 1 warning, 7 min 21 s**, stack up. Before the fix the same run
+  gave 25 failed and 26 errors (K-28)
+- The demo's two searches were run against the stack (hits as written); the unloading is visible in frames 102-110 s
+
+### Not verified
+
+- **`docs/demo.md` was not run start to end by a person** (the ticket's box); steps 1 and 2 were tried by Ahmad in the browser, the rest
+  not
+- **"On a fresh stack" (Definition of done):** not rebuilt from nothing; the suite and the searches ran on the current stack
+- The merge and the tracker are Ahmad's; the tracker site is a separate project
+
+### Result
+
+Documents written, suite green. The Definition of done is **not** fully met: SM-1 and TC-4 fail on recall (K-30), and fused search ranks no
+better than frame only on actions. Ahmad's call (CLAUDE.md, "How strict to be"): the targets were our own and can be revised.

@@ -8,6 +8,7 @@ import hashlib
 import importlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import cv2
@@ -29,7 +30,16 @@ def _load(name: str, path: Path, package: bool = False):
 archive = _load("encode_virat_archive", ROOT / "scripts" / "encode_virat_archive.py")
 _load("omnisight_ai_workers_app", ROOT / "services" / "ai_workers" / "app" / "__init__.py", package=True)
 clip_encoder = importlib.import_module("omnisight_ai_workers_app.clip_encoder")
+# `load_gate` sets placeholder broker logins so ingestion's settings load on Colab. Left in the environment
+# at collection, they made every later RabbitMQ test of a full run fail (K-28), so they are put back.
+_LOGINS = ("RABBITMQ_USER", "RABBITMQ_PASSWORD")
+_BEFORE = {name: os.environ.get(name) for name in _LOGINS}
 pipeline, SETTINGS = archive.load_gate(ROOT)
+for _name, _value in _BEFORE.items():
+    if _value is None:
+        os.environ.pop(_name, None)
+    else:
+        os.environ[_name] = _value
 PINS = {"frame": "test", "clip": "test"}
 
 

@@ -23,7 +23,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-26 | After ai_workers sits idle for a while, the first search waits for SigLIP 2's weights to be read back from disk: over 30 s (a 503 at query's timeout), then 9 s, then about 2 s | NFR-2 on this laptop | OMNI-707 | OMNI-714 (NFR-2) |
 | K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
 | K-27 (fixed 2026-11-01) | `frame_vectors` held 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
-| K-28 | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
+| K-28 (fixed 2026-11-01) | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
 | K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
 | K-31 | The embed worker adds up to about 1.5 s around each batch, and one GPU at 108 ms a frame holds about 9 frames a second: 10 cameras at `cam05`'s 1.3 a second would be about 13 | NFR-1's margin, NFR-4 with search | OMNI-714 | Before NFR-1 is judged with several cameras |
 | K-30 | SM-1 fails: after D-40 fused is 76.0% against 85%, with no lift on action queries (60.0%, frame only 60.0%). The clip list adds nothing on actions | SM-1, TC-4's pass, the Definition of done, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
@@ -147,6 +147,8 @@ Without that file: 569 passed, 1 skipped. OMNI-708 and OMNI-709 ran `scripts/tes
 neither saw it.
 **Fix candidate, not tried:** in the test file, call `load_gate` under a fixture that restores
 the environment, or have `load_gate` remove the placeholders after the settings load.
+**Fixed 2026-11-01 (OMNI-717):** the test file puts the two variables back after `load_gate`. Full suite: 653 passed, 1 skipped,
+8 deselected, 7 min 21 s.
 
 ## K-27 · The product's frame vectors are behind its clip vectors
 
