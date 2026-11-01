@@ -47,7 +47,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
 | The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
 | Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
-| NFR-1, complete (combined figure, D-31) | From capture, searchable in under 5 s | One camera (`cam05`), 10 min, 784 frames, the real queue, batching and Qdrant, the encode at the GPU's measured 108 ms a frame (L4): p50 1.06 s, p95 3.14 s, **max 3.35 s**, no trend, none lost. On this laptop's CPU encoder: not end to end, a frame alone takes 8.7-9.3 s (OMNI-704), so it fails there | **Pass** on the combined figure (preliminary: one camera, one run, GPU time not run live); laptop CPU run not done | 2026-10-31 | OMNI-714 |
+| NFR-1, complete (combined figure, D-31) | From capture, searchable in under 5 s | One camera (`cam05`), 10 min, 784 frames, the real queue, batching and Qdrant, the encode at the GPU's measured 108 ms a frame (L4): p50 1.06 s, p95 3.14 s, **max 3.35 s**, no trend, none lost. On this laptop's CPU encoder, end to end (information, 20 s of capture, 31 frames): p50 170.8 s, max 270.0 s, so it fails there | **Pass** on the combined figure (preliminary: one camera, one run, GPU time not run live); laptop CPU run is information only | 2026-10-31 | OMNI-714 |
 | NFR-2 | Search results in under 3 s | 1,800 requests through nginx, 50 queries, 3 rounds, 3 modes, on the product's vectors: fused uncached on this CPU p50 1.14 s, p95 1.62 s, **max 2.02 s**; combined figure (GPU text, D-31) max 217 ms; repeated or filtered about 55-65 ms, max 264 ms; 0 errors | **Pass**, on the CPU too (preliminary: one machine, small collections; TC-4 is the large one) | 2026-10-31 | OMNI-714 |
 | SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
@@ -2343,9 +2343,15 @@ No trend on `cam05`: first half p50 1.06, max 3.35; second half p50 1.06, max 3.
 Another 0.5 s or more, up to 1.5 s, is the step around a 108 ms encode: the worker checks that the encode finished
 only between its 1 s heartbeat services. Most of the 3 s tail is a burst: batches of 8 waiting behind each other.
 
-**Laptop's CPU, end to end: not measured.** The `--cpu` run was stopped by the machine running low on memory (1.4 of
-15.7 GB free afterwards), and not started again. What is known: 8.7-9.3 s a frame (OMNI-704), and 33 frames took 416 s
-to drain (OMNI-712, seen, not a measurement of this). So NFR-1 is not met on this laptop's CPU.
+**Laptop's CPU, end to end (information, run 2026-11-01):** `scripts/measure_nfr1.py --cpu --seconds 20`, the real
+ai_workers and its real CPU encoder, into the real `frame_vectors`; a frame counts as searchable when its point is first
+seen. The first attempt (2026-10-31) was stopped for low memory (1.4 GB free); this run had about 2.4 GB free at the start
+and finished. The camera admitted 22 frames in its 22 s (5 motion, 17 heartbeat), 0 dropped; 31 frames were stored and 31
+got a point. Capture to stored max 0.17 s. **Capture to searchable: min 114.5 s, p50 170.8 s, p95 270.0 s, max 270.0 s.**
+That is 270 s for 31 frames, about 8.7 s a frame, the CPU encode of OMNI-704: the frames wait behind each other. So NFR-1
+is not met on this laptop's CPU, which is why D-31 judges it on the combined figure. One run, 20 s of capture.
+Not checked: why 31 frames were stored against 22 admitted in the camera's stats (the stats were read while the camera
+was still running, uptime 22 s).
 
 **Not covered:** the real encoder on a real GPU, with reading the JPEGs from disk inside the worker's loop (the
 108 ms includes it, the stand-in sleeps it); an A100; a heavy camera: `cam01` was to be the heavy case and now

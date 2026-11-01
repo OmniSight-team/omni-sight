@@ -1008,9 +1008,8 @@ slice 5. This laptop has no GPU, so D-31 judges the stack's own times plus the G
 
 ### Not verified
 
-- **The laptop's CPU end to end (`--cpu`), the ticket's "information" line: not run.** Claude Code stopped the background
-  run because the machine was low on memory (1.4 of 15.7 GB free), after both GPU-timed runs had saved. Not started
-  again; the ticket's box stays open. The command is in the script's docstring
+- **The laptop's CPU end to end (`--cpu`)** was stopped on 2026-10-31 for low memory (1.4 of 15.7 GB free). It was run on
+  2026-11-01 (see Result). Why 31 frames were stored against 22 admitted was not checked
 - A real encode on a real GPU, an A100, a heavy camera, several cameras, search while a camera captures. See `results.md`
 
 ### Detours
@@ -1023,6 +1022,9 @@ slice 5. This laptop has no GPU, so D-31 judges the stack's own times plus the G
   second, all heartbeat, so the heavy case is not covered. My assumption, not checked first
 
 ### Result
+
+**2026-11-01:** the `--cpu` run finished: 31 frames, capture to searchable p50 170.8 s, max 270.0 s (about 8.7 s a frame,
+the CPU encode). NFR-1 fails on this laptop's CPU, as D-31 expected; the information line is filled (`results.md`).
 
 NFR-2 passes, on the CPU too. NFR-1 passes on the combined figure, labelled so, at 3.35 s; on this laptop's CPU it does
 not (8.7-9.3 s a frame). Both preliminary: one machine, one camera, small collections.
