@@ -13,12 +13,20 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-9 | Failure cases not tested | NFR-5 | OMNI-311/313/319 | Before the final NFR-5 claim |
 | K-10 | Small items | - | various | Any time |
 | K-13 | A stalled stream still delivers late bursts of old frames: `offline` after about 30 s, not 10, and the frame age shown is too young (the flicker back to `live` is fixed, D-17) | FR-9 (honest tile state) | OMNI-504 | Before the demo (moved 2026-10-04: not dealt with in slice 5) |
-| K-14 | A live capture test fails now and then: a frame read on reconnecting is not counted if the worker stops at that instant | Test suite reliability | OMNI-504 | Any time |
 | K-16 | Ten camera starts at once: five fail with "timeout" | Resume after a restart (D-15), starting a wall | OMNI-506 | When it is seen again (not reproduced 2026-10-04) |
 | K-17 | The wall's layout went back to 3x3 by itself, without a reload | FR-9 (the wall), OMNI-512 | OMNI-509 | When it is seen again (hidden by OMNI-512, cause unknown) |
 | K-19 | A test run left a live worker running in ingestion for a camera that no longer exists | CPU for everything else (the dataset load), test isolation | OMNI-608 | Any time |
 | K-20 | UCA-timed UCF-Crime windows are wrong twice as often as official ones, mostly by containing the event | SM-2, SM-4 (the surveillance forecaster's training data) | OMNI-609 | Slice 9, before training |
 | K-21 | About 1.05 GB of frame and thumbnail files on disk have no segment row, so the dashboard's storage does not count them; playback copies (22.7 MB) are not counted either | FR-9 (storage in use), K-8 | OMNI-610 | Slice 16 (retention) |
+| K-23 | On VIRAT the gate keeps almost only heartbeats: 4 of 9 demo videos kept no frame for motion (a fifth kept 3), though all have annotated events | FR-1b, FR-4 (what search can find), SM-1 | OMNI-702 | Slice 8, before SM-1 |
+| K-24 | Deleting or re-gating a video leaves its old frames' points in `frame_vectors` | Disk, and a search slot: since OMNI-707 search drops them, so a query can return fewer than `k` | OMNI-705 | Slice 16 (retention deletes videos) |
+| K-26 | After ai_workers sits idle for a while, the first search waits for SigLIP 2's weights to be read back from disk: over 30 s (a 503 at query's timeout), then 9 s, then about 2 s | NFR-2 on this laptop | OMNI-707 | OMNI-714 (NFR-2) |
+| K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
+| K-27 (fixed 2026-11-01) | `frame_vectors` held 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
+| K-28 (fixed 2026-11-01) | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
+| K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
+| K-31 | The embed worker adds up to about 1.5 s around each batch, and one GPU at 108 ms a frame holds about 9 frames a second: 10 cameras at `cam05`'s 1.3 a second would be about 13 | NFR-1's margin, NFR-4 with search | OMNI-714 | Before NFR-1 is judged with several cameras |
+| K-30 | SM-1 fails: after D-40 fused is 76.0% against 85%, with no lift on action queries (60.0%, frame only 60.0%). The clip list adds nothing on actions | SM-1, TC-4's pass, the Definition of done, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
 
 ---
 
@@ -127,27 +135,135 @@ from when the late frames *arrived*, not from when they were captured, so it und
 old the picture is. Both are the second fix candidate above (stamp frames by the stream's own
 time, or treat a worker that is not receiving for a read timeout as lost).
 
-## K-14 · A live capture test fails now and then
+## K-28 · One test file's placeholder login breaks every later RabbitMQ test
 
-`test_no_frame_is_lost_or_counted_twice_across_a_reconnection` failed once in a full run
-(2026-10-02) and passed 15 times alone and in four full ingestion runs. Likely cause, read
-from the code, not reproduced: `_open_stream` grabs a frame to prove the stream works and
-leaves it pending; if the worker is stopped before the read loop counts it, `grabbed` ends
-one below what the stream delivered, which is what the test compares. The frame is a
-fraction of a second's worth at a moment the camera is being stopped anyway.
-**Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
-**2026-10-09 (OMNI-608):** two other tests in the same file failed once in a full run,
-`test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
-`test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
-summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
-**Corrected 2026-10-10 (OMNI-609): not timing.** They failed in every full run since OMNI-608
-and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with the ini file,
-and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
-them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
-K-14 test above is the intermittent one.
-**2026-10-16 (slice 6 merge):** it failed again in the full run on `master` after the merge,
-`assert 75 == 76`, one below as described: 469 passed, 1 failed, 1 skipped. Passed 5 of 5
-alone straight after. Second failure in about two weeks of full runs; still not fixed.
+2026-10-30, found in OMNI-710. `load_gate` (`scripts/encode_virat_archive.py`, OMNI-708) sets
+`RABBITMQ_USER` and `RABBITMQ_PASSWORD` to `unused` so ingestion's settings load on Colab. Its
+test file calls it at import, so pytest's collection leaves those values in the environment
+and later tests log in with them. Evidence: `test_publisher.py` alone, 6 passed; with that file
+first, 5 failed and 6 errors. Full suite, twice: 25 failed, 551 passed, 1 skipped, 26 errors, in
+`test_embed_worker.py`, `test_publisher.py`, `test_embeddings.py` and `test_segment_consumer.py`.
+Without that file: 569 passed, 1 skipped. OMNI-708 and OMNI-709 ran `scripts/tests` alone, so
+neither saw it.
+**Fix candidate, not tried:** in the test file, call `load_gate` under a fixture that restores
+the environment, or have `load_gate` remove the placeholders after the settings load.
+**Fixed 2026-11-01 (OMNI-717):** the test file puts the two variables back after `load_gate`. Full suite: 653 passed, 1 skipped,
+8 deselected, 7 min 21 s.
+
+## K-27 · The product's frame vectors are behind its clip vectors
+
+2026-10-30, OMNI-710. `GET /embeddings/status`: `clips_embedded` 1,039, `frames_embedded` 44
+(video 3226; D-35 proved OMNI-705 on one video). Algorithm 3 gives a missing rank ∞, so the
+other 995 frames can only match through the clip list, and `mode=frame` can only return video
+3226. SM-1 is not affected: it runs on the Colab archive.
+**Fix candidates, neither tried:** import the frame vectors from the same
+`embeddings/product/{video_id}.npz` (they agree with the laptop's at cosine 0.999979 or better
+on 44 of 44, OMNI-708), which takes seconds; or D-35's backfill, about 2.5 h on this CPU.
+**Seen 2026-10-30 (OMNI-711):** fused *a van parked next to a fence*, k 5, returned 5 frames of
+video 3226, the only video in the frame list, ahead of the other 8 videos.
+**Seen 2026-10-31 (OMNI-712, D-39):** with search per video, the other 8 videos have Action only:
+their Scene answers *nothing indexed*, and Combined ranks by clip alone.
+**Fixed 2026-11-01 (after OMNI-716):** `scripts/import_frame_vectors.py` imported the frame vectors of the other 8 videos from
+`embeddings/product/` (995 stored, video 3226's 44 left as they were): `frame_vectors` now holds all 1,039 product frames, as `clip_vectors`
+does. Seen on video 3231, *a person closing the trunk of a car*: Scene's top 5 include 108.7, 109.7 and 110.7 s, inside the annotated
+closing-trunk event (89.5-119.9 s); Action's top 5 (27, 2, 1, 16, 17 s) are outside it. **But looking at the frames (87-93 s), the trunk is
+open at 87 and 89 s and closed by 91 s: the closing is at about 89-91 s, a car about 200 px wide in the top right of 1920 x 1080. The
+annotation's box stays on the parked car for the whole 30 s, so 108-111 s is inside the label but shows nothing happening. SM-1's answer
+rule (a frame inside the event) is therefore generous for this type.**
+
+## K-31 · The embed worker's added time, and one GPU's limit
+
+2026-10-31, OMNI-714 (`results.md`). With a 108 ms encode, the step from batch closed to upsert took p50 0.52 s and up
+to 1.54 s. `_while_serviced` only checks that the encode is done between calls of `process_data_events(time_limit=1.0)`.
+NFR-1 still passes, at 3.35 s. **Not measured:** several cameras. At OMNI-706's L4 speed one GPU holds about 9 frames
+a second, so 10 cameras like `cam05` (about 1.3 a second on average) are by arithmetic above it, and their queue would
+grow. **Fix candidates, not tried:** a shorter service interval; more than one GPU worker.
+
+## K-30 · SM-1 fails, and fusion lowers action recall
+
+2026-10-31, OMNI-713 (`results.md`). Recall@5 over the VIRAT archive: frame only 74.0%, clip only 46.0%,
+fused 60.0%, fused at 0.5 / 0.5 68.0%; action queries 60.0%, 32.0%, 32.0%, 44.0%. In all 50 queries every
+fused hit comes from the heavier list: Algorithm 3 is followed as written, but with `k0` 60, `K` 5 and
+lists that hardly overlap, any weight above 0.516 takes the whole top 5.
+**Also affected:** TC-4's pass (OMNI-715) needs the same 85%; the Definition of done says an action query
+ranks better fused than frame only; Combined is the screen's default and measures below Scene.
+**Not changed:** the default, the weights, `K` and the queries. Nothing may be chosen on this set; it has
+been seen, so a change needs another query set to be judged on.
+**D-40, 2026-10-31:** weights chosen on a separate tuning set. No setting beat frame only on action queries,
+so the lift stays unmet with the two pinned models. On SM-1's queries: fused 76.0% (was 60.0%), frame only
+74.0%; actions 60.0% (was 32.0%), no lift; scenes 92.0%. Still a fail on both parts. Combined is now no longer
+below Scene. TC-4's pass and the Definition of done's lift are still not reachable with these numbers.
+
+## K-24 · Old points left behind by a deleted or re-gated video
+
+2026-10-28, OMNI-705. A point's id is its segment id (D-29). Deleting a video deletes its
+segments (cascade) but nothing removes their points from Qdrant; a re-gate replaces a
+video's segments with new ones (new ids) and the old ids' points stay. An old embed job
+still in the queue can even write one after the re-gate. `GET /embeddings/status` does not
+count them (it counts frames whose id has a point, D-34), but a search over `frame_vectors`
+would return them, pointing at a frame that is gone.
+**Fix candidates:** search drops hits whose segment id is not in `segments` (one indexed
+query per page of hits); and/or delete a video's points by `video_id` when it is deleted or
+re-gated. The first is needed anyway because of the queued-job race.
+**2026-10-28, OMNI-707: the first is done.** `GET /search` drops a hit whose segment is gone
+or no longer admitted, counts it in `dropped` and logs it (tested). The points stay, and each
+takes a place in the top `k`, so such a query returns fewer than `k`. Deleting a video's
+points with the video is left for slice 16, where retention deletes videos in bulk.
+
+## K-26 · The first search after ai_workers sits idle is slow
+
+2026-10-28, OMNI-707. ai_workers had been idle about 2 h (its embed queue empty). The first
+search's text encode then ran past query's 30 s timeout (`ai_workers_timeout_s`), and query
+answered 503 *the text encoder (ai_workers) is unreachable*, as designed. The same query
+again took 9.0 s to encode, the next queries about 2 s (`results.md`, OMNI-707). SigLIP 2's
+weights are memory-mapped (D-30); after a long idle on this 7.6 GiB machine they are no
+longer in memory and are read back from disk on use, the same cost OMNI-704 saw before its
+startup warm-up existed. Not seen on a GPU machine with the weights in GPU memory.
+**Fix candidates, none tried:** a periodic keep-warm text encode in ai_workers; or load the
+weights into memory instead of mapping them (about 4 GiB held, D-32's budget allows it).
+Measure first in OMNI-714, where NFR-2 is judged.
+**Measured 2026-10-31 (OMNI-714):** after tens of minutes idle (not timed), one fused query took 2.36 s, under NFR-2's 3 s.
+The 30 s did not appear, but the idle was shorter than the 2 h that showed it, so this stays open.
+**Seen again 2026-11-01 (OMNI-715):** the first query after the stack was started took a 10.7 s text encode (SigLIP 2),
+then about 1.3-1.7 s uncached; that one query made TC-4's slowest 10.9 s, over its 3 s. Still open.
+
+## K-25 · The embed queue cannot keep up on this laptop
+
+2026-10-28, OMNI-705. SigLIP 2 takes about 9 s a frame on this CPU, batch 1 or 8
+(`results.md`, OMNI-704). When the backfill started the stack held **34,769 admitted
+frames** with no vector: VIRAT 1,039, CCD 1,014, live (2 disabled cameras) 2,015,
+**UCF-Crime 30,701**. That is about 87 h of encoding with the CPU fully busy, which would
+also distort NFR-1/NFR-2's local timings (OMNI-714). The ticket's "about 2.5 h" counted
+VIRAT only. A running camera admits frames faster than one per 9 s, so its backlog only
+grows while it runs. Expected on a machine with no GPU (D-31); recorded so the numbers are
+not a surprise. The backfill queues VIRAT first, then CCD, other uploads, live, and
+UCF-Crime last (`scripts/backfill_embeddings.py --only`).
+**Options:** let the laptop run UCF-Crime's frames over several days, or encode the
+product's UCF-Crime frames on Colab's GPU with the same code and import the points (the
+D-32 pattern for clip vectors). **Decided 2026-10-28 (D-35):** neither for now; OMNI-705
+is proved on one video, and only VIRAT is queued, when search needs it.
+
+## K-23 · On VIRAT the gate keeps almost only heartbeats
+
+2026-10-18, OMNI-702 (`results.md`). Loading the 9 VIRAT demo videos, Algorithm 1 kept 1,039
+of 23,057 frames (4.5%): 248 for motion, 791 heartbeats [corrected 2026-10-29: was 949 / 701,
+a mis-added total in `results.md`]. **4 of the 9 kept no frame for
+motion at all** (scenes 0002, 0100, 0101, 0400; 0502 kept 3), though every video has
+annotated VIRAT events (2-12 each: people walking, getting in and out of vehicles). VIRAT's
+cameras are far away and still; the people are a few dozen pixels in a 1280x720 or
+1920x1080 frame, which probably does not move enough of an 8x8 grid cell to pass the
+threshold. Not measured against the annotations yet. Why it matters: search (FR-4) can only
+find frames the gate kept, so a short event between two heartbeats (one a second) may have
+no frame at all; and SM-1 on Colab runs the same gate first (OMNI-710).
+**Fix candidates, none tried:** measure first: the share of VIRAT's annotated event
+intervals that contain at least one kept frame, and at least one motion-kept frame (the
+annotations give the frames). Then decide with Ahmad: a heartbeat is enough for search, or
+the gate's parameters for this kind of camera are a recorded deviation. Never by changing
+the defaults to make SM-1 pass.
+**Measured 2026-10-30 (OMNI-709, `results.md`), the 275 evaluation videos:** 1,547 of 1,555
+annotated events (99.5%) hold an admitted frame, each type 95.5-100%, so no type is out of
+search's reach. 339 (21.8%) hold a motion-admitted frame; without carrying (304 of 822), 35 of
+733 (4.8%). The heartbeat is what makes events findable. Still open: Ahmad's decision above.
 
 ## K-21 · Files on disk that no row accounts for
 
@@ -235,6 +351,54 @@ the resume started all ten at once both times, 0 failed attempts, all `live` aga
 | K-11 | The restart loss check read index gaps as lost frames, and waited for the wrong queue | NFR-5 (the mid-capture check) | OMNI-501 | OMNI-601, 2026-10-07 |
 | K-12 | On a live feed every preview poll is a 200: OMNI-506's "mostly 304s on still scenes" could not hold | OMNI-506 acceptance | OMNI-503 | Fixed (reworded): OMNI-602, 2026-10-07 |
 | K-18 | `uv run pytest` deleted every video in the dev database | Loaded datasets (OMNI-608) | OMNI-608 | OMNI-608, 2026-10-09 |
+| K-14 | A live capture test failed now and then: the frame read on reconnecting was lost if the worker stopped at that instant | Test suite reliability | OMNI-504 | OMNI-701, 2026-10-18 |
+| K-22 | The tampered-token test changed a base64 padding bit, so 1 run in 16 it sent a valid token | TC-10's test, suite reliability | OMNI-701 | OMNI-701, 2026-10-18 |
+
+### K-22 · The tampered-token test passed a valid token 1 time in 16 · fixed 2026-10-18
+
+Found in OMNI-701's repeated full runs: run 4 of 5 failed all five
+`test_tc10_auth.py::test_tampered_token_returns_401` cases (200 instead of 401). The test
+"tampered" a token by changing its last character to `A` (or `B` if it was `A`). An HS256
+signature is 32 bytes, 43 base64url characters; the last one carries 2 unused bits, so a
+token ending in `A` changed to `B` decodes to the same signature and is still valid. Checked
+with PyJWT: 128 of 2,000 tokens ended in `A`, and every one stayed valid after the swap
+(about 1 in 16). The token is module-scoped, so all five routes failed together. A test bug,
+not an auth hole: the token really was not tampered.
+**Fix (OMNI-701):** change a character in the middle of the signature (20 characters in),
+which always changes the decoded bytes.
+**Result:** `test_tc10_auth.py` 23 passed; full suite 5 runs in a row, all green.
+
+### K-14 · A live capture test failed now and then · fixed 2026-10-18
+
+`test_no_frame_is_lost_or_counted_twice_across_a_reconnection` failed once in a full run
+(2026-10-02) and passed 15 times alone and in four full ingestion runs. Likely cause, read
+from the code, not reproduced: `_open_stream` grabs a frame to prove the stream works and
+leaves it pending; if the worker is stopped before the read loop counts it, `grabbed` ends
+one below what the stream delivered, which is what the test compares. The frame is a
+fraction of a second's worth at a moment the camera is being stopped anyway.
+**Fix candidate:** count the pending frame in `grabbed` where it is grabbed.
+**2026-10-09 (OMNI-608):** two other tests in the same file failed once in a full run,
+`test_dropping_is_logged_once_per_stretch_and_summarised_not_once_per_frame` and
+`test_a_continuing_stretch_of_drops_is_summarised_again_after_the_interval` (the drop
+summary log line not seen yet: `assert 0 == 1`); the file passed 53 of 53 on three reruns.
+**Corrected 2026-10-10 (OMNI-609): not timing.** They failed in every full run since OMNI-608
+and passed alone: OMNI-608's `services/query/tests/conftest.py` ran alembic with the ini file,
+and `env.py`'s `fileConfig` disabled every logger already created, `app.live_capture` among
+them. Fixed by running alembic without the ini file; full suite 442 passed. Only the first
+K-14 test above is the intermittent one.
+**2026-10-16 (slice 6 merge):** it failed again in the full run on `master` after the merge,
+`assert 75 == 76`, one below as described: 469 passed, 1 failed, 1 skipped. Passed 5 of 5
+alone straight after. Second failure in about two weeks of full runs; still not fixed.
+**Fix (OMNI-701, 2026-10-18):** the cause was the one read from the code, but the fix
+candidate was not enough. Counting the proving frame in `grabbed` where `_open_stream` reads
+it moves the failure instead of removing it: the frame is then counted but never decoded,
+offered or gated, so `captured` ends one below `grabbed` (tried: `assert 10 == 11` on
+`captured`). The frame is lost either way. The fix is in `_read_until_lost`: the loop runs
+while a proving frame is pending **or** the worker is not stopped, so that frame is always
+taken, counted, decoded and queued; the processing thread already drains the queue on a stop.
+**Result:** a new test stops the worker inside the reconnection's proving grab: it failed 3 of
+3 before the fix (`assert 10 == 11`, one below, K-14's shape) and passes after. Full suite 5
+runs in a row, 471 passed, 1 skipped each (after K-22's fix too, found in the same runs).
 
 ### K-18 · The test suite deleted every video in the dev database · fixed 2026-10-09
 

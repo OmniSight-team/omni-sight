@@ -38,3 +38,30 @@ class CommonSettings(BaseSettings):
     # OMNI-313: a camera going unreachable, or coming back, as the capture worker
     # notices it.
     camera_event_queue: str = "omnisight.camera_events"
+
+    # Qdrant (OMNI-703). Here because ai_workers writes vectors and query searches
+    # them, and both must agree on the store and the collection. Not published to
+    # the host: inside the stack it is reached as `qdrant` (QDRANT_HOST).
+    qdrant_host: str = "127.0.0.1"
+    qdrant_port: int = 6333
+    qdrant_timeout_s: float = 10.0
+    # Overridable so a test can use a collection of its own (OMNI-703's TC-3 does).
+    frame_collection: str = "frame_vectors"
+    clip_collection: str = "clip_vectors"
+
+    # OMNI-704: Algorithm 2's frame encoder (Phase A §3.5.2), pinned to one revision so
+    # this machine and Colab run the same weights (D-30). Changing either is a new model:
+    # the stored vectors would no longer be comparable with new ones. Here since OMNI-705:
+    # ai_workers writes vectors of this model, and query counts (and will search) only
+    # vectors of this model.
+    frame_model_id: str = "google/siglip2-so400m-patch14-384"
+    frame_model_revision: str = "e8e487298228002f3d8a82e0cd5c8ea9c567f57f"
+    # OMNI-706: Algorithm 2's clip encoder and Algorithm 3's second text encoder, pinned the
+    # same way (D-33). Clip vectors are made on Colab (D-32) and searched here with this
+    # model's text side, so both must be this exact revision.
+    clip_model_id: str = "OpenGVLab/InternVideo2_CLIP_S"
+    clip_model_revision: str = "1f9fca1389fd883defc652634d95a21121c85a8c"
+
+    # OMNI-705: admitted frames waiting for a vector. The consumer publishes one job per
+    # admitted frame after its row commits; ai_workers acknowledges it after the upsert.
+    embed_queue: str = "omnisight.embed"

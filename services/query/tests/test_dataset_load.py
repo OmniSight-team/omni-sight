@@ -28,6 +28,7 @@ client = TestClient(app)
 DATASET = "omni608_test"
 TEST_PASSWORD = "Omni608Pass!"
 EMAILS = {Role.ADMIN: "omni608-admin@omnisight.local", Role.OPERATOR: "omni608-operator@omnisight.local"}
+DEMO_SAMPLE = Path(__file__).resolve().parents[3] / "datasets" / "demo" / "virat_sample.csv"
 MP4_HEADER = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2mp41" + b"\x00" * 12
 
 
@@ -64,6 +65,7 @@ def mirror(tmp_path, monkeypatch):
     lines += [f"{DATASET},{n},clips/{n},Normal,normal,held_out" for n in ("a.mp4", "b.mp4", "c.mp4", "gone.mp4")]
     sample.write_text("\n".join(lines) + "\n", encoding="utf-8")
     monkeypatch.setattr(settings, "hand_check_sample_path", str(sample))
+    monkeypatch.setattr(settings, "demo_sample_path", str(DEMO_SAMPLE))
     monkeypatch.setattr(datasets_module, "_refused", {})
 
     clips = {"a.mp4": "held_out", "b.mp4": "held_out", "c.mp4": "held_out", "gone.mp4": "held_out", "t.mp4": "train"}
@@ -130,6 +132,17 @@ def test_load_is_admin_only(mirror):
     resp = client.post(f"/datasets/{DATASET}/load", json={"limit": 1}, headers=_headers(Role.OPERATOR))
     assert resp.status_code == 403
     assert client.post("/datasets/nope/load", json={"limit": 1}, headers=_headers(Role.ADMIN)).status_code == 404
+
+
+def test_virat_loads_its_demo_sample_and_the_others_the_hand_check_sample(mirror):
+    # OMNI-702: VIRAT's clips are the committed demo sample, nine videos from nine scenes.
+    keys = datasets_module.sample_keys("virat")
+    assert len(keys) == 9 and all(k.startswith("VIRAT_S_") for k in keys)
+    assert len({k.split("_")[2][:4] for k in keys}) == 9
+    assert datasets_module.sample_keys(DATASET) == ["a.mp4", "b.mp4", "c.mp4", "gone.mp4"]
+    resp = client.get("/datasets", headers=_headers(Role.OPERATOR))
+    virat = next(d for d in resp.json() if d["name"] == "virat")
+    assert virat["domain"] == Domain.SURVEILLANCE.value  # the test database has no VIRAT manifest rows
 
 
 def test_clips_go_through_the_upload_function_and_never_expire(mirror, monkeypatch):

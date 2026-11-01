@@ -1,7 +1,9 @@
 """Dataset footage in the product (OMNI-608).
 
 What goes in (D-26): only the clips of the hand-check sample, 30 UCF-Crime and 30 CCD
-(`datasets/hand_check/sample.csv`), because the window view (OMNI-609) plays them.
+(`datasets/hand_check/sample.csv`), because the window view (OMNI-609) plays them; and the
+VIRAT demo sample, one video per loadable scene (9, `datasets/demo/virat_sample.csv`,
+OMNI-702), so search has real surveillance footage to work on.
 Training and every model measurement run on Colab, from Drive; real users never see
 dataset footage.
 
@@ -40,7 +42,7 @@ logger = logging.getLogger("app.datasets")
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
-DOMAINS = {"ccd": Domain.TRAFFIC, "ucf_crime": Domain.SURVEILLANCE}
+DOMAINS = {"ccd": Domain.TRAFFIC, "ucf_crime": Domain.SURVEILLANCE, "virat": Domain.SURVEILLANCE}
 
 DATASET_NOT_FOUND_MESSAGE = "dataset not found"
 LOAD_RUNNING_MESSAGE = "a dataset load is already running"
@@ -94,8 +96,10 @@ _refused: dict[str, dict[int, str]] = {}
 
 
 def sample_keys(dataset: str) -> list[str]:
-    """The dataset's clips in the hand-check sample: the clips that go into the product."""
-    lines = Path(settings.hand_check_sample_path).read_text(encoding="utf-8").splitlines()[1:]
+    """The dataset's sampled clips: the clips that go into the product. VIRAT's are the
+    demo sample; every other dataset's are the hand-check sample's (same columns)."""
+    path = settings.demo_sample_path if dataset == "virat" else settings.hand_check_sample_path
+    lines = Path(path).read_text(encoding="utf-8").splitlines()[1:]
     return [ln.split(",")[1] for ln in lines if ln.split(",")[0] == dataset]
 
 

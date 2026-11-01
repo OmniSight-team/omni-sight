@@ -10,6 +10,9 @@ Signs in as a throwaway admin created for the run and deleted at the end (like
 `wall_cameras.py`), through nginx at `https://localhost/api`. From the repo root:
 
   uv run --package omnisight-query python -u scripts/run_dataset_load.py > load.log 2>&1
+
+Datasets named as arguments are loaded instead, in that order; the VIRAT demo sample
+(OMNI-702, D-26) is `... scripts/run_dataset_load.py virat`.
 """
 
 import sys
@@ -85,7 +88,7 @@ def main() -> None:
         s.commit()
     try:
         api = Api()
-        for dataset in ORDER:
+        for dataset in sys.argv[1:] or ORDER:
             load(api, dataset)
         print(f"{now()} final: {api.call('GET', '/datasets').json()}", flush=True)
     finally:

@@ -240,3 +240,91 @@ class DashboardActivityOut(BaseModel):
     segments: int
     # None until alerts exist (slice 9).
     alerts: int | None
+
+
+class SearchCameraOut(BaseModel):
+    id: int
+    name: str
+
+
+class SearchHitOut(BaseModel):
+    """OMNI-707: one ranked moment."""
+
+    segment_id: int
+    video_id: int | None
+    # The recording's name; None for a live camera frame, which has no recording.
+    filename: str | None
+    camera: SearchCameraOut | None
+    timestamp_s: float
+    captured_at: datetime
+    # Higher is closer. Cosine similarity in `frame` and `clip`; B.3's reciprocal rank score in `fused`.
+    score: float
+    # Which index found it: "frame", "clip" or "both" (OMNI-711).
+    matched_by: str
+    thumb_url: str | None
+    # A live camera frame has no recording: this API path gives its stored picture. None for a video.
+    frame_url: str | None
+
+
+class SearchTimingsOut(BaseModel):
+    """Where `elapsed_ms` went, measured inside query."""
+
+    encode_ms: float
+    search_ms: float
+    # Algorithm 3's classifier and merge; about nothing in the other modes.
+    fusion_ms: float
+    join_ms: float
+    # True when every vector of the query came from the cache (a repeated query, NFR-2).
+    encode_cached: bool
+
+
+class SearchOut(BaseModel):
+    results: list[SearchHitOut]
+    mode: str
+    elapsed_ms: float
+    timings: SearchTimingsOut
+    # How many hits were returned.
+    total: int
+    # Hits whose segment no longer exists, or is no longer admitted (K-24): left out.
+    dropped: int
+    # Set when there is nothing to search yet (no frame has a vector of the pinned model).
+    message: str | None = None
+
+
+class Sm1KindOut(BaseModel):
+    """Recall@5 of one kind of query, per mode, and what five random frames would get."""
+
+    frame: float
+    clip: float
+    # The product's fused search.
+    fused: float
+    # Fused with the classifier's own weights, B.3 as written (D-40). None in a result from before D-40.
+    fused_classifier: float | None = None
+    # Fused with fixed weights 0.5 / 0.5, so the classifier's own effect shows.
+    fused_equal: float
+    chance: float
+    n_queries: int
+
+
+class Sm1Out(BaseModel):
+    """OMNI-713: SM-1 as measured on Colab."""
+
+    # Fused, overall.
+    recall_at_5: float
+    # Frame only, overall.
+    baseline: float
+    n_queries: int
+    by_kind: dict[str, Sm1KindOut]
+    measured_at: datetime
+
+
+class EmbeddingStatusOut(BaseModel):
+    """OMNI-705: one video's (or one camera's live) admitted frames against their vectors."""
+
+    video_id: int | None
+    camera_id: int | None
+    frames_total: int
+    frames_embedded: int
+    # 0 until clip vectors exist (OMNI-710).
+    clips_embedded: int
+    model: str

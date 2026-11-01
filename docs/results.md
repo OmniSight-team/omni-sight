@@ -31,6 +31,26 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Lead-up windows (data for SM-2, SM-3, SM-4; no Phase A target) | Every timed event has its windows or a recorded reason; exported and hashed | UCF-Crime 680 positive per L (30 s, 60 s), 950 negative per L; 67% / 84% shortened; 54 events at 0 s, 216 untimed, 16 second intervals skipped. CCD 1,500 positive (3.0-4.9 s), 3,000 negative. SHA-256 recorded | **Derived** (D-24); hand check pending (OMNI-609) | 2026-10-09 | OMNI-607 |
 | Lead-up windows, hand check (Phase A: "check a sample by hand"; no target) | 60 windows checked by eye against a criterion written first (D-27) | UCF-Crime 23 of 30 correct (official 13 of 15, UCA 10 of 15); CCD 30 of 30. 5 of 7 Wrongs end too late | **Measured** (preliminary: one checker, small sample); UCA weakness recorded as K-20 | 2026-10-10 | OMNI-609 |
 | Dataset footage in the product (no Phase A target) | Through the upload path, never expiring; D-26: only the 60-clip hand-check sample | 60 of 60 `ready`, 0 failed: CCD 30 in 2 min 4 s, UCF-Crime 30 in 33 min 46 s; 2.06 GB of storage, ~31 KB per kept frame. Full load estimated at 50 GB, 20-34 h, not run | **Pass** (D-25, D-26) | 2026-10-09 | OMNI-608 |
+| VIRAT demo sample in the product (no Phase A target) | One VIRAT video per scene, through the upload path, never expiring (D-26 amended) | 9 of 9 `ready`, 0 failed, 9 scenes (0000, 0001 have no video under 500 MB), 13 min 37 s; 23,057 frames gated, 1,039 kept (4.5%: 248 motion, 791 heartbeat) [corrected 2026-10-29: was 949 / 701, a mis-added total]; 1.49 GB of storage | **Pass** with 9, not 11, scenes (D-26) | 2026-10-18 | OMNI-702 |
+| TC-3, frame half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 2 runs: 1,000 of 1,000 by id (payloads equal as JSON bytes, vectors bit-identical) and by filtered search, filter counts equal, a redelivery of 100 left 1,000 points; the same after each restart (healthy again in 4.7-4.8 s). First run failed: 66 `timestamp_s` values one unit in the last place off, fixed (D-29) | **Pass, first half** (`clip_vectors` in slice 8) | 2026-10-19 | OMNI-703 |
+| TC-2, frame half | Each admitted frame of a 30 s uploaded MP4 and of 30 s from a live camera encodes to one 1152-D, unit-length vector, no error | Upload: 136 of 136 (VIRAT 0102, first 30 s, 720 frames gated). Camera `cam05`: 41 of 41. All 1152-D, finite, norms 0.9999998-1.0000001, 0 errors. One run, CPU | **Pass, first half** (clip embedding in slice 8) | 2026-10-19 | OMNI-704 |
+| SigLIP 2 cost on this laptop's CPU (information, D-31) | No target: the speed is judged on a GPU (Colab, OMNI-710) | 8.7 s per frame at batch 1, 9.3 s at batch 8; 1.2 s per text query; 4.2 GiB RSS; 80 s start to ready | Information only | 2026-10-19 | OMNI-704 |
+| NFR-5 for vectors (OMNI-705) | Every admitted frame ends with exactly one point; a kill of `ai_workers` mid-batch loses nothing and duplicates nothing | VIRAT video 3226, 44 admitted frames: killed 14 s into the 3rd batch with 16 stored and 8 in flight; after restart 44 of 44 frames with a point, 44 points, 0 missing, 0 extra, 0 dead letters. `GET /embeddings/status`: 44 / 44 | **Pass** (one video, one kill, D-35) | 2026-10-28 | OMNI-705 |
+| InternVideo2's text side on this laptop, beside SigLIP 2 (D-32) | Fits Docker's 7.6 GiB; ms per query recorded | ai_workers process 3.84 GiB after 400 queries, 4.17 GiB peak; InternVideo2 text median 131 ms (p95 300), SigLIP 2 text median 1,097 ms (p95 1,885); 200 queries each, one run | **Pass** (fits; preliminary) | 2026-10-28 | OMNI-706 |
+| InternVideo2 checkpoint (D-33): one 8-frame clip and one text | 512-D (Phase A: 768, D-33), finite, unit length | VIRAT 040103_00 event 29 (opening a trunk), 8 frames: clip and text 512-D, finite, norm 1.0; every checkpoint weight loaded with all keys matched. Laptop CPU and L4 GPU: the same similarity (0.0967) | **Pass** | 2026-10-28 | OMNI-706 |
+| InternVideo2 motion check (OMNI-706; a sanity check, not SM-1) | Record the 10 x 10 matrix and how many clips rank their own caption first (no pass mark) | 2 of 10 own caption first; 4 of 10 a caption of their own type (chance 2 of 10). Opening and closing a trunk not told apart: all 4 trunk clips rank a vehicle caption first and score *shutting a car's trunk* above both opening captions | Recorded (weak) | 2026-10-28 | OMNI-706 |
+| Encoder cost on a GPU (D-31) | No target here: NFR-1 and NFR-2 use it (OMNI-714) | NVIDIA L4, float32, from the stored input: SigLIP 2 108 / 106 / 112 ms per frame at batch 1 / 8 / 32, text 13 ms; InternVideo2 297 / 319 / 316 ms per clip, text 7 ms; peak GPU memory up to 6.9 GiB (SigLIP 2 b32) and 8.6 GiB (InternVideo2 b32), both models loaded | Information (L4, not the A100 named: none free) | 2026-10-28 | OMNI-706 |
+| FR-4, frame search (`GET /search`, OMNI-707) | Ranked moments with every field; a camera filter returns only that camera's frames even when its best match ranks below other cameras' | Running stack, video 3226 (44 frames with vectors): 3 queries, 5 ranked hits each, every field set, 0 dropped; a date filter around the top hit returns it alone. Camera filter: tested on real Postgres with in-process Qdrant (the stack has no two cameras with vectors). 27 tests | **Pass** (frame mode; clip and fused in OMNI-710, 711) | 2026-10-28 | OMNI-707 |
+| The VIRAT archive on Colab, both streams (data for SM-1, TC-4; no Phase A target, D-37) | Every admitted frame of the 275 evaluation videos cached with both vectors; the product's segments matched to it; laptop and Colab agree (cosine ≥ 0.999) | 275 of 275 videos, 0 failed; 793,686 frames gated, 35,704 admitted (8,255 motion, 27,449 heartbeat), each with both vectors; 2.52 h on one A100, 87 frames/s gated, 3.93 admitted frames/s encoded. Product: 1,039 of 1,039 segments matched. Agreement: 44 of 44 at least 0.999 (min 0.999979) | **Pass**; the kill-and-resume test not run on Colab | 2026-10-29 | OMNI-708 |
+| VIRAT events the gate kept (K-23; data for SM-1, no Phase A target) | Record the share of annotated events of each type holding an admitted frame; a type with none is dropped | 1,547 of 1,555 events hold an admitted frame (99.5%; each type 95.5-100%), 339 (21.8%) a motion-admitted one. No type dropped for coverage; digging has no event in the 275 videos. Five random frames would meet SM-1's answer rules on 25.1% of the queries (actions 11.7%, scenes 38.5%) | Recorded | 2026-10-30 | OMNI-709 |
+| TC-3, clip half | 1,000 vectors with payloads into Qdrant; retrieved by id and by filtered search, every field equal; again after a Qdrant restart | 1,000 of 1,000 by id and by filtered search, payloads equal, vectors bit-identical, before and after the restart | **Pass** | 2026-10-30 | OMNI-710 |
+| TC-2, clip half | Each admitted frame of a 30 s upload gets one unit clip vector | 34 of 34 on a 29.8 s video, 512-D, norm 1.000000 (OMNI-708's Colab run, read from Drive). Cameras on the laptop get none (D-32): not covered | **Pass** for files; cameras not covered | 2026-10-30 | OMNI-710 |
+| The product's clip vectors in `clip_vectors` (OMNI-710; no Phase A target) | Every admitted segment of the product's videos with a clip point | 1,039 of 1,039 segments of the 9 VIRAT videos; a rerun leaves 1,039. The 60 hand-check clips hold none (D-35) | **Pass** for the 9 | 2026-10-30 | OMNI-710 |
+| Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
+| NFR-1, complete (combined figure, D-31) | From capture, searchable in under 5 s | One camera (`cam05`), 10 min, 784 frames, the real queue, batching and Qdrant, the encode at the GPU's measured 108 ms a frame (L4): p50 1.06 s, p95 3.14 s, **max 3.35 s**, no trend, none lost. On this laptop's CPU encoder, end to end (information, 20 s of capture, 31 frames): p50 170.8 s, max 270.0 s, so it fails there | **Pass** on the combined figure (preliminary: one camera, one run, GPU time not run live); laptop CPU run is information only | 2026-10-31 | OMNI-714 |
+| NFR-2 | Search results in under 3 s | 1,800 requests through nginx, 50 queries, 3 rounds, 3 modes, on the product's vectors: fused uncached on this CPU p50 1.14 s, p95 1.62 s, **max 2.02 s**; combined figure (GPU text, D-31) max 217 ms; repeated or filtered about 55-65 ms, max 264 ms; 0 errors | **Pass**, on the CPU too (preliminary: one machine, small collections; TC-4 is the large one) | 2026-10-31 | OMNI-714 |
+| TC-4 (D-37: VIRAT archive, 35,704 frames, not 100,000) | Both collections loaded; plain-language search; fused recall@5 at least 85% and every query under 3 s | 35,704 frames of 275 videos in both scratch collections, 50 SM-1 queries, 3 rounds, the product's own search code, no Postgres join: fused recall@5 **74%** (scene 92%, action 56%); frame 72%, clip 50%. Search + fusion max 0.20 s; slowest query **10.9 s**, the first one, a cold text encoder (K-26) | **Fail** on recall (74% against 85%, K-30); latency met except that one cold query (preliminary: one machine, one run; 100,000 not verified, D-37) | 2026-11-01 | OMNI-715 |
+| SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -1696,3 +1716,672 @@ pass). The load progress bar, not seen on screen in OMNI-612, was seen here.
 **Not covered:** a wiped stack (`down -v`; the 36-minute reload of the sample was not
 redone); a CCD load (done in OMNI-612); the "Play window" button (the video was played from
 the page's own element); a second browser; an analyst's or operator's view.
+
+## OMNI-702 · The VIRAT demo sample loaded into the product · 2026-10-18
+
+**Conditions:** the real stack (`docker compose up -d`, simulator running, no cameras, no
+live worker in ingestion before or after, K-19), on this laptop. The 9 videos of
+`datasets/demo/virat_sample.csv` (D-26 amended: one per scene among videos under the 500 MB
+upload limit, seed 702) copied from Drive (`scripts/copy_dataset_subsets.py`: 9 copied, 60
+already local, sizes equal to Drive, 96 s), then loaded through `POST /datasets/virat/load`
+via nginx (`scripts/run_dataset_load.py virat`): `store_video` (the upload path), then
+extraction, one clip at a time. One run.
+
+| Scene | Clip | Video | Resolution | Length | Size | Frames gated | Kept | Motion | Heartbeat | Extract |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0002 | VIRAT_S_000207_00_000000_000045 | 3226 | 1280x720, 30 fps | 45.0 s | 47.5 MB | 1,350 | 44 | 0 | 44 | 39 s |
+| 0100 | VIRAT_S_010005_01_000085_000164 | 3227 | 1280x720, 24 fps | 70.2 s | 8.2 MB | 1,682 | 70 | 0 | 70 | 30 s |
+| 0101 | VIRAT_S_010115_04_000830_000892 | 3228 | 1280x720, 24 fps | 57.7 s | 11.1 MB | 1,382 | 57 | 0 | 57 | 27 s |
+| 0102 | VIRAT_S_010201_03_000270_000359 | 3229 | 1280x720, 24 fps | 87.9 s | 9.5 MB | 2,106 | 198 | 121 | 77 | 38 s |
+| 0400 | VIRAT_S_040000_06_000746_000964 | 3230 | 1920x1080, 30 fps | 218.0 s | 490.6 MB | 6,533 | 217 | 0 | 217 | 5 min 0 s |
+| 0401 | VIRAT_S_040103_00_000000_000120 | 3231 | 1920x1080, 30 fps | 120.0 s | 271.2 MB | 3,594 | 206 | 90 | 116 | 3 min 2 s |
+| 0500 | VIRAT_S_050000_13_001722_001766 | 3232 | 1920x1080, 30 fps | 43.9 s | 57.9 MB | 1,316 | 61 | 18 | 43 | 36 s |
+| 0502 | VIRAT_S_050202_00_000000_000105 | 3233 | 1920x1080, 30 fps | 105.0 s | 139.5 MB | 3,147 | 107 | 3 | 104 | 1 min 27 s |
+| 0503 | VIRAT_S_050300_04_001057_001122 | 3234 | 1920x1080, 30 fps | 65.0 s | 85.0 MB | 1,947 | 79 | 16 | 63 | 1 min 0 s |
+| **All** | | | | **13.5 min** | **1,120.6 MB** | **23,057** | **1,039 (4.5%)** | **248** | **791** | |
+
+"Extract" is from the video row's creation to its last segment row, so it includes storing
+and probing. The whole load: **13 min 37 s** (09:05:39 to 09:19:16 UTC). [corrected 2026-10-29: the per-video rows add to 1,039 kept, 791 heartbeat, 4.5%; the total was mis-added. Postgres holds 1,039 admitted segments for these 9 videos (OMNI-708's export)]
+
+All 9: `source = dataset`, `retention_until` NULL, `ready` with a finished extraction,
+`dataset_manifest.video_id` set, no `error`. Two got a playback copy (3226, 3231). `GET
+/datasets`: `virat` `loaded`, 9 of 9, 0 failed; CCD and UCF-Crime unchanged (30 of 30 each).
+
+**Storage**, measured per video in the volumes (no whole-volume before/after this time):
+originals 1,120.6 MB, playback copies 60.6 MB, kept frames 296.9 MB, thumbnails 12.8 MB:
+**1.49 GB** in all. **About 298 KB per kept frame** [corrected 2026-10-29: was 326 KB, from the mis-added 949] (frame plus thumbnail), ten times
+OMNI-608's 31 KB: these are 720p and 1080p full frames, UCF-Crime's are 320x240.
+
+**The gate kept 4.5%, mostly heartbeats** [corrected 2026-10-29: was 4.1%]**.** 4 of the 9 videos kept **no frame for motion**,
+only the heartbeat (about one a second), and a fifth kept 3, although every one has annotated events (people
+and vehicles moving). VIRAT's cameras are far and still, and the people are small in a
+1080p frame. Search on these videos therefore sees about one frame a second plus the
+moments the gate called motion. Recorded as K-23; not changed here (Algorithm 1 as Phase A
+writes it).
+
+**Not covered:** scenes 0000 and 0001 (no video under the upload limit, D-26); the gate's
+recall against VIRAT's event annotations (K-23); load time with cameras capturing; one run.
+
+## OMNI-703 · TC-3, frame half: `frame_vectors` in Qdrant, across a restart · 2026-10-19
+
+`scripts/verify_tc3_frame_vectors.py` on the real stack (Qdrant `v1.19.1`, `qdrant-client`
+1.19.1, no host port; the checks run inside `query`). A scratch collection
+`frame_vectors_tc3`, made by the product's `ensure_frame_collection` (1152-D, Cosine, payload
+indexes on `camera_id`, `video_id`, `captured_at`), 1,000 points made by `frame_point` from
+seed 703: 500 uploads over 5 videos, 500 live frames over 10 cameras, three domains, 143
+without a thumbnail, random unit vectors. Written in batches of 100, then the first 100
+written again; checked; `docker compose restart qdrant`; checked again; dropped.
+
+| Check | Run 1 before / after restart | Run 2 before / after restart |
+|---|---|---|
+| Points after a redelivery of 100 | 1,000 / 1,000 | 1,000 / 1,000 |
+| By id: payload equal (dict and canonical JSON bytes) | 1,000 / 1,000 | 1,000 / 1,000 |
+| By id: vector bit-identical to the float32 written | 1,000 / 1,000 | 1,000 / 1,000 |
+| Filtered search (own video or camera, exact `captured_at`): own point top hit, payload equal | 1,000 / 1,000 | 1,000 / 1,000 |
+| Point count under each of 5 video and 10 camera filters | 15 / 15 | 15 / 15 |
+| Write 1,000 points | 2.93 s | 2.33 s |
+| Healthy again after the restart | 4.8 s | 4.7 s |
+
+**The run before these failed.** With `timestamp_s` stored as given, 66 of 1,000 payloads
+came back different, all upload frames whose time needs 17 significant digits
+(`0.9175842509175843` read back as `0.9175842509175844`); the raw HTTP response showed the
+changed value, so it is Qdrant, not the client. Searches found all 1,000; the 66 failed only
+on payload equality. Fixed by storing `timestamp_s` to the microsecond (D-29); the live
+frames' times then got a full-precision random fraction too, to test the fix on both sources.
+
+Also: `query` created `frame_vectors` on its first start, and on a restart only checked that
+it exists (no create request in its log); `curl http://localhost:6333` from the host fails
+(exit 7, nothing listening).
+
+**Not covered:** real SigLIP 2 vectors and real segment rows (OMNI-704, OMNI-705); a
+collection at archive size (slice 7 holds about 1,000 admitted VIRAT frames plus the
+hand-check sample's); `docker compose down` and up, and a kill (only `restart`); search
+latency (OMNI-708). One machine, two runs.
+
+## OMNI-704 · SigLIP 2 on this laptop's CPU (no GPU; information, not pass/fail) · 2026-10-19
+
+`scripts/measure_encoder.py --frames 8 --batches 2`: the pinned checkpoint (D-30), float32,
+PyTorch 2.14.1+cpu with 4 threads, in a one-off `ai-workers` container (service stopped, the
+rest of the stack up and idle). Frames: VIRAT demo video 3233's stored admitted frames,
+1920x1080 JPEGs. One run. An earlier run with 32 + 64 frames was killed by Claude Code when
+Windows ran low on memory (2.6 GB of 15.7 GB free); nothing from it is reported.
+
+| Measure | Result |
+|---|---|
+| Model load (weights memory-mapped) | 6.8 s |
+| First image (reads the vision weights from disk) | 27.7 s |
+| First text (reads the text weights) | 18.8 s |
+| Image, batch 1, per frame (8 frames) | median 8,747 ms, p95 9,962 ms, 8,252-10,135 |
+| Image, batch 8, per frame (2 batches) | median 9,288 ms, 9,025-9,551 |
+| Text, per query (20 queries) | median 1,221 ms, p95 1,919 ms, 797-2,408 |
+| Process RSS, peak / service idle / service after 20 queries | 4.23 / 3.83 / 3.84 GiB |
+| `docker stats`, same moments | 1.01 / 0.64 / 0.64 GiB (leaves out the mapped weights) |
+| Service: start to healthy (load plus warm-up) | 80 s |
+| First query to the warmed service (through `docker exec`) | 2.4 s |
+
+**What it means:** about 9 s per frame on this CPU, and batching does not help here. An
+admitted frame is about one a second per camera, so this machine's CPU cannot keep up with
+one camera, and a frame alone takes longer than NFR-1's 5 s. Phase A puts the AI Workers on
+a GPU (§3.3.2); the GPU cost is measured on Colab (D-31: how
+NFR-1 and NFR-2 are judged). It fits in memory: about 4.2 GiB of Docker's 7.6 GiB.
+
+**Not covered:** a GPU; more than 8 + 16 frames; text queries timed through query's API
+(OMNI-708); preliminary, one run, one machine.
+
+## OMNI-704 · TC-2, frame half: an upload's and a camera's admitted frames encoded · 2026-10-19
+
+`scripts/verify_tc2_frames.py` on the real stack. The first 30 s of VIRAT demo video 3229
+(scene 0102, `VIRAT_S_010201_03_000270_000359`, 1280x720, 24 fps) re-encoded to H.264 and
+uploaded through nginx, extracted by the product (Algorithm 1): `ready`, 30.04 s, 720 frames
+gated. `cam05` from the simulator registered and started, 30 s captured after it read `live`,
+stopped. Every admitted frame's `frame_path` read from Postgres and encoded from the stored
+JPEG by `FrameTextEncoder.encode_images` (D-30), batches of 8, in a one-off `ai-workers`
+container with the service stopped. One run, laptop CPU.
+
+| Source | Admitted frames | Vectors | Errors | 1152-D, finite, unit length | Norms | Encode time (CPU) |
+|---|---|---|---|---|---|---|
+| Upload | 136 | 136 | 0 | 136 of 136 | 0.9999998-1.0000001 | 1,160.5 s (8.5 s/frame) |
+| Camera | 41 | 41 | 0 | 41 of 41 | 0.9999999-1.0000001 | 360.3 s (8.8 s/frame) |
+
+8 of 8 checks. The throwaway user and camera were removed by the script. The uploaded video
+was not: the encode outlasted the token's 15 idle minutes (NFR-9) and the delete got no
+answer it checked. Deleted afterwards through the API (200; rows and files gone); the script
+now logs in again before cleaning up and reports a failed delete.
+
+**Not covered:** the vectors written to Qdrant (OMNI-705); the clip embedding (slice 8);
+GPU timing (OMNI-710, D-31); one run.
+
+## OMNI-705 · Every admitted frame reaches the encoder: a kill mid-batch · 2026-10-28
+
+The real stack (`docker compose up -d`), laptop CPU, the pinned SigLIP 2 (D-30), batches of
+8. One VIRAT demo video, 3226 (scene 0002, `VIRAT_S_000207_00_000000_000045`), 44 admitted
+frames, none with a point before. `scripts/backfill_embeddings.py queue --video 3226`
+published 44 jobs to `omnisight.embed` at 14:09:37; ai_workers consumed them.
+
+| Moment | Frames with a point | Points | Ready in the queue | Dead letters |
+|---|---|---|---|---|
+| Before | 0 of 44 | 0 | 0 | 0 |
+| 2 batches stored, `docker compose kill ai-workers` 14 s into the 3rd (14:13:48) | 16 of 44 | 16 | 28 (the 8 in flight came back) | 0 |
+| Restarted 14:14:09, healthy 14:15:41, done 14:20:25 | **44 of 44** | **44** | 0 | 0 |
+
+`check --video 3226`: missing 0, the model's points for the video = 44 = frames with a
+point (no extra, no duplicate). `GET /embeddings/status` from inside the stack: video 3226
+`frames_total` 44, `frames_embedded` 44, `clips_embedded` 0. After the restart the worker
+encoded the remaining 28 in 4 batches (8, 8, 8, 4). Batches took 72-134 s for 8 frames
+(9-17 s a frame; the first was slower, the stack had just started).
+
+**Not covered:** one video, one kill, at one moment (mid-encode; not between the upsert and
+the acks, a window of milliseconds, covered by idempotent upserts and the unit tests); a
+kill of the consumer between commit and publish on the real stack (unit test only); a new
+upload or a running camera producing jobs on the real stack (unit tests only); the other
+34,725 admitted frames (D-35); preliminary.
+
+## OMNI-706 · InternVideo2 on this laptop: the text side beside SigLIP 2, and one clip · 2026-10-28
+
+**Conditions:** this laptop (i7-1165G7, Docker Desktop 8 CPUs, 7.6 GiB), the whole stack up
+and idle, the embed queue empty. ai_workers rebuilt with both text encoders (SigLIP 2, D-30;
+InternVideo2-CLIP-S text side only, D-32, D-33). `scripts/measure_text_encoders.py --runs 20`:
+10 search-style queries, one warm-up round, then 20 rounds per encoder, one at a time, sent
+from inside `query` (HTTP round trip in the Docker network). Memory: the uvicorn process's
+`VmRSS` / `VmHWM`, as OMNI-704 (`docker stats` leaves out the memory-mapped weights).
+
+| Measure | Result |
+|---|---|
+| Start to healthy: SigLIP 2 load + warm-up / InternVideo2 text load + warm-up | 14.1 s + 87.0 s / 12.6 s |
+| InternVideo2 text, per query (200) | median 131 ms, p95 300 ms, max 517 ms |
+| SigLIP 2 text, per query (200) | median 1,097 ms, p95 1,885 ms, max 2,188 ms |
+| Process RSS after 400 queries / peak | 3.84 GiB / 4.17 GiB |
+| `docker stats` before / after | 988 / 1,004 MiB |
+
+OMNI-704 measured SigLIP 2 alone at 3.84 GiB after its queries, 4.23 GiB at peak: the
+63M-parameter text tower (about 0.25 GB in float32) does not show as a separate step at this
+resolution, and the total fits in 7.6 GiB with about 3.4 GiB to spare.
+
+**One clip and one text** (outside the service, `uv run`, CPU, float32): VIRAT
+`VIRAT_S_040103_00_000000_000120`, event 29 (type 3, opening a trunk, frames 2489-2577),
+8 frames at 2494, 2505, ..., 2571. Clip vector 512-D, text vectors 512-D, all finite, norm
+1.0. Full model load 36 s, 3.0 GB RSS; the clip took 29.6 s on this CPU, 4 texts 0.4 s.
+Similarity of the clip to *opening the trunk* 0.097, *closing the trunk* 0.100, *getting
+into a car* 0.121, *a dog running on grass* -0.002: one clip says nothing about motion; that
+is the 10-clip check on Colab.
+
+**Not covered:** the GPU timings and the motion check (`notebooks/encoders_gpu.ipynb`, to
+run on Colab's A100); the text encoders under load together with frame encoding; one run,
+one machine, preliminary.
+
+## OMNI-706 · InternVideo2's motion check and both encoders' cost on a GPU · 2026-10-28
+
+**Conditions:** Colab, **NVIDIA L4** (22 GiB; the ticket names an A100, none was free, Ahmad's
+choice, D-31: an L4 is slower, so these are upper bounds for an A100), torch 2.11.0+cu130,
+transformers 5.20.1. `notebooks/encoders_gpu.ipynb` at commit `1ff7fd0`, importing the
+repo's `encoder.py` and `clip_encoder.py`; both checkpoints at their pinned revisions
+(D-30, D-33), float32, both on the GPU together. Raw output:
+`MyDrive/omnisight/results/omni706_encoders_gpu.json`. One run.
+
+**One clip and one text** (the laptop's CPU check, repeated on the GPU): 512-D, finite,
+norm 1.0; similarity to *a person opening the trunk of a car* 0.0967, the same as on the CPU.
+
+**Does it see motion.** 10 clips, 2 per type, drawn with seed 706 from the 275 VIRAT
+evaluation videos (events at least 8 frames long; 42 to 156 candidates per type); each clip
+is its event's own span, 8 frames by `uniform_indices`. One caption per clip, two wordings
+per type. Rows are clips, columns captions; the highest in each row in bold.
+
+| Clip (type, video, event) | c0 | c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 open trunk, 050202_07_001126_001301 e1 | 0.091 | 0.096 | 0.098 | 0.117 | 0.123 | **0.132** | 0.128 | 0.110 | 0.110 | 0.089 |
+| 1 open trunk, 000202_00_000000_000977 e18 | 0.083 | 0.088 | 0.086 | 0.109 | 0.125 | 0.101 | **0.129** | 0.092 | 0.100 | 0.054 |
+| 2 close trunk, 040005_07_001026_001223 e39 | 0.045 | 0.058 | 0.047 | 0.076 | 0.072 | 0.059 | 0.083 | 0.053 | **0.093** | 0.051 |
+| 3 close trunk, 040103_02_000199_000279 e12 | 0.126 | 0.130 | 0.130 | 0.148 | 0.154 | 0.127 | **0.161** | 0.123 | 0.132 | 0.096 |
+| 4 into vehicle, 040103_00_000000_000120 e27 | 0.098 | 0.101 | 0.103 | 0.126 | 0.127 | 0.114 | **0.133** | 0.104 | 0.103 | 0.079 |
+| 5 into vehicle, 040000_06_000746_000964 e13 | 0.054 | 0.069 | 0.055 | 0.083 | 0.078 | 0.066 | 0.089 | 0.058 | **0.091** | 0.049 |
+| 6 out of vehicle, 000101 e28 | 0.128 | 0.137 | 0.132 | 0.144 | 0.175 | 0.144 | **0.188** | 0.152 | 0.187 | 0.160 |
+| 7 out of vehicle, 040103_03_000284_000425 e40 | 0.112 | 0.121 | 0.115 | 0.135 | 0.153 | 0.125 | **0.161** | 0.132 | 0.140 | 0.104 |
+| 8 enter facility, 010205_04_000545_000576 e3 | 0.028 | 0.045 | 0.027 | 0.058 | 0.095 | 0.086 | 0.108 | 0.087 | **0.205** | 0.170 |
+| 9 enter facility, 010207_10_001549_001596 e12 | 0.025 | 0.041 | 0.025 | 0.058 | 0.090 | 0.084 | 0.103 | 0.087 | **0.198** | 0.169 |
+
+Captions: c0 *a person opening the trunk of a car*, c1 *someone lifting open a car's trunk*,
+c2 *a person closing the trunk of a car*, c3 *someone shutting a car's trunk*, c4 *a person
+getting into a car*, c5 *someone climbing into a vehicle*, c6 *a person getting out of a
+car*, c7 *someone stepping out of a vehicle*, c8 *a person walking into a building*, c9
+*someone entering a building through a door*.
+
+| Measure | Result |
+|---|---|
+| Clips whose own caption ranks first | **2 of 10** (6, 8) |
+| Clips whose first caption is of their own type | **4 of 10** (6, 7, 8, 9); chance is 2 of 10 |
+| Per type | entering a facility 2/2, getting out of a vehicle 2/2, getting into 0/2, opening a trunk 0/2, closing a trunk 0/2 |
+| Opening against closing a trunk | Not told apart: all 4 trunk clips rank a vehicle or building caption first, and each scores *shutting a car's trunk* (c3) above both opening captions |
+| One caption wins most rows | c6 *a person getting out of a car* is first for 6 of 10 clips |
+
+**What it means:** on these 10 clips the model puts a clip near the right *scene* (cars, a
+building's door) but does not tell the trunk actions apart and barely separates the vehicle
+actions. Similarities are low throughout (0.03-0.21). Why is not tested here: VIRAT's
+people are small in 1920 x 1080 frames that the checkpoint squeezes to 224 x 224, but that
+is a guess. This is a sanity check on 10 clips, not SM-1: search quality is measured on the
+labelled query set (OMNI-709, OMNI-713), with both streams fused.
+
+**GPU cost.** 5 warm-up calls, then the median of 20, `torch.cuda.synchronize()` around
+each. Frames from the stored full-frame JPEG (read, resize, encode: what ai_workers does);
+clips from 8 decoded 1920 x 1080 frames in memory (resize and encode). Peak GPU memory per
+measurement, both models loaded (weights: SigLIP 2 4.23 GiB, InternVideo2 1.43 GiB).
+
+| Encoder | Batch 1 | Batch 8 | Batch 32 | Peak GPU memory (b1 / b8 / b32) |
+|---|---:|---:|---:|---:|
+| SigLIP 2, ms per frame | 108 | 106 | 112 | 5.71 / 5.97 / 6.87 GiB |
+| InternVideo2, ms per clip | 297 | 319 | 316 | 5.76 / 6.40 / 8.57 GiB |
+| SigLIP 2 text, ms per query | 13.3 | | | 5.67 GiB |
+| InternVideo2 text, ms per query | 7.4 | | | 5.67 GiB |
+
+Batching does not lower the cost per frame or per clip. Each call includes image work on
+Colab's CPU (JPEG decode and resize for a frame, a bicubic resize of eight 1080p frames for
+a clip); that this part dominates is likely but **not measured**: the split between CPU
+preparation and GPU compute was not timed. Against this laptop's CPU (OMNI-704, OMNI-706):
+SigLIP 2 8.7 s → 0.11 s a frame; text 1.1 s → 13 ms (SigLIP 2), 131 ms → 7 ms (InternVideo2).
+
+**Not covered:** an A100; the CPU / GPU split of each call; float16 or TF32 (float32 only,
+as D-30, D-33); more than one run; the motion check on more than 10 clips.
+
+## OMNI-707 · `GET /search` on the running stack (frame mode) · 2026-10-28
+
+**Conditions:** this laptop, the whole stack up; ai_workers on the CPU (SigLIP 2 text,
+D-30); `frame_vectors` holds the 44 points of VIRAT video 3226 (OMNI-705, D-35), no camera
+has a point. `scripts/try_search.py`: three queries, each twice, through the real API
+inside `query` as the admin; then a date filter and a camera filter, `mode=fused`, an empty
+query. One run.
+
+| Query | First: elapsed (encode / search / join), ms | Again (vector cached), ms |
+|---|---|---|
+| *a person walking across a parking lot* | 503 after 30,135 (encode timed out, K-26); then 9,291 (9,050 / 213 / 29) | — |
+| *a white car driving on the road* | 2,037 (1,985 / 38 / 14) | 82 (0 / 78 / 4) |
+| *a person carrying a bag* | 1,900 (1,860 / 26 / 13) | 133 (0 / 120 / 13) |
+
+- Each query: 5 hits from video 3226, ranked by cosine (top scores 0.145, 0.059, 0.022), every
+  field set (segment, video, time, `captured_at`, score, `matched_by` = frame, thumbnail
+  URL), 0 dropped. The same frame (31.0 s) ranks first for all three
+- `from` = `to` = the top hit's `captured_at`: that one hit. `from` in 2100: none. `camera_id=1`:
+  none (no camera has a point). `mode=fused`: 503 *the clip index is not ready yet*. `q` of
+  spaces: 422 *the query is empty*
+
+**What it means:** with a warm encoder, a query costs about 2 s on this CPU, almost all of it
+the text encode; a repeated query skips it and takes 80-130 ms. The search and join over 44
+points take 20-210 ms. NFR-2 (results within 3 s) is judged in OMNI-714 with the GPU's encode
+time (D-31): 13 ms on an L4 (OMNI-706). After a long idle the first encode exceeded 30 s (K-26).
+
+**Not covered:** relevance (44 frames of one video; SM-1 is OMNI-713); a camera filter on the
+real stack (tested with real Postgres and in-process Qdrant: a camera's best frame at cosine
+0.4 is found under five 0.75-0.95 frames of another camera); search over a large collection
+(TC-4, OMNI-715); one run.
+
+
+## OMNI-708 · The VIRAT archive on Colab, both streams · 2026-10-29
+
+**Conditions:** Colab, one NVIDIA A100-SXM4-40GB, one session (started 09:39:10). The
+repo's code at commit `24f140f`: ingestion's Algorithm 1 gate with the settings' defaults
+(0.5 s, 8 x 8, 25.0, 3 cells, blur 21, heartbeat 1.0 s, JPEG 85); SigLIP 2 frame vector from
+the stored JPEG; InternVideo2 clip vector of `[t - 1 s, t]`, 8 frames; float32 (D-30, D-33).
+Videos read from Drive; decode and gate on Colab's CPU, encoding on the GPU overlapped with
+it. One run. `notebooks/virat_archive_gpu.ipynb`; summary in Drive
+`omnisight/results/omni708_virat_archive.json`.
+
+| | |
+|---|---:|
+| Videos (VIRAT evaluation, D-22) | 275 of 275, 0 failed |
+| Frames decoded and gated | 793,686 |
+| Admitted | 35,704 (4.5%): 8,255 motion, 27,449 heartbeat |
+| Frame vectors (1152-D) and clip vectors (512-D) | 35,704 each |
+| Run time (sum of per-video times) | 9,076 s, 2.52 h |
+| Frames gated per second | 87 |
+| Admitted frames encoded per second, both streams | 3.93 (0.25 s a frame, decode and gate included) |
+
+`check` on the archive: every video in the manifest, every file present and its rows equal to
+the manifest's counts, no file outside the manifest, 0 problems. The count is above D-37's
+estimate of about 30,000 (made from 9 videos).
+
+**The product's segments:** the 1,039 admitted segments of the product's 9 VIRAT videos
+(exported from Postgres) matched by `clip_key` and `frame_index`, with equal timestamp and
+reason: **1,039 of 1,039**, 0 unmatched; every video's segment count equals its archive
+frame count (44, 70, 57, 198, 217, 206, 61, 107, 79).
+
+**Agreement, laptop and Colab:** the 44 frames of video 3226 that have a laptop vector
+(OMNI-705, CPU) against the A100's: cosine min 0.999979, median 0.999994, max 0.999997;
+**44 of 44 at least 0.999**.
+
+**Not covered:** the kill-and-resume test on Colab (one session ran to the end; resuming is
+tested only with stand-in encoders, `scripts/tests/test_encode_virat_archive.py`); the clip
+vectors' agreement (the laptop has no video side, D-32); the split of time between decode,
+gate and encode; more than one run.
+
+## OMNI-709 · How much of VIRAT's events the gate kept, and SM-1's chance level · 2026-10-30
+
+**Conditions:** the archive's admitted frames (OMNI-708, 35,704 frames of the 275 evaluation
+videos, `frame_index` and `admission_reason`) against every event in `annotations/`, frames
+both ends included. `scripts/virat_event_coverage.py` on this laptop, reading Drive. Counting
+only, no model and no search. One run; output in Drive
+`omnisight/results/omni709_coverage.json`.
+
+| Event type | Events | With an admitted frame | With a motion frame | Frames a query's rule accepts | Share of all frames | Chance recall@5 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 Loading an object to a vehicle | 21 | 21 (100%) | 2 (9.5%) | 141 | 0.4% | 2.0% |
+| 2 Unloading an object from a vehicle | 59 | 59 (100%) | 1 (1.7%) | 269 | 0.8% | 3.7% |
+| 3 Opening a vehicle trunk | 42 | 42 (100%) | 1 (2.4%) | 112 | 0.3% | 1.6% |
+| 4 Closing a vehicle trunk | 41 | 41 (100%) | 2 (4.9%) | 164 | 0.5% | 2.3% |
+| 5 Getting into a vehicle | 111 | 111 (100%) | 6 (5.4%) | 782 | 2.2% | 10.5% |
+| 6 Getting out of a vehicle | 97 | 97 (100%) | 8 (8.2%) | 792 | 2.2% | 10.6% |
+| 7 Gesturing | 51 | 49 (96.1%) | 5 (9.8%) | 572 | 1.6% | 7.8% |
+| 9 Carrying an object | 822 | 817 (99.4%) | 304 (37.0%) | 12,935 | 36.2% | 89.5% |
+| 10 Running | 22 | 21 (95.5%) | 2 (9.1%) | 136 | 0.4% | 1.9% |
+| 11 Entering a facility | 156 | 156 (100%) | 2 (1.3%) | 437 | 1.2% | 6.0% |
+| 12 Exiting a facility | 133 | 133 (100%) | 6 (4.5%) | 390 | 1.1% | 5.3% |
+| **All** | **1,555** | **1,547 (99.5%)** | **339 (21.8%)** | | | |
+
+Type 8 (digging) has no event in the 275 videos, so no query can have an answer: left out of
+the set. No type with events is dropped.
+
+| Scene | 0000 | 0001 | 0002 | 0100 | 0101 | 0102 | 0400 | 0401 | 0500 | 0502 | 0503 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Admitted frames | 3,478 | 2,730 | 4,964 | 3,060 | 1,746 | 6,205 | 4,091 | 2,495 | 2,351 | 2,980 | 1,604 |
+| Share | 9.7% | 7.6% | 13.9% | 8.6% | 4.9% | 17.4% | 11.5% | 7.0% | 6.6% | 8.3% | 4.5% |
+| Chance recall@5 | 40.1% | 32.8% | 52.7% | 36.1% | 22.2% | 61.5% | 45.6% | 30.4% | 28.9% | 35.3% | 20.5% |
+
+**Chance recall@5** is `1 - (1 - share)^5`: five frames drawn at random, with replacement.
+Over `datasets/eval/sm1_queries.csv` it averages **25.1%: actions 11.7%, scenes 38.5%**. The
+two carrying queries alone sit at 89.5%, so they say little about search.
+
+**What it means:** search can reach almost every event, but through the heartbeat: 78.2% of
+events have no frame the gate admitted for motion. A correct frame is any kept frame inside the
+event, which may not show the telling part of the action.
+
+**Not covered:** whether the frame inside an event shows the action; the clip's window
+reaching before an event's first frame (a frame counts only by its own time); search quality
+(OMNI-713); more than one run is not needed for a count, but this is one archive at one set of
+gate settings.
+
+## OMNI-710 · `clip_vectors`: TC-3 and TC-2, clip half, and the product's vectors · 2026-10-30
+
+**Conditions:** this laptop, the whole stack up, Qdrant in the stack. One run of each, plus one
+rerun of the import.
+
+**TC-3, clip half** (`scripts/verify_tc3_frame_vectors.py clip`): scratch collection
+`clip_vectors_tc3`, 512-D, made by `ensure_clip_collection`; 1,000 points from a fixed seed,
+half uploads and half live frames; the first 100 written again.
+
+| | Before the restart | After `docker compose restart qdrant` (healthy in 5.0 s) |
+|---|---|---|
+| Count | 1,000 | 1,000 |
+| By id: payload equal as a dict and as JSON bytes | 1,000 | 1,000 |
+| Vectors bit-identical | 1,000 (max difference 0) | 1,000 (max difference 0) |
+| Own top hit under its video or camera and exact `captured_at`, payload equal | 1,000 | 1,000 |
+| Counts under 5 video and 10 camera filters | Equal | Equal |
+
+Writing 1,000 points took 1.15 s. The frame half was rerun on the changed script: PASS before
+and after a restart.
+
+**TC-2, clip half** (`scripts/verify_tc2_clips.py`): `VIRAT_S_010201_08_000705_000739`, the
+evaluation video closest to 30 s: 29.8 s, 714 frames, 34 admitted, 34 clip vectors of 512
+dimensions, finite, norm 1.000000, each frame once, each window ending at its frame. Made on
+Colab's A100 by the repo's gate and encoder (OMNI-708, commit `24f140f`).
+
+**The product's vectors** (`scripts/import_clip_vectors.py`, from Drive `embeddings/product/`,
+archive pins equal to the settings):
+
+| Video | 3226 | 3227 | 3228 | 3229 | 3230 | 3231 | 3232 | 3233 | 3234 | Total |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| File rows, admitted segments and points, all three equal | 44 | 70 | 57 | 198 | 217 | 206 | 61 | 107 | 79 | **1,039** |
+
+A rerun leaves 1,039 points. `GET /embeddings/status` on the stack: `clips_embedded` equals
+`frames_total` for each of the 9, 0 elsewhere; 33,730 admitted segments of other videos and
+cameras have no clip point. `frames_embedded` is 44, video 3226 only (K-27).
+
+**Not covered:** a camera's clip vectors (D-32); a real upload through the API encoded on Colab
+(TC-2 reads OMNI-708's files, gated as an upload is); searching `clip_vectors` (OMNI-711); the 60
+hand-check clips (D-35).
+
+## OMNI-711 · The modality classifier, and fused search on the stack · 2026-10-30
+
+**The classifier** (`scripts/train_modality_classifier.py`): this laptop, SigLIP 2 text vectors
+from ai_workers on the stack, `datasets/eval/modality_train.csv` (100 queries, 50 scene, 50 action,
+SHA-256 `42ab19d4...`), logistic regression with scikit-learn's defaults, 5 stratified folds, seed
+711. One run.
+
+| | |
+|---|---:|
+| Cross-validated accuracy | **98.0%** (98 of 100) |
+| Held-out mean `w_f`, scene queries | 0.695 |
+| Held-out mean `w_f`, action queries | 0.302 |
+| Wrong | *a car turning left at an intersection*, *a truck reversing into a loading bay* (both action) |
+| File | 25,230 bytes |
+
+Written by one author in one style, so 98% says little about other wordings. The weights are soft:
+a mean `w_f` of 0.695 leaves the other list about 30%.
+
+**Fused search on the running stack** (exploration, not a measurement): through the API inside
+`query`, as the admin, one run. `frame_vectors` 44 points (video 3226), `clip_vectors` 1,039 (K-27).
+Two queries chosen to be outside the SM-1 set; no SM-1 query was run.
+
+| Query, `(w_f, w_c)` | Mode, k | Results by `matched_by` | Videos |
+|---|---|---|---|
+| *a van parked next to a fence* (0.591, 0.409) | frame, 5 | frame 5 | 3226 |
+| | clip, 5 | clip 5 | 3230, 3233 |
+| | fused, 5 | frame 5 | 3226 |
+| | fused, 50 | frame 41, clip 9 | 3226, 3230, 3233 |
+| *a man walking near a van* (0.216, 0.784) | frame, 5 | frame 5 | 3226 |
+| | clip, 5 | clip 5 | 3226, 3229 |
+| | fused, 5 | clip 5 | 3226, 3229 |
+| | fused, 50 | both 4, clip 46 | 7 of the 9 |
+
+A `from` filter on fused, k 50: 50 hits, every one inside, frame 17 and clip 33. Elapsed on a fresh
+query about 0.9-2.4 s in `frame` and `clip` (mostly encoding, on this CPU); not a timing of fused
+with both encoders uncached, and NFR-2 is OMNI-714.
+
+**What it shows:** at k 5 the merged list came from one list: without an overlap, the larger
+weight's ranks all score above the other's. Whether that helps is SM-1's question.
+
+**Not covered:** search quality (OMNI-713); a camera filter on real Qdrant (no camera has a point:
+tested in process only); the classifier on queries of another author.
+
+## OMNI-713 · SM-1 on VIRAT · 2026-10-31
+
+**Conditions:** Colab, NVIDIA A100-SXM4-80GB, torch 2.11.0, `notebooks/sm1_gpu.ipynb` at commit
+`8b872e6`, run by Ahmad, one run. The archive of OMNI-708: 35,704 admitted frames of the 275 evaluation
+videos, no distractors. Exact search, every vector compared. `K` = 5 for each list and for the result
+(D-38). `datasets/eval/sm1_queries.csv` (SHA-256 `225da577...`) as committed before any search; classifier
+`c6d3b9a0...` (the repo's file with LF endings; the laptop's working copy has CRLF, so its own hash
+differs). SigLIP 2 `e8e48729...`, InternVideo2 `1f9fca13...`. Output: Drive
+`omnisight/results/sm1_result.json`, copied to `services/query/app/sm1_result.json`.
+
+| Recall@5 | Frame only | Clip only | Fused | Fused 0.5 / 0.5 | Chance |
+|---|---:|---:|---:|---:|---:|
+| **All (50)** | 74.0% | 46.0% | **60.0%** | 68.0% | 25.1% |
+| Scene (25) | 88.0% | 60.0% | 88.0% | 92.0% | 38.5% |
+| Action (25) | 60.0% | 32.0% | **32.0%** | 44.0% | 11.7% |
+| Action without the 2 carrying queries (23) | 56.5% | 26.1% | 26.1% | 39.1% | 4.9% |
+
+**Fail, both parts:** fused 60.0% against 85%, and on action queries fused is 28 points below frame only,
+not above it. No mode reaches 85%. No query changed, no weight tuned.
+
+**Why, from the stored result (no search rerun):**
+
+- **The fused top 5 is one list.** In all 50 queries every fused hit comes from the list with the larger
+  weight. The two lists share 0.44 of 5 hits on action queries and 0.04 on scene queries, and with `k0` 60
+  and `K` 5 a list's rank 5 beats the other's rank 1 from a weight of 0.516. The classifier gives `w_f`
+  0.17-0.31 on action queries and 0.63-0.79 on scene queries, so B.3 here chooses a list, it does not
+  blend two
+- **The classifier sends action queries to the weaker list.** Fused equals clip only on actions (32.0%)
+  and frame only on scenes (88.0%). 7 action queries found by frame only are lost by fused; fused
+  finds none that frame only misses
+- **The clip list is weak on actions, though above chance:** 26.1% against 4.9% without carrying. Of the
+  50, clip finds 1 that frame misses (`s25`); frame finds 15 that clip misses. OMNI-706's check said the same
+
+| Found, of the queries of each type | Queries | Frame | Clip | Fused | 0.5 / 0.5 | Chance |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 Loading | 2 | 0 | 0 | 0 | 0 | 2.0% |
+| 2 Unloading | 2 | 2 | 1 | 1 | 1 | 3.7% |
+| 3 Opening a trunk | 3 | 3 | 0 | 0 | 1 | 1.6% |
+| 4 Closing a trunk | 3 | 1 | 0 | 0 | 0 | 2.3% |
+| 5 Getting into a vehicle | 2 | 2 | 2 | 2 | 2 | 10.5% |
+| 6 Getting out of a vehicle | 2 | 2 | 2 | 2 | 2 | 10.6% |
+| 7 Gesturing | 2 | 0 | 0 | 0 | 0 | 7.8% |
+| 9 Carrying | 2 | 2 | 2 | 2 | 2 | 89.5% |
+| 10 Running | 2 | 0 | 0 | 0 | 0 | 1.9% |
+| 11 Entering a facility | 3 | 3 | 1 | 1 | 3 | 6.0% |
+| 12 Exiting a facility | 2 | 0 | 0 | 0 | 0 | 5.3% |
+
+**Preliminary:** one run (the search is exact, so a rerun gives the same list), 50 queries, 1 to 3 per type,
+written and labelled by one author with no second reader. One query is 2 points overall and 4 within a kind.
+
+**Not covered:** whether a hit shows the action: a frame counts by its time inside an event, so a frame-only
+hit on opening a trunk may be right by being near the car, not by seeing it open (frame only found opening
+3 of 3 and closing 1 of 3); K-23's effect (78.2% of events hold no motion frame) is not separated from the
+encoder's; other weights, `K` or encoders were not tried, because this set must not choose them. The set
+has now been seen: a later change needs other queries to be judged on.
+
+## D-40 · Tuning fused search on other queries (exploration, not SM-1) · 2026-10-31
+
+**Conditions:** this laptop, whole stack up, `scripts/tune_fusion.py`, one run. 50 new queries,
+`datasets/eval/sm1_dev_queries.csv`; text vectors from ai_workers on this CPU; OMNI-708's archive read from
+Drive, 35,704 frames, exact search. 205 settings. Output not committed. **Exploration: these numbers chose
+the settings, so they overstate them.** C's kind was right on all 50.
+
+| Recall@5, tuning set | All | Action | Scene | All, within 2 s |
+|---|---:|---:|---:|---:|
+| Frame only | 66% | 56% | 76% | 68% |
+| Clip only | 40% | 16% | 64% | 48% |
+| Fused, C's own weights, depth 5 (B.3 as written) | 46% | 16% | 76% | 54% |
+| **Chosen: depth 5, `w_f` action 0.6, scene 0.5** | **74%** | 56% | 92% | 76% |
+
+| Depth | C's own weights: all | Best weights: all | Best weights: action |
+|---:|---:|---:|---:|
+| 5 | 46% | 74% | 56% |
+| 20 | 56% | 72% | 52% |
+| 50 | 58% | 70% | 48% |
+| 100 | 60% | 70% | 52% |
+| 200 | 60% | 66% | 48% |
+
+**What it shows:** the weights matter, depth does not: longer lists help C's own weights but never reach
+depth 5 with better ones. **No setting of the 205 beats frame only on action queries (56%).** `w_f` 0.6 to 0.9
+on actions tie, so the rule took the one nearest 0.5. The whole gain over frame only is on scene queries.
+The 2 s margin moves the chosen setting by 2 points.
+
+**Not covered:** these queries were written by the same author as SM-1's, after seeing SM-1's result; text
+vectors from the CPU, not the GPU; the result on SM-1's queries (the next entry).
+
+## OMNI-713 · SM-1 on VIRAT, after D-40 · 2026-10-31
+
+**Conditions:** as the first run: A100, the same session, its encoders kept in memory, the new code pulled at
+commit `b867420` and reloaded (not a fresh runtime). The same archive, the same query file (SHA-256 equal), one
+run of the chosen setting on SM-1's queries. `w_f` action 0.6, scene 0.5, `K` 5. Output: Drive
+`omnisight/results/sm1_result_tuned.json`, copied to `services/query/app/sm1_result.json`; the first run's file
+stays on Drive and in git. Frame, clip and B.3 as written found exactly the same queries as in the first run.
+
+| Recall@5 | Frame only | Clip only | **Fused (the product)** | B.3 as written | Fused 0.5 / 0.5 | Chance | Fused, within 2 s | Frame only, within 2 s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **All (50)** | 74.0% | 46.0% | **76.0%** | 60.0% | 68.0% | 25.1% | 80.0% | 78.0% |
+| Scene (25) | 88.0% | 60.0% | **92.0%** | 88.0% | 92.0% | 38.5% | 92.0% | 88.0% |
+| Action (25) | 60.0% | 32.0% | **60.0%** | 32.0% | 44.0% | 11.7% | 68.0% | 68.0% |
+
+**Fail, both parts:** 76.0% against 85%, and no lift on action queries (+0.0).
+
+**What it shows:** fused gains 16 points on B.3 as written: 8 queries found now and not then (7 action, 1 scene),
+none lost. Against frame only it gains one query, `s25`, the one query clip finds and frame misses; 2 points on
+50 queries is not a difference to lean on. Action queries are frame only by construction (D-40). 12 queries are
+found by no mode: loading, gesturing, running and exiting a facility (all 8 of their queries), closing a trunk
+(2 of 3) and 2 scenes. Within 2 s closing a trunk is found 3 of 3 and no other type moves.
+
+**Not covered:** as the first run's entry. The weights were chosen on other queries, but the same author wrote
+them after seeing this set's first result. This set has now been used twice and should not be used for a
+further choice. The 2 s numbers are beside the strict ones, not the result.
+
+## OMNI-714 · NFR-2: search in under 3 s · 2026-10-31
+
+**Conditions:** this laptop (no GPU), whole stack up, no camera capturing, nothing encoding.
+`scripts/measure_nfr2.py`: the 50 queries of `sm1_queries.csv` as texts (relevance ignored), from the host
+through nginx and TLS, `k` 5, 3 rounds, 3 modes, 1,800 requests. `query` restarted before each mode and round,
+which empties its text cache, so `first` is uncached. The filters: camera 2446 and video 3226, the scopes D-39's
+screens use. Collections: `frame_vectors` 85 product points (K-27), `clip_vectors` 1,039.
+
+| ms, all 3 rounds | Client: p50 | p95 | **max** | Combined: p50 | p95 | **max** | Encode p50 | Search p50 | Fusion p50 | Join p50 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Frame, first | 992 | 1,461 | 1,720 | 90 | 134 | 167 | 904 | 13 | 0.0 | 5 |
+| Clip, first | 190 | 429 | 642 | 76 | 121 | 203 | 119 | 13 | 0.0 | 4 |
+| **Fused, first** | **1,138** | **1,616** | **2,021** | 108 | 160 | 217 | 1,049 | 24 | 0.4 | 4 |
+| Frame, repeated | 64 | 117 | 188 | | | | 0 | 9 | 0.0 | 4 |
+| Clip, repeated | 58 | 82 | 180 | | | | 0 | 10 | 0.0 | 3 |
+| Fused, repeated | 63 | 150 | 264 | | | | 0 | 17 | 0.3 | 3 |
+| Frame, camera / video filter | 54 / 52 | 86 / 75 | 193 / 107 | | | | 0 | 8 / 8 | 0.0 | 3 / 3 |
+| Clip, camera / video filter | 66 / 53 | 102 / 88 | 164 / 131 | | | | 0 | 11 / 7 | 0.0 | 3 / 3 |
+| Fused, camera / video filter | 55 / 62 | 78 / 90 | 104 / 250 | | | | 0 | 13 / 14 | 0.2 / 0.3 | 3 / 3 |
+
+**Combined (D-31):** the client's time with the laptop's encode replaced by OMNI-706's GPU text encode (L4: SigLIP 2
+13 ms, InternVideo2 7 ms). Not a run on a GPU.
+
+**Pass: 0 of 1,800 over 3 s, on the CPU as well as combined; 0 errors.** Nearly all the time on this laptop is
+SigLIP 2's text encode.
+
+**K-26, the first search after ai_workers sat idle** (since the tuning run, tens of minutes, not timed; not K-26's 2 h): one query, fused, 2.36 s,
+encode 2.04 s. K-26's 30 s did not appear; not settled. Under load it is slower: OMNI-712 saw 3 to 21 s while the
+test suite ran beside it, not measured.
+
+**Not covered:** a large collection (TC-4, OMNI-715); search while a camera captures or frames encode; more than
+one client at a time; a real GPU; the first request of a browser, only this script's.
+
+## OMNI-714 · NFR-1 complete: from capture, searchable · 2026-10-31
+
+**Conditions:** this laptop, whole stack up. `scripts/measure_nfr1.py --gpu`: one camera for 10 min, ai_workers' own
+`EmbedWorker` on the real embed queue (batch 8, wait 0.5 s) and the real Qdrant, into a scratch collection. **Its
+encoder is a stand-in that takes the GPU's measured time, 108 ms a frame (OMNI-706, L4), so this is the combined
+figure of D-31 and not a run on a GPU.** Capture, stored, batched and upserted are on one clock, the Docker VM's.
+
+| s | Frames | Capture to stored: max | Stored to batch closed: p50 / max | Encode and return: p50 / max | Upsert: max | **Capture to searchable: p50** | p95 | **max** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **`cam05`, 10 min** (210 motion, 571 heartbeat) | 784 of 784 | 0.80 | 0.53 / 2.56 | 0.52 / 1.54 | 0.07 | **1.06** | 3.14 | **3.35** |
+| `cam01`, 3 min (172 heartbeat, no motion) | 177 of 177 | 0.05 | 0.53 / 0.56 | 0.49 / 1.00 | 0.03 | 1.05 | 1.09 | 1.56 |
+
+No trend on `cam05`: first half p50 1.06, max 3.35; second half p50 1.06, max 3.27. 0 dropped, 0 dead-lettered.
+
+**Pass on the combined figure:** max 3.35 s against 5 s.
+
+**Where the time goes (K-31):** capture to stored is milliseconds. About 0.5 s is the batch's wait for no further job.
+Another 0.5 s or more, up to 1.5 s, is the step around a 108 ms encode: the worker checks that the encode finished
+only between its 1 s heartbeat services. Most of the 3 s tail is a burst: batches of 8 waiting behind each other.
+
+**Laptop's CPU, end to end (information, run 2026-11-01):** `scripts/measure_nfr1.py --cpu --seconds 20`, the real
+ai_workers and its real CPU encoder, into the real `frame_vectors`; a frame counts as searchable when its point is first
+seen. The first attempt (2026-10-31) was stopped for low memory (1.4 GB free); this run had about 2.4 GB free at the start
+and finished. The camera admitted 22 frames in its 22 s (5 motion, 17 heartbeat), 0 dropped; 31 frames were stored and 31
+got a point. Capture to stored max 0.17 s. **Capture to searchable: min 114.5 s, p50 170.8 s, p95 270.0 s, max 270.0 s.**
+That is 270 s for 31 frames, about 8.7 s a frame, the CPU encode of OMNI-704: the frames wait behind each other. So NFR-1
+is not met on this laptop's CPU, which is why D-31 judges it on the combined figure. One run, 20 s of capture.
+Not checked: why 31 frames were stored against 22 admitted in the camera's stats (the stats were read while the camera
+was still running, uptime 22 s).
+
+**Not covered:** the real encoder on a real GPU, with reading the JPEGs from disk inside the worker's loop (the
+108 ms includes it, the stand-in sleeps it); an A100; a heavy camera: `cam01` was to be the heavy case and now
+admits 1 frame a second, all heartbeat; several cameras (K-31); clip vectors, which cameras do not get (D-32), so
+a live frame is searchable by scene only; one run each.
+
+## OMNI-715 · TC-4: the VIRAT archive in both collections · 2026-11-01
+
+**Conditions:** this laptop, `scripts/measure_tc4.py`. All 35,704 admitted frames of the 275 VIRAT evaluation videos (OMNI-708), frame
+vectors (1152-D) and clip vectors (512-D), in scratch collections `frame_vectors_tc4` and `clip_vectors_tc4` (35,704 points each, loaded in
+127 s), then dropped. The 50 queries of `sm1_queries.csv`, 3 modes, 3 rounds, through the product's own search code (`ai_workers` text
+encode, both HNSW searches with the product's filter, `tuned_weights`, `fuse`, K = 5); the Postgres join is left out, archive frames have no
+`segments` row. Recall@5 by SM-1's answer rules. **Size: 35,704 frames, not 100,000 (D-37); 100,000 was not verified.** The CPU text encoder,
+no GPU; `ai_workers`, `query`, Qdrant and Postgres running, the other containers stopped to free memory.
+
+| Mode | Recall@5 | Scene | Action | Search + fusion: p50 / p95 / max |
+|---|---:|---:|---:|---|
+| frame | 72% | 88% | 56% | 0.022 / 0.051 / 0.171 s |
+| clip | 50% | 60% | 40% | 0.044 / 0.078 / 0.093 s |
+| **fused** | **74%** | 92% | 56% | 0.057 / 0.110 / 0.197 s |
+
+The same hits in all 3 rounds for every query and mode. **Fail:** fused recall@5 74% against 85%. It is 2 points under SM-1's 76.0% (D-40),
+which compared exactly; here Qdrant's HNSW answers, so one query moved. The fused list again adds nothing on actions (56%, as frame).
+
+**Latency:** the whole request (text encode included) took p50 / p95 / max: frame 0.023 / 1.09 / 10.9 s, clip 0.050 / 0.22 / 1.6 s, fused
+0.057 / 0.11 / 0.20 s. **The 10.9 s is the very first query (a01, frame mode): a 10.7 s text encode, the SigLIP 2 weights read back from
+disk (K-26), with a 0.17 s search.** After it, the slowest uncached frame encode was 1.7 s. So "every query under 3 s" is not met as measured,
+because of that one cold start; the search at this size is never above 0.2 s.
+
+**Not covered:** fused latency with an uncached encode: frame and clip modes ran first and cached every text, so all 150 fused runs were
+cached (NFR-2 measured fused uncached on the product's small collections: max 2.02 s); the GPU text encode (D-31); 100,000 embeddings; the
+Postgres join; concurrent searches; one run.

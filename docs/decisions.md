@@ -31,9 +31,21 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-23 | The SM-3 target rule, written before CCD's footage was measured | 2026-10-08 | Done (mTTA ≥ 1.80 s) |
 | D-24 | How lead-up windows are cut, and when an event gets none | 2026-10-09 | Done |
 | D-25 | Dataset footage enters through the upload function | 2026-10-09 | Done |
-| D-26 | Model measurements on Colab; the product holds only the hand-check sample | 2026-10-09 | Done |
+| D-26 | Model measurements on Colab; the product holds only the hand-check sample (and, since OMNI-702, a 9-video VIRAT demo sample) | 2026-10-09, 10-18 | Done |
 | D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
 | D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
+| D-29 | **Deviation:** `frame_vectors` point id = segment id (B.2 line 4); `captured_at` absolute for every source; payload times to the microsecond | 2026-10-19 | Done |
+| D-30 | The SigLIP 2 checkpoint (`google/siglip2-so400m-patch14-384` @ `e8e48729`), float32, lowercased text padded to 64 tokens | 2026-10-19 | Done |
+| D-31 | The encoder's speed is measured on a GPU (Colab); the laptop proves it works; NFR-1, NFR-2 = local stack times + GPU encode time | 2026-10-19 | Done |
+| D-32 | The laptop loads only InternVideo2's text side; clip vectors of the product's footage are made on Colab | 2026-10-28 | Done |
+| D-33 | **Deviation:** the InternVideo2 checkpoint (`OpenGVLab/InternVideo2_CLIP_S` @ `1f9fca13`), 512-D not 768, float32, its model code copied into the repo | 2026-10-28 | Done |
+| D-34 | Embed jobs: a frame's domain, and the model pin shared by every service | 2026-10-28 | Done |
+| D-35 | OMNI-705 is proved on one video; the archive is not backfilled | 2026-10-28 | Done |
+| D-36 | Search is open to operators, analysts and admins (Phase A), not operators and admins only (the ticket) | 2026-10-28 | Done |
+| D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
+| D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
+| D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
+| D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done |
 
 ---
 
@@ -577,6 +589,24 @@ It is a change to this sprint's plan (OMNI-608's "what goes in").
 5,065. The CCD retention on all 4,500 clips (K-4) is a property of Algorithm 1, not of the
 stack, so it moves to a Colab run of the same gate code.
 
+**Amended 2026-10-18 (OMNI-702): the product also holds a VIRAT demo sample.** Search
+(slice 7) needs real surveillance footage with people and vehicles to be demonstrated at
+all, and none of the 60 hand-check clips is VIRAT, Phase A's search dataset. So the
+product also holds **one VIRAT video per scene**, drawn once with seed 702 from the 275
+videos with events into `datasets/demo/virat_sample.csv`
+(`omnisight_common.datasets.demo`, `scripts/build_virat_demo_sample.py`) and loaded through
+D-25's path (`POST /datasets/virat/load`). SM-1 still runs on Colab over all 275.
+- **9 scenes, not 11.** Only videos the product accepts are eligible: a file over the
+  500 MB upload limit would be refused like any upload. Scenes `0000` (5 videos) and `0001`
+  (2) have none under it (642-1,608 MB, 9,075-29,580 frames each, also far past the 900 s
+  extraction timeout on this machine), so they are left out before the draw. The limits are
+  not raised for demo footage: D-25 tried that for the full load and reverted it the same
+  day. Decided with Ahmad. Those two scenes are searchable on Colab only
+- A first draw without the size rule (not committed) picked 1,456 MB and 1,111 MB videos for
+  scenes 0000 and 0001; the rule was added and the sample redrawn, which also changes the
+  other scenes' picks
+- The 9 videos: 1,120.6 MB, 23,057 frames in all (OMNI-608's probe), the largest 490.6 MB
+
 ## D-27 · The hand-check criterion, written before any window was checked · 2026-10-10
 
 **Why:** OMNI-609 checks 60 derived lead-up windows by eye (Phase A: "check a sample by
@@ -658,3 +688,328 @@ transaction, through the database rather than the consumer's code.
 **What it costs:** every insert into `segments` runs one extra upsert. Not measured against
 the consumer's throughput (OMNI-610 context). `storage_gb` counts only files that have a row:
 files left on disk with no row are invisible to it (K-21).
+
+## D-29 · `frame_vectors`: point id = segment id, an absolute `captured_at`, times to the microsecond · 2026-10-19
+
+**Deviation:** Appendix B.2 line 4 sets the identifier shared by a frame's entries to
+`frame_id = hash(camera_id, timestamp)`. An uploaded file has no camera, so two files would
+give their frames at the same second the same id, and one would overwrite the other. **The
+point id is the segment id** (`segments.id`): unique for every source, and the id slice 8's
+`clip_vectors` will use for the same frame, which is what line 4's identifier is for
+(matching a frame entry to its clip entry). It also makes a write idempotent: a redelivered
+message upserts the same point instead of adding a second (shown in TC-3, OMNI-703).
+
+**`captured_at` for every source.** The payload carries an absolute time so one filter
+covers cameras and files: a live frame's capture time (its `timestamp_s` is Unix time); for
+an uploaded file, which carries no wall-clock time, the upload time (`videos.created_at`)
+plus `timestamp_s`. RFC 3339 in UTC, to the microsecond, under a datetime payload index.
+A file's `captured_at` is therefore when it was uploaded, not when it was filmed.
+
+**`timestamp_s` in the payload is rounded to the microsecond.** Qdrant 1.19.1 did not read
+back exactly a float needing 17 significant digits: in TC-3's first run, 66 of 1,000 upload
+timestamps (frame index over 23.976 fps) came back one unit in the last place off
+(`results.md`, OMNI-703). Rounded to 6 decimals, a timestamp (up to Unix time) has at most
+16 digits, an integer below 2^53 over a power of ten, and round-trips exactly. `segments`
+keeps the full value; the payload differs from it by under half a microsecond.
+
+**Where:** `services/common/omnisight_common/frame_vectors.py`; Qdrant `v1.19.1` in
+`docker-compose.yml`, no host port, `infra/qdrant/production.yaml`.
+
+## D-30 · The SigLIP 2 checkpoint, pinned, and how it runs · 2026-10-19
+
+**The model:** `google/siglip2-so400m-patch14-384` at revision
+**`e8e487298228002f3d8a82e0cd5c8ea9c567f57f`** (Hugging Face, last modified 2025-02-21),
+1152-D image and text embeddings, Phase A's dimension. Pinned in `ai_workers` settings
+(`frame_model_id`, `frame_model_revision`); the same revision runs locally and on Colab.
+Changing either is a new model: stored vectors would no longer compare with new ones.
+
+**How it runs (`services/ai_workers/app/encoder.py`):**
+
+- `AutoModel` / `AutoProcessor`, **float32** on both machines, so local and Colab compute the
+  same numbers. The embedding is `get_image_features(...).pooler_output` /
+  `get_text_features(...).pooler_output` (transformers 5.20.1 returns an output object, not
+  a tensor), then L2-normalised; 1152 dimensions and unit length asserted on every batch
+- Frames are read from the stored full-frame JPEG (`frame_path`) and resized by the
+  checkpoint's own processor (384x384, bilinear, mean and std 0.5)
+- **Text:** lowercased and padded to `max_length=64` with truncation, as SigLIP 2 was trained.
+  The processor does neither by default in this version (a test shows it gives a shorter
+  sequence), so the encoder does both explicitly; pinned by `test_encoder.py`
+- **CPU wheels:** PyTorch comes from its CPU-only index for `ai_workers` (root
+  `pyproject.toml`), so the image carries no CUDA libraries (1.59 GB). Colab uses its own
+  GPU build of PyTorch with the same encoder code
+- **The checkpoint** sits in `models/pretrained/siglip2-so400m-patch14-384/` (never
+  committed), downloaded at the pinned revision if missing; a `REVISION` file says which
+  revision the folder holds, and a folder with another one is brought to the pinned one
+- **Warm-up at startup:** the weights are memory-mapped and read on first use. Without a
+  warm-up the first text query took 31.5 s; the service now encodes one blank image and one
+  text before `/health` reports it loaded
+
+**Not a Phase A deviation:** Phase A names SigLIP 2 and 1152 dimensions; the checkpoint,
+precision and text preparation are choices inside that.
+
+## D-31 · The encoder's speed is measured on a GPU (Colab); the laptop proves it works · 2026-10-19
+
+**Why:** Phase A puts the AI Workers on a GPU (§3.3.2: *"SigLIP 2 and InternVideo2 on GPU,
+horizontally scalable"*). This laptop has none: on its CPU SigLIP 2 takes about 9 s per frame
+(`results.md`, OMNI-704), slower than one camera's admitted frames arrive and longer than
+NFR-1's 5 s on its own. That number describes a machine Phase A did not design for, not the
+system. **Ahmad's decision.**
+
+**What changes:**
+
+- **On the laptop:** the encoder is checked for correctness only (TC-2: every admitted frame
+  gets a 1152-D unit vector, no error). Slow is acceptable there. Laptop CPU timings are kept
+  in `results.md` as "dev machine, no GPU", for information, never pass/fail
+- **On Colab's GPU:** the encoder's cost per frame (batch 1 and 8) and per query is
+  measured with the same code (`services/ai_workers/app/encoder.py`) and the same pinned
+  checkpoint (D-30)
+- **NFR-1 and NFR-2** (OMNI-708, OMNI-709): judged as the stack's own times measured
+  locally (capture, gate, queue, store, Qdrant, the API) plus the encode time measured on
+  the GPU, reported as a combined figure and labelled so. The laptop's end-to-end times with
+  CPU encoding are reported too, as information
+
+**GPU used (2026-10-28, Ahmad):** Colab's A100 is often not free and the runtime falls back
+to an **L4**. The timings are taken on whichever GPU the runtime gets, named in the result
+(OMNI-706 ran on an L4). An L4 is slower than an A100, so an L4 figure is an upper bound.
+
+**Revises:** OMNI-704's "measure on this machine" for the encoder's speed, and the sprint
+table's "NFR-1 and NFR-2 are system measurements" (D-26) for the encoding step only.
+The GPU measurement is done with OMNI-710 (the Colab ticket), on the same notebook run.
+
+## D-32 · The laptop loads only InternVideo2's text side · 2026-10-28
+
+**Ahmad's decision** (written in the sprint's ticket file on Wed 28, recorded here with
+OMNI-706). InternVideo2's video side does not belong on the laptop: with SigLIP 2 already
+taking about 4.2 GiB of Docker's 7.6 GiB, and SigLIP 2 already at 9 s a frame on this CPU,
+a second video model would not fit beside it and would be slower still. So:
+
+- **Clip vectors** of the product's footage (the 9 VIRAT videos, the 60 hand-check clips)
+  are encoded on Colab and imported from Drive (OMNI-708, OMNI-710)
+- **On the laptop,** a new upload or a camera gets a frame vector only; fused search ranks
+  it by the frame list alone (Algorithm 3 already gives a missing rank the value ∞)
+- **On a GPU machine** the same `ai_workers` code also encodes clips (`clip_encoder.py`,
+  `video=True`)
+- **ai_workers here** loads `ClipTextEncoder(video=False)`: the text tower's weights only
+
+**Measured** (`results.md`, OMNI-706): with both text encoders loaded, ai_workers' process
+is 3.84 GiB after 400 queries, 4.17 GiB at peak; InternVideo2's text takes 131 ms a query
+(median), SigLIP 2's 1,097 ms.
+
+**Not a Phase A deviation:** Phase A puts the AI Workers on a GPU (§3.3.2); this is where
+the laptop stands in for one.
+
+## D-33 · The InternVideo2 checkpoint, pinned, and how it runs · 2026-10-28
+
+**The model:** `OpenGVLab/InternVideo2_CLIP_S` at revision
+**`1f9fca1389fd883defc652634d95a21121c85a8c`** (Hugging Face, last modified 2025-05-22,
+Apache-2.0). Pinned in `CommonSettings` (`clip_model_id`, `clip_model_revision`), like
+SigLIP 2 (D-30, D-34): clip vectors are made on Colab and searched here with the text
+side, so both sides must be this exact revision.
+
+**Chosen by the ticket's three checks, not by name** (OpenGVLab's InternVideo2 checkpoints
+on Hugging Face, 2026-10-28):
+
+| Checkpoint | 8 frames at 224 | Dimension | Text side on the laptop | Result |
+|---|---|---|---|---|
+| `InternVideo2-Stage2_1B-224p-f4` | No: 4 frames (`f4`); gated, one 2.8 GB `.pt` | Not read (gated) | Not read (gated) | Fails the first check |
+| `InternVideo2-CLIP-1B-224p-f8` | Yes (`f8`) | Not read (gated) | Not checkable: gated, and the repository holds only a 14 MB `1B_clip.pth`, far too small to be the model, so the rest comes from elsewhere | Not one usable checkpoint |
+| `InternVideo2-Stage2_6B`, `InternVideo2-CLIP-6B-224p-f8` | — | — | A 6B model | Not checked further: too large |
+| `InternVideo2_distillation_models` | Yes (`f8`) | — | `stage1/`: video only, no text side; `clip/`: 2-9 MB files, heads only | No text side |
+| **`InternVideo2_CLIP_S`** | **Yes** (config `num_frames` 8, `img_size` 224; run) | **512** (run) | **63M parameters, 131 ms a query beside SigLIP 2** | **Passes all three** |
+
+Its video side is a 24-layer InternVideo2 ViT (1024 wide, patch 14, 309M parameters); its
+text side is MobileCLIP's text transformer (63M). It is a small InternVideo2 retrieval
+model, not the 1B or 6B the paper reports.
+
+**Deviation (dimension):** Phase A writes a 768-D clip embedding (Appendix B.2, line 3).
+This checkpoint's video features are 768-D, but the space where video and text meet is
+512-D (`vision_align` and the text projection), and only that space can be searched with a
+query. So `clip_vectors` is 512-D: the collection follows the model, as the ticket says.
+Confirmed by running it (one VIRAT clip and texts: 512-D, finite, norm 1.0).
+
+**How it runs (`services/ai_workers/app/clip_encoder.py`):**
+
+- **The model code is copied into the repo** (`services/ai_workers/app/internvideo2/`),
+  not run from the download. The checkpoint ships its code as `.py` files beside the
+  weights; running those means executing files downloaded from the internet (Claude Code's
+  permission check refused it), they could change upstream, and they import `flash_attn`,
+  which cannot be installed without CUDA. The copy is inference only: the flash-attention
+  and fused paths (the config turns them off), training-only parts and the image-only path
+  removed, module and parameter names unchanged. Only `config.json` and `model.safetensors`
+  are downloaded; every weight loads with every key matched (`strict=True`), and a test
+  checks no part of the checkpoint is left out (only the training temperature is unused)
+- **float32 on both machines** (the weights are stored half in float16), as D-30
+- **Frames:** `uniform_indices` is Algorithm 2's `uniform_subsample`: 8 frames, the middle
+  of each eighth of the span, as the checkpoint's own "middle" sampling; a span under 8
+  frames repeats its last frame. Each frame resized to 224 x 224 (bicubic, aspect ratio not
+  kept), scaled to [0, 1], ImageNet mean and std: the checkpoint's own transform
+- **Text:** open_clip's ViT-B-16 tokenizer, the one the checkpoint was trained with; it
+  lowercases and cleans the text itself; 77 tokens. Nothing added (a test shows upper and
+  lower case give the same vector)
+- **The checkpoint** sits in `models/pretrained/internvideo2-clip-s/` (never committed;
+  746 MB) and on Colab in `MyDrive/omnisight/models/pretrained/internvideo2-clip-s/`,
+  downloaded at the pinned revision if missing, with a `REVISION` file (D-30's
+  `ensure_checkpoint`)
+- **Licences:** InternVideo2's code Apache-2.0 (OpenGVLab); the text encoder Copyright
+  Apple Inc., MobileCLIP's licence; both named in the copied files
+
+**Checked on Colab** (`notebooks/encoders_gpu.ipynb`, NVIDIA L4; `results.md`, OMNI-706):
+the same vectors as on the laptop's CPU (one clip, similarity 0.0967 on both). **The motion
+check is weak:** 2 of 10 clips rank their own caption first, 4 of 10 a caption of their own
+type, and opening and closing a trunk are not told apart. Recorded as measured. The
+checkpoint is kept: it is the only one that passes the ticket's three checks, and search
+quality is judged by SM-1 (OMNI-713) with both streams fused, not by this 10-clip check.
+
+## D-34 · Embed jobs: a frame's domain, and the model pin shared by every service · 2026-10-28
+
+**A frame's domain** (`FramePayload.domain`, OMNI-703) is not stored on a segment. The
+embed job (OMNI-705) takes it from, in order: the live frame's camera, the video's camera,
+the dataset the video was loaded from (`dataset_manifest.domain`), and otherwise
+**`surveillance`**. A plain upload with no camera has no domain recorded anywhere; Phase A's
+main domain is surveillance. If uploads get a domain of their own later, the job takes it
+from there instead.
+
+**The pinned checkpoint moved to `CommonSettings`** (`frame_model_id`,
+`frame_model_revision`; values unchanged from D-30). ai_workers writes vectors of that model
+and query counts (and will search) only vectors of that model, so both read the same pin.
+
+**`frames_embedded` counts frames, not points:** an admitted frame counts when a point of
+the pinned model has its segment id. A point whose segment no longer exists (K-24) is not
+counted.
+
+**Not a Phase A deviation:** choices inside Algorithm 2's payload and storage.
+
+## D-35 · OMNI-705 is proved on one video; the archive is not backfilled · 2026-10-28
+
+**Ahmad's decision.** The ticket's goal is durability: every admitted frame reaches the
+encoder and ends with exactly one point, even through a kill. That is shown on one VIRAT
+video (3226, 44 frames; `results.md`, OMNI-705), not by encoding everything stored.
+
+**Revises** OMNI-705's backfill line ("queue every admitted segment ... the 60 hand-check
+clips, the 9 VIRAT videos") and its acceptance ("after the backfill, `frames_embedded =
+frames_total` for every video"). The stack holds 34,769 admitted frames, about 87 h on this
+CPU (K-25); the ticket's 2.5 h counted VIRAT only. The 60 hand-check clips (CCD and
+UCF-Crime) are not searched in this sprint, and SM-1 is measured on VIRAT only (OMNI-713, on
+Colab). The other VIRAT videos are queued when search needs them
+(`scripts/backfill_embeddings.py queue --only virat`, about 2.5 h); the rest when something
+needs it.
+
+## D-36 · Who may search: operators, analysts and admins · 2026-10-28
+
+**Why:** OMNI-707's ticket says *"Operator and admin"*. Phase A says *"Users (operators and
+analysts) upload video (Upload Video), search it in plain language"* (§3.4, use cases), and
+the analyst is the role that works with stored footage (`/windows` is analyst and admin,
+OMNI-609). Phase A is the spec, so `GET /search` takes all three roles; a request without a
+valid token is refused as on every route (NFR-7, tested).
+
+**Not a Phase A deviation:** it follows Phase A where the ticket did not.
+
+## D-37 · TC-4 runs on the VIRAT evaluation archive only, not 100,000 embeddings · 2026-10-29
+
+**Deviation. Ahmad's decision.** Phase A's TC-4 pre-loads both collections with at least
+100,000 embeddings. TC-4 runs instead on every admitted frame of the 275 VIRAT evaluation
+videos (OMNI-708), whatever count Algorithm 1 gives; no CCD or UCF-Crime distractors.
+
+**Why:** every vector costs a GPU encode of both streams, about 0.4 s a frame on Colab's L4
+(SigLIP 2 about 110 ms, InternVideo2 about 300 ms; `results.md`, OMNI-706), so 100,000 is
+about 11 GPU hours. The gate keeps about 1.3 frames a second of VIRAT video (1,039 from 13.5
+min, OMNI-702), so the evaluation set is estimated at about 30,000 frames (an estimate from
+9 videos; OMNI-708 records the real count). The other ~70,000 would be distractors with no
+correct answers, most of the GPU time, and add nothing to SM-1.
+
+**What stays:** TC-4's pass rule (fused recall@5 at least 85%, every query under 3 s) and
+its queries (the SM-1 set). Every vector is real and every query has ground truth.
+
+**What is lost:** search speed is shown at the VIRAT archive's size, not at 100,000; TC-4's
+row in `results.md` states the size it ran at and that 100,000 was not verified.
+
+## D-38 · Algorithm 3's modality classifier · 2026-10-30
+
+**Why:** B.3 line 1 is `(w_f, w_c) <- C(q)`, softmax weights; §3.5.3 calls C *"a small classifier"*
+and says no more. The ticket numbered this D-34, which OMNI-705 had already taken.
+
+**What C is:** logistic regression on the query's SigLIP 2 text vector (1152-D), scikit-learn's
+defaults, nothing searched for. A two-class logistic regression is a softmax over the logits
+`(z, 0)`, so `w_f` is the probability of *scene* and `w_c = 1 - w_f` of *action*. Trained on
+`datasets/eval/modality_train.csv` (100 queries, none in the SM-1 set) by
+`scripts/train_modality_classifier.py`; 98.0% in 5-fold cross-validation (`results.md`).
+
+**Where it runs:** the coefficients are `omnisight_common/modality_classifier.json` (25 KB),
+versioned in the repo with the text encoder's pin and the training file's SHA-256. Computing the
+weights is one dot product, so `fusion.py` needs no scikit-learn or PyTorch, and query and Colab
+run the same code. scikit-learn is only in the dev group, for training. Only `ai_workers` loads
+an encoder, as before: C reads the vector ai_workers gave. A file of another text encoder is
+refused, a 503 in the product.
+
+**Equal scores:** B.3 line 9 does not order them. They come out by segment id, so the same query
+always gives the same answer. Not a step of the ranking: it only decides what B.3 leaves open.
+
+**Not a Phase A deviation:** Phase A names a classifier and its output, not its kind. Fusion
+follows B.3 line by line, with `K` both the size of each list and of the result.
+
+## D-39 · **Deviation:** search lives inside the player and the camera viewer · 2026-10-31
+
+**Ahmad's decision,** during OMNI-712. No Search page and no Search entry in the nav. A user
+searches one piece of footage where they are watching it:
+
+- **An uploaded video:** a search box under the player, on that video only. A result moves the
+  player to that second
+- **A camera:** a Search view in the enlarged live viewer, on that camera's stored frames, any
+  day through a date range. A result opens that frame
+
+**Departs from:** the product document's Search screen (Phase A Appendix, *"Users find moments by
+typing a plain-language query; results are ranked clips with their camera, timestamp, and match
+score"*), and OMNI-712's camera filter and nav lines. FR-4 (*"search for the stored video"*) and
+FR-9 (*"search for videos"*) are now met per video or per camera; **no screen searches across the
+archive.**
+
+**Kept:** `GET /search` without a scope still searches everything, so SM-1 (OMNI-713, on Colab),
+NFR-2 (OMNI-714) and TC-4 (OMNI-715) are measured as Phase A writes them. `video_id` is one more
+filter inside both vector searches, on the payload index from OMNI-703.
+
+**What it cannot do on this laptop (not hidden on the screen, which shows *searchable so far: N
+of M frames by scene, C by action*):**
+
+- New footage gets scene vectors only (D-32) at about 9 s a frame (K-25), so a new upload fills
+  in over minutes and a running camera falls behind; Action finds nothing there
+- A camera stores admitted frames, never a recording: nothing in ingestion creates a camera
+  video. So a camera hit opens a still frame, not playback at that second (K-29)
+- Stored footage not encoded (D-35, K-27) shows 0 scene vectors until it is
+
+**Upload now starts extraction.** The Video Archive's upload never called `POST
+/videos/{id}/extract`, so an upload had no frames, no vectors and nothing to search. The screen
+now calls it right after a successful upload; the API's own upload route is unchanged.
+
+**Open:** OMNI-716's comparison view and OMNI-717's demo were written *"from the search screen"*.
+The comparison belongs in the video player, on one video.
+
+## D-40 · **Deviation:** fixed weights per kind of query in fused search · 2026-10-31
+
+**Ahmad's decision,** after SM-1 failed (OMNI-713, K-30): improve the results with the two pinned models,
+85% not required; no model changes. **Departs from** Appendix B.3 line 1, *`(w_f, w_c) <- C(q)`*: C still
+says what the query describes, but the weights are `tuned_weights`: `w_f` 0.5 for a scene, 0.6 for an action.
+
+**Why:** with C's own weights every action query went to the clip list, the weaker one, and fused fell to
+32.0% on actions against frame only's 60.0%.
+
+**How it was chosen:** `datasets/eval/sm1_dev_queries.csv`, 50 new queries, written and fixed before any
+search, none in the SM-1 set or C's training set. `scripts/tune_fusion.py`, 205 settings: list depth 5, 20,
+50, 100, 200 and `w_f` per kind, on the same archive and labels. Best overall recall, then actions, then
+the shallower list, then the weights nearest 0.5. The numbers are in `results.md`; they flatter the choice,
+as any choice among 205 on 50 queries does, so the result is the run on SM-1's queries. SM-1's queries
+were not read, but the idea came from studying their first result: stated, not hidden.
+
+**What it does, plainly:** above 0.516 a list takes the whole top 5 when the lists share nothing, so on action
+queries the search is frame only in all but the order, and the clip list adds nothing there. No setting
+of the 205 beat frame only on action queries, so **SM-1's lift on actions stays unmet.** The clip list does
+help on scene queries, in the even blend.
+
+**Also tried and not taken:** longer candidate lists, the expected fix: each depth above 5 scored lower at
+its best. `K` stays 5 (D-38) and `k0` stays B.3's 60.
+
+**The 2 s margin:** a hit within 2 s of an event is reported beside the strict number, never instead of it.
+`fused_classifier` stays in the result, so B.3 as written is still shown beside the product's search.
+
+**Result on SM-1's queries:** 76.0% (B.3 as written 60.0%, frame only 74.0%); actions 60.0%, no lift; scenes
+92.0%. SM-1 still fails on both parts; the target is not revised here (`results.md`, K-30).
+

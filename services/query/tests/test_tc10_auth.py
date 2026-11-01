@@ -131,7 +131,11 @@ def test_expired_token_returns_401(path):
 
 @pytest.mark.parametrize("path", PROTECTED_GET_ROUTES)
 def test_tampered_token_returns_401(path, operator_token):
-    tampered = operator_token[:-1] + ("A" if operator_token[-1] != "A" else "B")
+    # Change a character in the middle of the signature, not the last one: the
+    # last base64url character of an HS256 signature carries 2 unused bits, so
+    # swapping "A" for "B" there decodes to the same signature (K-22).
+    i = operator_token.rindex(".") + 20
+    tampered = operator_token[:i] + ("A" if operator_token[i] != "A" else "B") + operator_token[i + 1 :]
     resp = client.get(path, headers={"Authorization": f"Bearer {tampered}"})
     assert resp.status_code == 401
 

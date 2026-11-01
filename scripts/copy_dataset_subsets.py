@@ -1,7 +1,8 @@
 """Copy the dataset clips the product loads from Drive into the local mirror (OMNI-608, D-26).
 
-Reads `datasets/hand_check/sample.csv` (the 60 clips of the hand-check sample, the only
-dataset footage loaded) and copies each file from the Drive folder, mounted locally by
+Reads `datasets/hand_check/sample.csv` (the 60 clips of the hand-check sample) and
+`datasets/demo/virat_sample.csv` (the 9 VIRAT demo videos, OMNI-702), the only dataset
+footage loaded, and copies each file from the Drive folder, mounted locally by
 Google Drive for desktop, to `data/<dataset>/<video_relpath>`, native paths kept. A file
 already present with Drive's size is skipped, so the copy can be stopped and run again.
 Each file is written under a `.part` name and renamed once its size equals Drive's.
@@ -17,11 +18,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
-SAMPLE = ROOT / "datasets" / "hand_check" / "sample.csv"
+SAMPLES = (ROOT / "datasets" / "hand_check" / "sample.csv", ROOT / "datasets" / "demo" / "virat_sample.csv")
 
 
 def main(drive: Path) -> int:
-    rows = [ln.split(",") for ln in SAMPLE.read_text(encoding="utf-8").splitlines()[1:]]
+    rows = [ln.split(",") for sample in SAMPLES for ln in sample.read_text(encoding="utf-8").splitlines()[1:]]
     copied = skipped = 0
     bad: list[str] = []
     for dataset, _, relpath, *_ in rows:

@@ -708,6 +708,42 @@ def test_no_frame_is_lost_or_counted_twice_across_a_reconnection(tmp_path):
     assert max(indexes) >= 25  # frames from after the gap are numbered on from before it
 
 
+def test_a_stop_right_after_a_reconnection_opens_still_counts_the_frame_read_to_prove_it(tmp_path):
+    """K-14, made deterministic: the worker is stopped in the instant between
+    `_open_stream` reading its proving frame and the read loop taking it. That
+    frame was delivered, so it is counted, decoded and gated like any other."""
+    clock = FakeClock()
+    publisher = FakePublisher()
+    worker = None
+    opened: list[FakeCapture] = []
+
+    class StopsTheWorkerOnItsFirstFrame(FakeCapture):
+        def grab(self):
+            delivered = super().grab()
+            worker._stop.set()  # what `stop()` does first, at this exact instant
+            return delivered
+
+    def open_capture():
+        first = not opened
+        capture = (FakeCapture(clock, frames=10) if first
+                   else StopsTheWorkerOnItsFirstFrame(clock, frames=10))
+        opened.append(capture)
+        return capture
+
+    worker = _worker(
+        tmp_path, clock, type("Opener", (), {"open": staticmethod(open_capture)})(), publisher,
+        backoff=live.Backoff(1.0, 30.0, jitter=0.0), wait=_fast_wait(clock),
+    )
+
+    worker.start(WAIT_S)
+    assert _until(lambda: len(opened) == 2 and worker._capture_done.is_set())
+    worker.stop(WAIT_S)
+
+    assert [capture.delivered for capture in opened] == [10, 1]
+    assert worker.grabbed == 11
+    assert worker.gated == worker.captured == worker.grabbed
+
+
 def test_every_stream_it_opened_is_released(tmp_path):
     clock = FakeClock()
     script = Script(clock, [{"frames": 10}, {"open_ok": False}, {"frames": 10}, {}])

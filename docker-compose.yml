@@ -26,7 +26,11 @@ services:
     environment:
       POSTGRES_HOST: postgres
       INGESTION_BASE_URL: http://ingestion:8000
+      # OMNI-707: search asks ai_workers for the query's vector. Not in depends_on: the
+      # model takes minutes to load, and everything but search works without it.
+      AI_WORKERS_BASE_URL: http://ai-workers:8000
       RABBITMQ_HOST: rabbitmq
+      QDRANT_HOST: qdrant
     ports:
       - "8000:8000"
     volumes:
@@ -46,11 +50,15 @@ services:
       - ./data:/datasets:ro
       # D-26: which dataset clips are loaded (the hand-check sample, committed).
       - ./datasets/hand_check:/hand_check:ro
+      # OMNI-702: the VIRAT demo sample (committed), the VIRAT clips loaded to search.
+      - ./datasets/demo:/demo:ro
     depends_on:
       postgres:
         condition: service_healthy
       ingestion:
         condition: service_started
+      qdrant:
+        condition: service_healthy
 
   # No port published and no nginx route — nothing outside the Docker network
   # can reach this service. Query is the only caller.
@@ -100,6 +108,68 @@ services:
       interval: 10s
       timeout: 10s
       retries: 6
+
+  # OMNI-703: the vector store (Phase A §3.3). Holds `frame_vectors`, one point per
+  # admitted frame, created by query at startup (omnisight_common.frame_vectors).
+  # No port published: only services inside the Docker network reach it. Pinned
+  # to the version `qdrant-client` in uv.lock was released with.
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    restart: unless-stopped
+    volumes:
+      - ./infra/qdrant/production.yaml:/qdrant/config/production.yaml:ro
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # The image has no curl or wget; bash's /dev/tcp asks /readyz instead.
+      test:
+        [
+          "CMD", "bash", "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # OMNI-704: the only service with PyTorch and a model. SigLIP 2 (Algorithm 2's frame
+  # encoder) on the CPU; query asks it to encode a search query (POST /encode/text).
+  # No port published and no nginx route. The checkpoint lives in models/pretrained/
+  # (never committed) and is downloaded there at the pinned revision if missing.
+  # OMNI-705: it also consumes `omnisight.embed` (one job per admitted frame, published
+  # by the consumers) and writes each frame's point to Qdrant.
+  ai-workers:
+    build:
+      context: .
+      dockerfile: services/ai_workers/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FRAME_MODEL_DIR: /models/pretrained/siglip2-so400m-patch14-384
+      CLIP_MODEL_DIR: /models/pretrained/internvideo2-clip-s
+      RABBITMQ_HOST: rabbitmq
+      QDRANT_HOST: qdrant
+    volumes:
+      - ./services/common:/workspace/services/common
+      - ./services/ai_workers:/workspace/services/ai_workers
+      # Frames are encoded from the stored full-frame JPEG (`frame_path`), read-only.
+      - frame_storage:/data/frames:ro
+      - ./models/pretrained:/models/pretrained
+    healthcheck:
+      test:
+        [
+          "CMD", "/workspace/.venv/bin/python", "-c",
+          "import json,urllib.request,sys;sys.exit(0 if json.load(urllib.request.urlopen('http://localhost:8000/health'))['loaded'] else 1)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # Loading the checkpoint takes a while; a first start also downloads it.
+      start_period: 600s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
 
   # OMNI-311: reads segments off the queue and writes the rows. The query
   # image with a different command, so it can be killed and restarted without
@@ -218,3 +288,5 @@ volumes:
   preview_storage:
   # OMNI-311: queued messages must outlive the container, not just a restart.
   rabbitmq_data:
+  # OMNI-703: the vectors, which must outlive the container like the rows do.
+  qdrant_data:
