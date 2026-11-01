@@ -1064,3 +1064,38 @@ VIRAT evaluation archive (35,704 frames). The pass rule stayed: fused recall@5 a
 
 TC-4 fails on recall: fused 74% against 85% (K-30, the same cause as SM-1). Search over 35,704 frames takes at most 0.2 s, but the first query
 after the idle took 10.9 s (K-26). Preliminary: one machine, one run, D-37's size.
+
+---
+
+## OMNI-716 · Comparison view: one query, three ways
+
+### Why this ticket exists
+
+*The improvement visible, not asserted.* One query answered as Scene, Action and Combined side by side, each hit with its rank and what
+matched it; a click opens playback at that second.
+
+### What was done
+
+- **Where:** the ticket said "from the search screen". That screen is gone (D-39, which left this open: "the comparison belongs in the video
+  player, on one video"). So it is a **Compare** button in `frontend/src/components/moment-search.tsx`, the panel under the video player
+- **How:** with Compare on, the mode switch is hidden and the same query goes out in all three modes at once (`Promise.all` over the existing
+  `GET /search`, no API change). Three columns (one on a narrow screen), each with its mode, result count and time; each hit shows `#rank`,
+  its time, a Scene / Action / Scene + action badge and its score. Clicking a hit seeks the player, as before. Date filters, the "searchable so
+  far" line and the newest-search-wins rule work as before. Turning Compare off returns to the single list
+- The live viewer uses the same panel, so it has Compare too (a click there opens the stored frame, K-29)
+
+### Verification performed
+
+- `tsc`: no errors in `src` (the only errors are in generated `.next/dev/types/validator.ts`); ESLint clean on the file
+- `frontend` and `nginx` restarted so the dev server serves the new code (OMNI-712's detour); `https://localhost/` answers 200
+
+### Not verified
+
+- **Not seen in a browser:** the Claude in Chrome extension was not connected. The three columns, the click-to-seek and the acceptance query
+  *"a person closing the trunk of a car"* on one screen still need a look at `https://localhost`, on a video with vectors (for example 3226)
+- No test file for the component (the frontend has none for the search panel either)
+
+### Result
+
+Built and type-checked; not yet seen running. Boxes in the ticket stay open until it is.
+

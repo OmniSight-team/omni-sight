@@ -37,8 +37,23 @@ not active right now, so Ahmad works alone.
   (sampling, skipping frames, shortcuts for speed) and do not drop steps it has.
 - Any departure from Phase A, however small, is written in `docs/decisions.md` as a
   **Deviation** with its reason and evidence, and Ahmad is told. Never silently.
-- Never invent a target number. If a Phase A target is unreachable, measure why and record
-  the revision in `docs/decisions.md` (example: D-1/D-2, DoTA replaced by CCD and SM-3 revised).
+- Do not make up a measured number. If a Phase A target is unreachable, record the revision in
+  `docs/decisions.md` (example: D-1/D-2, DoTA replaced by CCD and SM-3 revised); see "How strict to be".
+
+## How strict to be (Ahmad's decision, 2026-11-01)
+
+This is a BSc capstone, not a publication. The poster is shown to the college lecturers only. The
+Phase A targets (85%, 3 s, 5 s, 100,000...) were our own choices, not scientifically derived, and we
+wrote Phase A ourselves, so **changing any of it is allowed**.
+
+- Do not be strict about measurements and pass/fail. Reasonable, honest numbers are enough: no need for
+  many repeats, big samples or heavy caveats. A failed target is not a blocker: say it in one line,
+  suggest revising the target or moving on, and do not stop the sprint over it.
+- When a target is out of reach, propose the revision (one recommendation) instead of stopping to ask.
+  Still write it in `docs/decisions.md` with a short reason, and still report the real number. Never
+  fake a result.
+- Still say a change from Phase A in one or two sentences, so Ahmad knows. Informing him stays; blocking
+  on it does not.
 
 ## Before starting any work
 

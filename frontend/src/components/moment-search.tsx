@@ -60,7 +60,7 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
   );
 }
 
-function HitCard({ hit, onPick }: { hit: SearchHit; onPick: (hit: SearchHit) => void }) {
+function HitCard({ hit, rank, onPick }: { hit: SearchHit; rank?: number; onPick: (hit: SearchHit) => void }) {
   return (
     <button
       type="button"
@@ -76,6 +76,7 @@ function HitCard({ hit, onPick }: { hit: SearchHit; onPick: (hit: SearchHit) => 
       </div>
       <div className="space-y-1 px-2 py-2 text-xs text-zinc-500 dark:text-zinc-400">
         <p className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
+          {rank !== undefined && <span className="mr-1.5 text-indigo-600 dark:text-indigo-400">#{rank}</span>}
           {hit.video_id === null ? new Date(hit.captured_at).toLocaleString() : `At ${formatPosition(hit.timestamp_s)}`}
         </p>
         <div className="flex items-center justify-between gap-2">
@@ -116,6 +117,9 @@ export function MomentSearch({
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
+  // Comparison (OMNI-716): the same query answered in all three modes, side by side.
+  const [compare, setCompare] = useState(false);
+  const [columns, setColumns] = useState<Record<SearchMode, SearchResponse> | null>(null);
   // Only the newest search may show its answer: an older, slower one is ignored.
   const latest = useRef(0);
   const scopeKey = JSON.stringify(scope);
@@ -145,12 +149,30 @@ export function MomentSearch({
     };
   }, [scopeKey]);
 
-  async function run(text: string, nextMode: SearchMode, nextFrom: string, nextTo: string) {
+  async function run(text: string, nextMode: SearchMode, nextFrom: string, nextTo: string, comparing = compare) {
     if (!text) return;
     const ticket = ++latest.current;
     setQuery(text);
     setRunning(true);
     try {
+      if (comparing) {
+        const scope = JSON.parse(scopeKey) as SearchScope;
+        const [frame, clip, fused] = await Promise.all(
+          MODES.map((option) =>
+            searchMoments({
+              q: text,
+              mode: option.value,
+              ...scope,
+              from: nextFrom ? dayStart(nextFrom) : undefined,
+              to: nextTo ? dayEnd(nextTo) : undefined,
+            }),
+          ),
+        );
+        if (ticket !== latest.current) return;
+        setColumns({ frame, clip, fused });
+        setError(null);
+        return;
+      }
       const answer = await searchMoments({
         q: text,
         mode: nextMode,
@@ -198,6 +220,7 @@ export function MomentSearch({
       </form>
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+        {!compare && (
         <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800">
           {MODES.map((option) => (
             <button
@@ -218,6 +241,23 @@ export function MomentSearch({
             </button>
           ))}
         </div>
+        )}
+        <button
+          type="button"
+          aria-pressed={compare}
+          onClick={() => {
+            const next = !compare;
+            setCompare(next);
+            void run(query, mode, from, to, next);
+          }}
+          className={`rounded-lg border px-3 py-1 font-medium transition ${
+            compare
+              ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+              : "border-zinc-200 text-zinc-500 hover:text-zinc-900 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+          }`}
+        >
+          Compare
+        </button>
         {withDates && (
           <>
             <label className="flex items-center gap-1.5">
@@ -266,7 +306,36 @@ export function MomentSearch({
           </p>
         ))}
 
-      {!running && response && (
+      {!running && compare && columns && (
+        <div className="grid gap-4 md:grid-cols-3">
+          {MODES.map((option) => {
+            const column = columns[option.value];
+            return (
+              <div key={option.value} className="space-y-2">
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                  {option.label}
+                  <span className="ml-2 font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
+                    {column.total} result{column.total === 1 ? "" : "s"} in {(column.elapsed_ms / 1000).toFixed(2)} s
+                  </span>
+                </p>
+                {column.results.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {column.results.map((hit, index) => (
+                      <HitCard key={hit.segment_id} hit={hit} rank={index + 1} onPick={onPick} />
+                    ))}
+                  </div>
+                ) : (
+                  <Notice title="No results">
+                    {column.message ?? "Nothing here matched this search."}
+                  </Notice>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!running && !compare && response && (
         <>
           <p className="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
             {response.total} result{response.total === 1 ? "" : "s"} in {(response.elapsed_ms / 1000).toFixed(2)} s
