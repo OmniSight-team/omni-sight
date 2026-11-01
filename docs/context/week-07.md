@@ -1028,3 +1028,39 @@ the CPU encode). NFR-1 fails on this laptop's CPU, as D-31 expected; the informa
 
 NFR-2 passes, on the CPU too. NFR-1 passes on the combined figure, labelled so, at 3.35 s; on this laptop's CPU it does
 not (8.7-9.3 s a frame). Both preliminary: one machine, one camera, small collections.
+
+---
+
+## OMNI-715 · TC-4: the VIRAT archive in both collections
+
+### Why this ticket exists
+
+TC-4: both collections loaded, plain-language queries over scenes and actions, latency and recall@5 together. D-37 shrank the size to the
+VIRAT evaluation archive (35,704 frames). The pass rule stayed: fused recall@5 at least 85%, every query under 3 s.
+
+### What was done
+
+- **Said before building:** SM-1 had already measured fused at 76% on the same queries (K-30), so TC-4's recall rule was not expected to pass
+- **`scripts/measure_tc4.py`:** loads the archive's vectors into `frame_vectors_tc4` and `clip_vectors_tc4`, runs the 50 SM-1 queries in 3 modes
+  and 3 rounds through `app.search`'s own text encode, filter, weights and `fuse` (it replaces the module's two `Stream` collections by the scratch
+  ones), and drops the collections. It runs inside `query` like `import_clip_vectors.py`, with the labels built on the host by
+  `measure_sm1.load_archive`. `scripts/tests/test_measure_tc4.py`: 4 tests of the arithmetic
+- Memory was 1.4 GB free, the level that stopped OMNI-714's `--cpu` run; `frontend`, `nginx`, `ingestion`, `mediamtx`, `consumer` and
+  `consumer-live` were stopped (2.3 GB free) and the run went through
+
+### Verification performed
+
+- The run finished: 35,704 points in each scratch collection, 50 queries x 3 modes x 3 rounds, the same hits every round; afterwards only
+  `frame_vectors` and `clip_vectors` remain in Qdrant
+- 4 script tests pass
+
+### Not verified
+
+- Fused latency with an uncached encode (every fused text was cached by the earlier modes), the GPU text encode, 100,000 embeddings, the
+  join, concurrent searches. See `results.md`
+- The full suite was not rerun: only a script, its test and docs changed
+
+### Result
+
+TC-4 fails on recall: fused 74% against 85% (K-30, the same cause as SM-1). Search over 35,704 frames takes at most 0.2 s, but the first query
+after the idle took 10.9 s (K-26). Preliminary: one machine, one run, D-37's size.

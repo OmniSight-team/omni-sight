@@ -49,6 +49,7 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
 | NFR-1, complete (combined figure, D-31) | From capture, searchable in under 5 s | One camera (`cam05`), 10 min, 784 frames, the real queue, batching and Qdrant, the encode at the GPU's measured 108 ms a frame (L4): p50 1.06 s, p95 3.14 s, **max 3.35 s**, no trend, none lost. On this laptop's CPU encoder, end to end (information, 20 s of capture, 31 frames): p50 170.8 s, max 270.0 s, so it fails there | **Pass** on the combined figure (preliminary: one camera, one run, GPU time not run live); laptop CPU run is information only | 2026-10-31 | OMNI-714 |
 | NFR-2 | Search results in under 3 s | 1,800 requests through nginx, 50 queries, 3 rounds, 3 modes, on the product's vectors: fused uncached on this CPU p50 1.14 s, p95 1.62 s, **max 2.02 s**; combined figure (GPU text, D-31) max 217 ms; repeated or filtered about 55-65 ms, max 264 ms; 0 errors | **Pass**, on the CPU too (preliminary: one machine, small collections; TC-4 is the large one) | 2026-10-31 | OMNI-714 |
+| TC-4 (D-37: VIRAT archive, 35,704 frames, not 100,000) | Both collections loaded; plain-language search; fused recall@5 at least 85% and every query under 3 s | 35,704 frames of 275 videos in both scratch collections, 50 SM-1 queries, 3 rounds, the product's own search code, no Postgres join: fused recall@5 **74%** (scene 92%, action 56%); frame 72%, clip 50%. Search + fusion max 0.20 s; slowest query **10.9 s**, the first one, a cold text encoder (K-26) | **Fail** on recall (74% against 85%, K-30); latency met except that one cold query (preliminary: one machine, one run; 100,000 not verified, D-37) | 2026-11-01 | OMNI-715 |
 | SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Fail** on both (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
@@ -2357,3 +2358,30 @@ was still running, uptime 22 s).
 108 ms includes it, the stand-in sleeps it); an A100; a heavy camera: `cam01` was to be the heavy case and now
 admits 1 frame a second, all heartbeat; several cameras (K-31); clip vectors, which cameras do not get (D-32), so
 a live frame is searchable by scene only; one run each.
+
+## OMNI-715 · TC-4: the VIRAT archive in both collections · 2026-11-01
+
+**Conditions:** this laptop, `scripts/measure_tc4.py`. All 35,704 admitted frames of the 275 VIRAT evaluation videos (OMNI-708), frame
+vectors (1152-D) and clip vectors (512-D), in scratch collections `frame_vectors_tc4` and `clip_vectors_tc4` (35,704 points each, loaded in
+127 s), then dropped. The 50 queries of `sm1_queries.csv`, 3 modes, 3 rounds, through the product's own search code (`ai_workers` text
+encode, both HNSW searches with the product's filter, `tuned_weights`, `fuse`, K = 5); the Postgres join is left out, archive frames have no
+`segments` row. Recall@5 by SM-1's answer rules. **Size: 35,704 frames, not 100,000 (D-37); 100,000 was not verified.** The CPU text encoder,
+no GPU; `ai_workers`, `query`, Qdrant and Postgres running, the other containers stopped to free memory.
+
+| Mode | Recall@5 | Scene | Action | Search + fusion: p50 / p95 / max |
+|---|---:|---:|---:|---|
+| frame | 72% | 88% | 56% | 0.022 / 0.051 / 0.171 s |
+| clip | 50% | 60% | 40% | 0.044 / 0.078 / 0.093 s |
+| **fused** | **74%** | 92% | 56% | 0.057 / 0.110 / 0.197 s |
+
+The same hits in all 3 rounds for every query and mode. **Fail:** fused recall@5 74% against 85%. It is 2 points under SM-1's 76.0% (D-40),
+which compared exactly; here Qdrant's HNSW answers, so one query moved. The fused list again adds nothing on actions (56%, as frame).
+
+**Latency:** the whole request (text encode included) took p50 / p95 / max: frame 0.023 / 1.09 / 10.9 s, clip 0.050 / 0.22 / 1.6 s, fused
+0.057 / 0.11 / 0.20 s. **The 10.9 s is the very first query (a01, frame mode): a 10.7 s text encode, the SigLIP 2 weights read back from
+disk (K-26), with a 0.17 s search.** After it, the slowest uncached frame encode was 1.7 s. So "every query under 3 s" is not met as measured,
+because of that one cold start; the search at this size is never above 0.2 s.
+
+**Not covered:** fused latency with an uncached encode: frame and clip modes ran first and cached every text, so all 150 fused runs were
+cached (NFR-2 measured fused uncached on the product's small collections: max 2.02 s); the GPU text encode (D-31); 100,000 embeddings; the
+Postgres join; concurrent searches; one run.

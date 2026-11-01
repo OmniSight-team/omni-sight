@@ -215,6 +215,8 @@ weights into memory instead of mapping them (about 4 GiB held, D-32's budget all
 Measure first in OMNI-714, where NFR-2 is judged.
 **Measured 2026-10-31 (OMNI-714):** after tens of minutes idle (not timed), one fused query took 2.36 s, under NFR-2's 3 s.
 The 30 s did not appear, but the idle was shorter than the 2 h that showed it, so this stays open.
+**Seen again 2026-11-01 (OMNI-715):** the first query after the stack was started took a 10.7 s text encode (SigLIP 2),
+then about 1.3-1.7 s uncached; that one query made TC-4's slowest 10.9 s, over its 3 s. Still open.
 
 ## K-25 · The embed queue cannot keep up on this laptop
 

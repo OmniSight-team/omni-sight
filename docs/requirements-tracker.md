@@ -55,7 +55,7 @@ not been reviewed yet.
 | TC-1 | A live feed and an uploaded file at once; only frames with motion forwarded (FR-1a, FR-1b) | OMNI-316 (first half); OMNI-511 (complete, on the wall) | 2 runs, 15 of 15 checks each: 0 decode errors, 0 violations, the camera Live throughout | **Pass, complete** (sprint 5) |
 | TC-2 | A frame and a clip embedding for each admitted segment (FR-2) | | | |
 | TC-3 | Each embedding stored in Qdrant with its metadata intact (FR-3) | | | |
-| TC-4 | Plain-language search over at least 100,000 embeddings; right clip in the top 5 for 85% (FR-4) | | | |
+| TC-4 | Plain-language search over at least 100,000 embeddings; right clip in the top 5 for 85% (FR-4) | OMNI-715 | Fused recall@5 74% on 35,704 frames (D-37; 85% needed, K-30); search at most 0.2 s, one cold query 10.9 s (K-26) | Fail |
 | TC-5 | Predict early and accurately, bounded false alarms, transfer to an unseen domain (FR-5) | | | |
 | TC-6 | Four-tier verification suppresses benign clips and lowers false positives (FR-6) | | | |
 | TC-7 | An evidence-grounded report from multiple cameras after an operator confirms (FR-7) | | | |
