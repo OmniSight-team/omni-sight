@@ -1091,11 +1091,29 @@ matched it; a click opens playback at that second.
 
 ### Not verified
 
-- **Not seen in a browser:** the Claude in Chrome extension was not connected. The three columns, the click-to-seek and the acceptance query
-  *"a person closing the trunk of a car"* on one screen still need a look at `https://localhost`, on a video with vectors (for example 3226)
+- **I did not see it in a browser** (the Claude in Chrome extension was not connected). Ahmad opened `https://localhost/videos/3226`, used
+  Compare and reported that it worked (2026-11-01); I have no screenshot or details of what the three columns showed
 - No test file for the component (the frontend has none for the search panel either)
+
+### Follow-up: K-27, the product's scene vectors (2026-11-01)
+
+Trying Compare on video 3231 (`VIRAT_S_040103_00_000000_000120`, the one with a closing-trunk event at 89.5-119.9 s) showed an empty Scene
+column: that video had 0 frame vectors, only video 3226 had them (K-27). Ahmad asked for the fix.
+
+- **`scripts/import_frame_vectors.py`:** the frame-vector twin of `import_clip_vectors.py`. Reads `frame_vectors` from
+  `embeddings/product/{video_id}.npz`, upserts by segment id with the segment's payload, leaves a segment that already has a point of the
+  pinned model alone (video 3226's 44), refuses another frame model or a vector that is not a unit vector of 1152. Runs inside `query`
+- **Run:** 995 stored; per video file = admitted = points for all 9; total 1,039 of 1,039; `PASS`. `frame_vectors` holds 1,080 points in all
+  (the other 41 are from cameras and tests, not counted in the 1,039)
+- **Seen:** *a person closing the trunk of a car* on 3231: Scene's top 5 at 2.0, 108.7, 109.7, 110.7 and 19.0 s, three inside the annotated
+  closing-trunk event; Action's top 5 at 27, 2, 1, 16 and 17 s, none inside. One query, not a measurement. **Ahmad could not see a
+  trunk closing, so I extracted frames 87-93 s: the trunk is open at 87-89 s and closed by 91 s, a small car in the top right; the
+  annotation (89.7-120 s) keeps the box on the parked car after the closing, so 108-111 s is inside the label but shows nothing
+  happening. Scene's hits there are label-correct, not visually correct**
+- `scripts/tests/test_import_frame_vectors.py`: 4 tests (existing point left alone, segment with no job reported, unit length and size and
+  duplicate ids refused, another model refused). Not seen in the browser after the import
 
 ### Result
 
-Built and type-checked; not yet seen running. Boxes in the ticket stay open until it is.
+Built, type-checked, and confirmed working by Ahmad in the browser. Both boxes ticked.
 

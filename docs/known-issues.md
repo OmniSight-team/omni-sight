@@ -22,7 +22,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-24 | Deleting or re-gating a video leaves its old frames' points in `frame_vectors` | Disk, and a search slot: since OMNI-707 search drops them, so a query can return fewer than `k` | OMNI-705 | Slice 16 (retention deletes videos) |
 | K-26 | After ai_workers sits idle for a while, the first search waits for SigLIP 2's weights to be read back from disk: over 30 s (a 503 at query's timeout), then 9 s, then about 2 s | NFR-2 on this laptop | OMNI-707 | OMNI-714 (NFR-2) |
 | K-25 | This laptop encodes about 9 s a frame, so the embed queue cannot keep up: 34,769 admitted frames to backfill (UCF-Crime's 30,701 alone about 77 h), and a running camera's frames queue faster than they are encoded | FR-2 locally (D-31), CPU for every other measurement while it runs | OMNI-705 | When the hand-check frames are needed (D-35: not this sprint) |
-| K-27 | `frame_vectors` holds 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
+| K-27 (fixed 2026-11-01) | `frame_vectors` held 44 of the product's 1,039 VIRAT frames, while `clip_vectors` holds all 1,039, so fused search on the product would rank most frames by clip alone | FR-4, the demo, OMNI-714's NFR-2 | OMNI-710 | Before OMNI-711's fused search is shown |
 | K-28 | Collecting `scripts/tests/test_encode_virat_archive.py` sets `RABBITMQ_USER=unused` for the whole pytest run: a full `uv run pytest` gets 25 failed and 26 errors, every one a RabbitMQ login refused | Trust in the suite; OMNI-717's green run | OMNI-708, found in OMNI-710 | Before OMNI-717 |
 | K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
 | K-31 | The embed worker adds up to about 1.5 s around each batch, and one GPU at 108 ms a frame holds about 9 frames a second: 10 cameras at `cam05`'s 1.3 a second would be about 13 | NFR-1's margin, NFR-4 with search | OMNI-714 | Before NFR-1 is judged with several cameras |
@@ -161,6 +161,13 @@ on 44 of 44, OMNI-708), which takes seconds; or D-35's backfill, about 2.5 h on 
 video 3226, the only video in the frame list, ahead of the other 8 videos.
 **Seen 2026-10-31 (OMNI-712, D-39):** with search per video, the other 8 videos have Action only:
 their Scene answers *nothing indexed*, and Combined ranks by clip alone.
+**Fixed 2026-11-01 (after OMNI-716):** `scripts/import_frame_vectors.py` imported the frame vectors of the other 8 videos from
+`embeddings/product/` (995 stored, video 3226's 44 left as they were): `frame_vectors` now holds all 1,039 product frames, as `clip_vectors`
+does. Seen on video 3231, *a person closing the trunk of a car*: Scene's top 5 include 108.7, 109.7 and 110.7 s, inside the annotated
+closing-trunk event (89.5-119.9 s); Action's top 5 (27, 2, 1, 16, 17 s) are outside it. **But looking at the frames (87-93 s), the trunk is
+open at 87 and 89 s and closed by 91 s: the closing is at about 89-91 s, a car about 200 px wide in the top right of 1920 x 1080. The
+annotation's box stays on the parked car for the whole 30 s, so 108-111 s is inside the label but shows nothing happening. SM-1's answer
+rule (a frame inside the event) is therefore generous for this type.**
 
 ## K-31 · The embed worker's added time, and one GPU's limit
 
