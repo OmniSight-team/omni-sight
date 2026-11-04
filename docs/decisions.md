@@ -46,6 +46,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
 | D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
 | D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done |
+| D-41 | SM-1 and TC-4 reported as measured, against chance and the frame-only baseline, not pass or fail against Phase A's 85% (no published evidence for it) | 2026-11-04 | Done |
 
 ---
 
@@ -1013,3 +1014,29 @@ its best. `K` stays 5 (D-38) and `k0` stays B.3's 60.
 **Result on SM-1's queries:** 76.0% (B.3 as written 60.0%, frame only 74.0%); actions 60.0%, no lift; scenes
 92.0%. SM-1 still fails on both parts; the target is not revised here (`results.md`, K-30).
 
+## D-41 · SM-1 and TC-4 are reported as measured, not as pass or fail against Phase A's 85% · 2026-11-04
+
+**Ahmad's decision,** after checking what is published for the two models (2026-11-04).
+
+**Why:** Phase A set SM-1's 85% (and TC-4's) and the "lift on action queries" without published
+evidence for this task. What is published:
+
+- SigLIP 2 So400m/14 at 384, zero-shot recall@1: COCO text to image 55.8, Flickr30k 85.7
+  (Tschannen et al., 2025, Table 1)
+- InternVideo2 Stage 2, zero-shot MSR-VTT text to video recall@1: 1B 51.9, 6B 55.9 (Wang et al.,
+  2024, Table 9). `InternVideo2_CLIP_S` (D-33) has no published retrieval number
+- Nothing published on text search over VIRAT or other surveillance footage; the UCA paper
+  (Yuan et al., CVPR 2024) finds surveillance footage much harder than ordinary video datasets
+- Single-frame models match multi-frame ones on popular video–text benchmarks (Lei et al.,
+  2022, "static appearance bias"), and most models are near chance at telling forward from
+  reversed video (*Which Way Does Time Flow?*, 2025). No lift on actions agrees with this
+
+These are recall@1 with one right answer; ours is recall@5 with any matching frame, so they are
+not compared number to number. They show that no published result supports 85% here.
+
+**What changes:** SM-1's and TC-4's status is **Measured**, reported against chance (25.1%) and
+the frame-only baseline. The numbers do not change: SM-1 76.0% fused (60.0% with B.3 as written,
+74.0% frame only), actions 60.0% against 60.0%; TC-4 74% on 35,704 frames (D-37). Phase A's 85%
+stays written beside them as the target that was not met. K-30 stays open as a finding.
+
+**Not done:** no new target chosen from our own result.

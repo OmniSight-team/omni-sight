@@ -274,3 +274,96 @@ search has real footage).
 - **The 30 s and 60 s windows are mostly the same footage on UCF-Crime.** Events start early
   in the videos, so 67% of the 30 s and 84% of the 60 s windows were shortened (median real
   length about 15 s). Phase A's 30 s against 60 s comparison needs a decision before slice 9.
+
+## Sprint 7–8 (18 Oct – 1 Nov): search by scene and by action
+
+You can now type a description inside a video, or in the live camera viewer, and get the five
+best moments back in about a second; click one and the player jumps to that second. Every kept
+frame gets two "fingerprints": a **scene** one (what the frame looks like, from SigLIP 2) and an
+**action** one (what happens in the second before it, from InternVideo2). A search compares the
+words with both and merges the two lists (Algorithm 3). Speed passes: results in under 3 s, and
+a new frame is searchable 3.35 s after capture when the encoding runs on a GPU. Quality was
+measured on 50 test questions: the right footage is in the top 5 for 76% of them (random picks
+would get 25%). Places are found well (92%); actions are not found better than by the scene
+fingerprint alone. Phase A's 85% target turned out to have no published evidence behind it, so
+these results are reported as measured, not as pass or fail (D-41).
+
+### The main ideas, explained
+
+**Two models, two jobs.** SigLIP 2 looks at one frame, so it is good at "a blue car" (1152
+numbers per frame). InternVideo2 looks at 8 frames over one second, so it should catch movement,
+like opening against closing a trunk (512 numbers per clip; Phase A said 768, D-33). On Colab's
+GPU a frame takes about 0.1 s and a clip about 0.3 s. On the laptop a frame takes about 9 s, so
+the laptop loads only InternVideo2's small text part, and the action fingerprints of our
+footage are made on Colab (D-32).
+
+**Qdrant.** A database made for fingerprints. It holds two collections, `frame_vectors` (scene)
+and `clip_vectors` (action), and finds the closest ones to a question in milliseconds.
+
+**The test archive on Colab.** All 275 VIRAT videos went through our gate on Colab: 793,686
+frames checked, 35,704 kept, each with both fingerprints (2.5 hours on an A100). The laptop and
+Colab give the same fingerprints for the same frame.
+
+**The 50 test questions.** Written by Claude Code and locked before any search ran:
+
+- **25 action questions** from the 11 kinds of action VIRAT labels (opening a trunk, getting
+  into a car, and so on), about 2 wordings each, including the pairs one frame cannot tell
+  apart (opening against closing, in against out)
+- **25 place questions**, written by looking at a picture of each of VIRAT's 11 places (*"a
+  parking lot beside a brick building"*)
+- Every question has an answer in the videos: actions that never happen (digging) were left out
+
+**How a result is marked right.** An action answer is right if its frame lies inside a labelled
+event of that action, in any video; a place answer is right if it comes from that place. The
+score is the share of questions with at least one right answer in the top 5.
+
+| Search | All | Places | Actions |
+|---|---|---|---|
+| Scene only | 74% | 88% | 60% |
+| Action only | 46% | 60% | 32% |
+| **Both, merged (the product)** | **76%** | **92%** | **60%** |
+| Random picks | 25% | 39% | 12% |
+
+**What published research says (D-41).** SigLIP 2 finds the right image first 56% of the time on
+COCO and 86% on Flickr30k; InternVideo2 (1B) finds the right video first 52% of the time on
+MSR-VTT. Our smaller InternVideo2 has no published number, and nobody has published search
+results on surveillance footage like VIRAT. Research also shows that most video models barely
+use motion (a single frame does as well on popular tests) and are near chance at telling a video
+played forward from backward. So 76%, with no gain on actions, is in line with what is known.
+
+### Results
+
+| Requirement | Result |
+|---|---|
+| NFR-2, results under 3 s | **Pass**: slowest 2.02 s on the laptop (1,800 searches), 0.22 s with a GPU |
+| NFR-1, searchable under 5 s | **Pass** with the GPU's encode time: slowest 3.35 s (270 s on the laptop's CPU) |
+| SM-1, search quality | **Measured** (D-41): 76%, 3 times chance; no gain on actions |
+| TC-4, a large archive | **Measured** (D-41): 74% on 35,704 frames (not 100,000, D-37) |
+| TC-2, TC-3 | **Pass** (cameras get no action fingerprint on the laptop) |
+
+### How to check it
+
+**Start the system:** `docker compose up -d`, then open **https://localhost** (not port 3000)
+and sign in. The first search after a pause can take about 10 s (K-26).
+
+| # | Do | Expected |
+|---|---|---|
+| 1 | Videos → open a VIRAT video → type *a blue car* → Search | 5 pictures, each with its time, score, a badge (Scene, Action or both) and the time taken |
+| 2 | Click a result | The player jumps to that second |
+| 3 | Open video 3231 → **Compare** → *a person unloading an object from a car* | Three columns side by side; Scene and Combined find it at 104–111 s, Action misses |
+| 4 | Open a live camera → search | Results open a still frame, not video (K-29) |
+
+The full five-minute demo for the supervisor is `docs/demo.md`.
+
+### Notes from the review
+
+- **SM-1 and TC-4 are reported as measured, not failed (D-41).** Phase A's 85% was our own guess,
+  with no published result behind it.
+- **SM-1 was run twice.** Algorithm 3 as written got 60% (it sent action questions to the weaker
+  action list); with weights chosen on 50 other questions it got 76% (D-40). Both are recorded.
+- **Nobody has checked the 50 questions.** Claude Code wrote them; reading them once before the
+  meeting makes them easier to defend. An answer counts by its time, even if the action is not
+  clearly visible in that frame, and "carrying" is found 90% of the time by chance alone.
+- **There is no separate Search screen (D-39).** Search lives inside each video and the live
+  viewer, and searches that footage only.
+- **The 60 hand-check clips have no fingerprints (D-35):** about 77 hours on the laptop.

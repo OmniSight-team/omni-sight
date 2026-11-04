@@ -4,7 +4,7 @@ Every requirement, success metric and test case from the Phase A book, where it 
 Phase B, and the result. Filled in sprint by sprint as each one is reviewed; an empty row has
 not been reviewed yet.
 
-**Status:** Pass · Fail · Partial · Not measured · Not started
+**Status:** Pass · Fail · Partial · Measured (reported against a baseline, no pass mark) · Not measured · Not started
 
 ## Functional requirements (FR)
 
@@ -12,9 +12,9 @@ not been reviewed yet.
 |---|---|---|---|---|
 | FR-1a | Accept video from live camera feeds and from uploaded files | Sprint 2: camera test, upload and probe. Sprint 4: live capture (OMNI-312, OMNI-313) | Uploads stored with correct metadata; live: about 4 frames/s stored, stops in 0.1 s, recovers by itself in 11–20 s after the source is killed | **Pass** (sprint 4) |
 | FR-1b | Keep the most informative frames by detecting movement | Algorithm 1 on files (OMNI-304, OMNI-305) and live (OMNI-501); retention on 38 dataset clips (OMNI-318) | The gate separates still from moving footage; kept frames: fixed cameras 4.7–19.8%, daylight dash-cam 57%. Live: every frame checked (15/s), 20–22% kept on `cam05`, counters balance | **Pass** on fixed cameras, **weak** on moving cameras (sprint 5) |
-| FR-2 | Turn each accepted segment into a searchable representation of what it shows and how it changes | | | |
-| FR-3 | Store each analysed segment with its time, source camera and a representative image | `videos` table (sprint 2); `segments` table (OMNI-304, OMNI-316) | A row per frame with time, source, score and reason; image files equal the kept rows in every run | **Pass** (sprint 3–4) |
-| FR-4 | Search stored video in plain language, returning a ranked list of the most relevant moments | | | |
+| FR-2 | Turn each accepted segment into a searchable representation of what it shows and how it changes | OMNI-704, 706, 708, 710 | Every kept frame gets a scene vector (SigLIP 2, 1152) and an action vector (InternVideo2, 512, D-33); on the laptop cameras get the scene vector only (D-32) | **Pass** (sprint 7–8; cameras: scene only on the laptop) |
+| FR-3 | Store each analysed segment with its time, source camera and a representative image | `videos` table (sprint 2); `segments` table (OMNI-304, OMNI-316); Qdrant (OMNI-703, 710) | A row per frame with time, source, score and reason; image files equal the kept rows in every run. Sprint 7–8: both vectors in Qdrant with their details (TC-3) | **Pass** (sprint 3–4, vectors sprint 7–8) |
+| FR-4 | Search stored video in plain language, returning a ranked list of the most relevant moments | OMNI-707, 711, 712, 716 | Top 5 moments with time, score and what matched; a click plays that second; Compare shows scene, action and both side by side. Search lives inside each video and the live viewer, on that footage only (D-39). Quality: SM-1 | **Partial** (per video only, D-39) |
 | FR-5 | Predict likely upcoming events from recent activity: event type, time until it, confidence | | | |
 | FR-6 | Check each predicted event and raise an alert only if it is credible | | | |
 | FR-7 | Generate a structured incident report with the evidence, video segments and timeline | | | |
@@ -26,8 +26,8 @@ not been reviewed yet.
 
 | ID | What it says (Phase A) | Where it is tested | Result | Status |
 |---|---|---|---|---|
-| NFR-1 | A captured frame is ready to search in under 5 s | First half, capture to stored (OMNI-316, OMNI-502) | Sprint 4: 49 ms alone, 6.14 s with a long file. Sprint 5, live frames on their own queue: max 0.15–0.37 s even with a long upload | **Pass** (first half, sprint 5) |
-| NFR-2 | Search results appear in under 3 s | | | |
+| NFR-1 | A captured frame is ready to search in under 5 s | First half, capture to stored (OMNI-316, OMNI-502); complete (OMNI-714) | Sprint 4: 49 ms alone, 6.14 s with a long file. Sprint 5: max 0.15–0.37 s even with a long upload. Sprint 7–8, capture to searchable, one camera, 10 min: max 3.35 s with the GPU's encode time (D-31); 270 s on the laptop's CPU | **Pass** (combined figure, D-31) |
+| NFR-2 | Search results appear in under 3 s | OMNI-714 | 1,800 searches through nginx (50 queries, 3 rounds, 3 modes): slowest 2.02 s on the laptop's CPU, 0.22 s with a GPU text encode | **Pass** |
 | NFR-3 | A forecast is ready in under 2 s | | | |
 | NFR-4 | Handle at least 10 live feeds at once without slowing down | OMNI-317 (preliminary); OMNI-509, OMNI-510a, the NFR-4 revision (D-19); OMNI-613 | Sprint 4: 8 sustained. Sprint 5, every frame checked, real footage, wall open: 3 sustained for 10 min; 4 not; 10 not, on a 4-core laptop. Sprint 6: faster grid calculation, identical results, still 3 | **Fail** against Phase A (10); **Pass** against the revised target (3 per machine of this class, D-19) |
 | NFR-5 | Data lost when any part fails or crashes = 0 | Sprint 2: uploads. Sprint 3–4: OMNI-311, OMNI-319. Sprint 6: OMNI-601 (live, rechecked) | Uploads: 3 of 3. Frames: consumer killed, broker rebuilt (1,800 of 1,800 kept), ingestion restarted and killed: 0 lost. Rechecked for live on the sprint 5 pipeline: 0 lost, 32 of 32 checks, 2 runs | **Pass** in the cases tested (sprint 6) |
@@ -41,7 +41,7 @@ not been reviewed yet.
 
 | ID | What it says (Phase A) | Where it is tested | Result | Status |
 |---|---|---|---|---|
-| SM-1 | Search quality: the right clip in the top 5 for at least 85% of queries, with a lift on action queries over frames only (VIRAT) | | | |
+| SM-1 | Search quality: the right clip in the top 5 for at least 85% of queries, with a lift on action queries over frames only (VIRAT) | OMNI-713, Colab, 50 queries over 35,704 VIRAT frames | 76.0% fused (60.0% with Algorithm 3 as written, 74.0% frame only, chance 25.1%); places 92%, actions 60% against 60%, no lift. 85% not met; no published evidence supports it (D-41) | **Measured** (D-41) |
 | SM-2 | Prediction accuracy: the real event in the top 3 predictions in at least 70% of cases, per domain | | | |
 | SM-3 | Early warning: warnings at least 15 s before the event (Phase A: on DoTA) | Revised (D-2): mean time-to-accident on CCD; target rule D-23 (OMNI-606) | Target **≥ 1.80 s**: half the held-out median pre-crash footage (3.60 s); written before measuring. No model yet | **Target set, not measured** (sprint 6) |
 | SM-4 | False alarms: at most 20% of warnings false, per domain (UCF-Crime) | | | |
@@ -53,9 +53,9 @@ not been reviewed yet.
 | ID | What it checks (Phase A) | Where it is tested | Result | Status |
 |---|---|---|---|---|
 | TC-1 | A live feed and an uploaded file at once; only frames with motion forwarded (FR-1a, FR-1b) | OMNI-316 (first half); OMNI-511 (complete, on the wall) | 2 runs, 15 of 15 checks each: 0 decode errors, 0 violations, the camera Live throughout | **Pass, complete** (sprint 5) |
-| TC-2 | A frame and a clip embedding for each admitted segment (FR-2) | | | |
-| TC-3 | Each embedding stored in Qdrant with its metadata intact (FR-3) | | | |
-| TC-4 | Plain-language search over at least 100,000 embeddings; right clip in the top 5 for 85% (FR-4) | OMNI-715 | Fused recall@5 74% on 35,704 frames (D-37; 85% needed, K-30); search at most 0.2 s, one cold query 10.9 s (K-26) | Fail |
+| TC-2 | A frame and a clip embedding for each admitted segment (FR-2) | OMNI-704, 710 | Frame: 136 of 136 (upload), 41 of 41 (camera). Clip: 34 of 34 (upload); cameras get none on the laptop (D-32) | **Pass** (cameras: frame only on the laptop) |
+| TC-3 | Each embedding stored in Qdrant with its metadata intact (FR-3) | OMNI-703, 710 | 1,000 of 1,000 in each collection, by id and by filtered search, every field equal, again after a Qdrant restart | **Pass** |
+| TC-4 | Plain-language search over at least 100,000 embeddings; right clip in the top 5 for 85% (FR-4) | OMNI-715 | Fused recall@5 74% on 35,704 frames (D-37), frame only 72%; search at most 0.2 s, one cold first query 10.9 s (K-26). 85% not met; no published evidence supports it (D-41) | **Measured** (D-41) |
 | TC-5 | Predict early and accurately, bounded false alarms, transfer to an unseen domain (FR-5) | | | |
 | TC-6 | Four-tier verification suppresses benign clips and lowers false positives (FR-6) | | | |
 | TC-7 | An evidence-grounded report from multiple cameras after an operator confirms (FR-7) | | | |
