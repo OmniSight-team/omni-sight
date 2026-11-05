@@ -3,15 +3,18 @@ name = "omnisight-ai-workers"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "clip",
     "fastapi>=0.141.1",
     "omnisight-common",
     "open-clip-torch>=3.3.0",
+    "opencv-python-headless>=5.0.0.93",
     "pillow>=12.3.0",
     "protobuf>=7.36.2",
     "sentencepiece>=0.2.2",
     "torch>=2.14.1",
     "torchvision>=0.29.1",
     "transformers>=5.20.1",
+    "ultralytics==8.4.202",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -22,3 +25,4 @@ package = false
 omnisight-common = { workspace = true }
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
+clip = { url = "https://github.com/ultralytics/CLIP/archive/7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40.zip" }

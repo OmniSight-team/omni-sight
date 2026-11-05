@@ -146,6 +146,8 @@ services:
     environment:
       FRAME_MODEL_DIR: /models/pretrained/siglip2-so400m-patch14-384
       CLIP_MODEL_DIR: /models/pretrained/internvideo2-clip-s
+      # OMNI-X02 (D-42): YOLO-World's and CLIP ViT-B/32's weights, for boxes on search results.
+      DETECTOR_MODEL_DIR: /models/pretrained/yolo-world
       RABBITMQ_HOST: rabbitmq
       QDRANT_HOST: qdrant
     volumes:

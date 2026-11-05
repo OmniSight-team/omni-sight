@@ -87,14 +87,18 @@ class FakeAiWorkers:
     """ai_workers' two text encoders: every query is e0, of the pinned model unless told
     otherwise. Counts the calls, to see the cache."""
 
-    def __init__(self, model=None, down=False):
+    def __init__(self, model=None, down=False, detector_loaded=True):
         self.calls = []
+        self.detect_calls = []
         self.model = model or settings.frame_model_id
         self.down = down
+        self.detector_loaded = detector_loaded
 
     def post(self, url, json, timeout):
-        self.calls.append((url, json["q"]))
         request = httpx.Request("POST", url)
+        if url.endswith("/detect"):
+            return self._detect(request, json)
+        self.calls.append((url, json["q"]))
         if self.down:
             raise httpx.ConnectError("connection refused", request=request)
         is_clip = url.endswith(ai_workers_client.CLIP_TEXT)
@@ -104,6 +108,20 @@ class FakeAiWorkers:
         revision = settings.clip_model_revision if is_clip else settings.frame_model_revision
         body = {"vector": vector, "model": model, "model_revision": revision}
         return httpx.Response(200, json=body, request=request)
+
+    def _detect(self, request, json):
+        """OMNI-X02: one box on frames whose path ends in an even index, none on the others."""
+        self.detect_calls.append(json)
+        if self.down:
+            raise httpx.ConnectError("connection refused", request=request)
+        if not self.detector_loaded:
+            return httpx.Response(503, json={"detail": "the box detector is not loaded"}, request=request)
+        boxes = [
+            [{"label": json["prompts"][-1], "score": 0.5, "box": [0.1, 0.2, 0.3, 0.4]}]
+            if int(path.rsplit("/", 1)[1].split(".")[0]) % 2 == 0 else []
+            for path in json["frame_paths"]
+        ]
+        return httpx.Response(200, json={"boxes": boxes, "elapsed_ms": 1.0}, request=request)
 
 
 @pytest.fixture
@@ -608,3 +626,76 @@ def test_search_needs_a_token(qdrant, ai_workers):
 @pytest.mark.parametrize("role", [Role.OPERATOR, Role.ANALYST, Role.ADMIN])
 def test_every_role_may_search(qdrant, ai_workers, role):
     assert _search(headers=_headers(role)).status_code == 200
+
+
+# --- boxes on the results (OMNI-X02, D-42) ---------------------------------------------------
+
+
+def _boxes(q, segment_ids, headers=None):
+    return client.get("/search/boxes", params={"q": q, "segment_ids": segment_ids}, headers=headers or _headers())
+
+
+def test_boxes_come_back_per_result_from_the_query_and_its_object_words(qdrant, ai_workers):
+    video_id = _video()
+    with_box, without_box = _frame(qdrant, 0.4, video_id=video_id), _frame(qdrant, 0.301, video_id=video_id)
+
+    response = _boxes("a blue car", [with_box, without_box])
+
+    assert response.status_code == 200
+    assert response.json() == {
+        str(with_box): [{"label": "car", "score": 0.5, "box": [0.1, 0.2, 0.3, 0.4]}],
+        str(without_box): [],
+    }
+    [call] = ai_workers.detect_calls
+    assert call["prompts"] == ["a blue car", "car"]
+    assert call["frame_paths"] == [f"/data/frames/{video_id}/000400.jpg", f"/data/frames/{video_id}/000301.jpg"]
+
+
+def test_a_frame_that_is_gone_or_not_admitted_gets_no_box_and_is_not_sent(qdrant, ai_workers):
+    video_id = _video()
+    kept, rejected = _frame(qdrant, 0.4, video_id=video_id), _frame(qdrant, 0.2, video_id=video_id)
+    with SessionLocal() as session:
+        session.get(Segment, rejected).admitted = False
+        session.commit()
+
+    response = _boxes("a person", [kept, rejected, 999_999_999])
+
+    assert response.json() == {
+        str(kept): [{"label": "person", "score": 0.5, "box": [0.1, 0.2, 0.3, 0.4]}],
+        str(rejected): [],
+        "999999999": [],
+    }
+    assert len(ai_workers.detect_calls[0]["frame_paths"]) == 1
+
+
+@pytest.mark.parametrize("fake", [FakeAiWorkers(down=True), FakeAiWorkers(detector_loaded=False)])
+def test_ai_workers_down_or_its_detector_not_loaded_gives_empty_lists_not_an_error(qdrant, monkeypatch, fake):
+    segment_id = _frame(qdrant, 0.4, video_id=_video())
+    monkeypatch.setattr(ai_workers_client.httpx, "post", fake.post)
+
+    response = _boxes("a person", [segment_id])
+
+    assert response.status_code == 200
+    assert response.json() == {str(segment_id): []}
+
+
+def test_search_itself_asks_for_no_boxes(qdrant, ai_workers):
+    _frame(qdrant, 0.4, video_id=_video())
+
+    assert _search().status_code == 200
+    assert ai_workers.detect_calls == []
+
+
+def test_boxes_take_at_most_50_results_and_need_a_query(qdrant, ai_workers):
+    assert _boxes("a person", list(range(1, 52))).status_code == 422
+    assert _boxes("  ", [1]).status_code == 422
+    assert client.get("/search/boxes", params={"q": "a person"}, headers=_headers()).status_code == 422
+
+
+def test_boxes_need_a_token(qdrant, ai_workers):
+    assert client.get("/search/boxes", params={"q": "a person", "segment_ids": [1]}).status_code == 401
+
+
+@pytest.mark.parametrize("role", [Role.OPERATOR, Role.ANALYST, Role.ADMIN])
+def test_every_role_that_searches_may_ask_for_boxes(qdrant, ai_workers, role):
+    assert _boxes("a person", [1], headers=_headers(role)).status_code == 200

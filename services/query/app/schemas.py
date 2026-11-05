@@ -291,6 +291,15 @@ class SearchOut(BaseModel):
     message: str | None = None
 
 
+class SearchBoxOut(BaseModel):
+    """OMNI-X02: where in the frame the searched thing is (D-42)."""
+
+    label: str
+    score: float
+    # x1, y1, x2, y2 in fractions of the frame's width and height (0-1).
+    box: list[float]
+
+
 class Sm1KindOut(BaseModel):
     """Recall@5 of one kind of query, per mode, and what five random frames would get."""
 

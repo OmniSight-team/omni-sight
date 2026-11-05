@@ -8,13 +8,18 @@ import {
   ApiError,
   type Frame,
   type FrameFilter,
+  type SearchBox,
   type Video,
   type VideoStatus,
   getVideo,
   listAllFrames,
   regateVideo,
 } from "@/lib/api-client";
+import { BoxOverlay } from "@/components/box-overlay";
 import { MomentSearch } from "@/components/moment-search";
+
+// How far from the picked second the player may be and still show that result's boxes.
+const BOX_AT_TOLERANCE_S = 0.05;
 
 const EXTRACTION_POLL_MS = 3000;
 
@@ -253,6 +258,9 @@ export default function VideoPlayerPage() {
   const [gridFilter, setGridFilter] = useState<FrameFilter>("admitted");
   const [loadError, setLoadError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // OMNI-X02: a picked result's boxes, shown while the player is paused at its second.
+  const [shownBoxes, setShownBoxes] = useState<{ at: number; boxes: SearchBox[] } | null>(null);
+  const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
 
   // The slider position, and the re-gate loop that follows it. The server
   // refuses a second gate while one is running, so the loop is single-flight
@@ -390,14 +398,32 @@ export default function VideoPlayerPage() {
             <StatusBadge status={video.status} />
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-black dark:border-zinc-800">
-            <video ref={videoRef} src={video.playback_url} controls className="aspect-video w-full" />
+          <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-black dark:border-zinc-800">
+            <video
+              ref={videoRef}
+              src={video.playback_url}
+              controls
+              // block: no inline gap under it, so the overlay covers exactly the video.
+              className="block aspect-video w-full"
+              onLoadedMetadata={(event) =>
+                setVideoSize({ width: event.currentTarget.videoWidth, height: event.currentTarget.videoHeight })
+              }
+              // The boxes belong to one second of a paused player: playing or moving away hides them.
+              onPlay={() => setShownBoxes(null)}
+              onSeeked={(event) => {
+                const at = event.currentTarget.currentTime;
+                setShownBoxes((shown) => (shown && Math.abs(shown.at - at) <= BOX_AT_TOLERANCE_S ? shown : null));
+              }}
+            />
+            <BoxOverlay boxes={shownBoxes?.boxes} width={videoSize.width} height={videoSize.height} fit="contain" />
           </div>
 
           {video.status !== "failed" && (
             <MomentSearch
               scope={{ video_id: videoId }}
-              onPick={(hit) => {
+              onPick={(hit, boxes) => {
+                videoRef.current?.pause();
+                setShownBoxes({ at: hit.timestamp_s, boxes });
                 seekTo(hit.timestamp_s);
                 videoRef.current?.scrollIntoView({ block: "center" });
               }}

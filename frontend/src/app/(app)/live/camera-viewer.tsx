@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { BoxOverlay } from "@/components/box-overlay";
 import { MomentSearch } from "@/components/moment-search";
 import {
   ApiError,
@@ -10,6 +11,7 @@ import {
   fetchFrameImage,
   getCameraBuffer,
   type LiveCamera,
+  type SearchBox,
   type SearchHit,
 } from "@/lib/api-client";
 
@@ -321,10 +323,15 @@ function CameraSearch({ camera }: { camera: LiveCamera }) {
   const [picked, setPicked] = useState<SearchHit | null>(null);
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // OMNI-X02: the result's boxes over its stored frame (a still picture, so always shown).
+  const [boxes, setBoxes] = useState<SearchBox[]>([]);
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
-  function pick(hit: SearchHit) {
+  function pick(hit: SearchHit, found: SearchBox[]) {
     if (!hit.frame_url) return;
     setPicked(hit);
+    setBoxes(found);
+    setSize({ width: 0, height: 0 });
     setSrc(null);
     setError(null);
     fetchFrameImage(hit.frame_url)
@@ -346,8 +353,16 @@ function CameraSearch({ camera }: { camera: LiveCamera }) {
             {src && (
               // An object URL from an authenticated fetch.
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={src} alt={`Frame at ${picked.captured_at}`} className="h-full w-full object-contain" />
+              <img
+                src={src}
+                alt={`Frame at ${picked.captured_at}`}
+                className="h-full w-full object-contain"
+                onLoad={(event) =>
+                  setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
+                }
+              />
             )}
+            {src && <BoxOverlay boxes={boxes} width={size.width} height={size.height} fit="contain" />}
             {error && <p className="p-6 text-sm text-red-300">{error}</p>}
             <span className="absolute left-3 top-3 rounded-md bg-black/70 px-2 py-1 text-xs font-semibold text-zinc-100">
               {new Date(picked.captured_at).toLocaleString()}

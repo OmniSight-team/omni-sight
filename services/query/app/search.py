@@ -24,6 +24,7 @@ from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from omnisight_common import Role
+from omnisight_common.box_prompts import prompts_for
 from omnisight_common.fusion import ModalityClassifier, fuse, tuned_weights
 from qdrant_client import QdrantClient, models
 from sqlalchemy import select
@@ -34,7 +35,7 @@ from app.db import get_db
 from app.deps import require_role
 from app.embeddings import get_qdrant
 from app.models import Camera, Segment, User, Video
-from app.schemas import SearchCameraOut, SearchHitOut, SearchOut, SearchTimingsOut
+from app.schemas import SearchBoxOut, SearchCameraOut, SearchHitOut, SearchOut, SearchTimingsOut
 from app.settings import settings
 from app.videos import _thumb_url
 
@@ -243,3 +244,44 @@ def search(
         dropped=dropped,
         message=None if indexed else NOTHING_INDEXED,
     )
+
+
+@router.get("/boxes", response_model=dict[int, list[SearchBoxOut]])
+def search_boxes(
+    q: str = Query(..., max_length=1000),
+    segment_ids: list[int] = Query(..., max_length=MAX_K),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role(Role.OPERATOR, Role.ANALYST, Role.ADMIN)),
+) -> dict[int, list[SearchBoxOut]]:
+    """OMNI-X02 (D-42): where the searched thing is in each result's frame. Called by the screen
+    after `GET /search` has answered, so search itself is unchanged (NFR-2). Every id asked for
+    gets a list; it is empty when no box was found, the frame is not an admitted stored frame,
+    or ai_workers cannot answer. Never an error for those."""
+    text = q.strip()
+    if not text:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=EMPTY_QUERY)
+    ids = list(dict.fromkeys(segment_ids))
+    out: dict[int, list[SearchBoxOut]] = {segment_id: [] for segment_id in ids}
+    paths = dict(
+        db.execute(
+            select(Segment.id, Segment.frame_path).where(
+                Segment.id.in_(ids), Segment.admitted.is_(True), Segment.frame_path.is_not(None)
+            )
+        ).all()
+    )
+    if not paths:
+        return out
+    order = [segment_id for segment_id in ids if segment_id in paths]
+    started = time.perf_counter()
+    try:
+        found = ai_workers_client.detect_boxes([paths[i] for i in order], prompts_for(text))
+    except ai_workers_client.AiWorkersUnavailableError as exc:
+        logger.warning("search boxes: detector unreachable", extra={"extra_fields": {"error": str(exc)[:300]}})
+        return out
+    for segment_id, boxes in zip(order, found, strict=True):
+        out[segment_id] = [SearchBoxOut(**box) for box in boxes]
+    logger.info(
+        "search boxes",
+        extra={"extra_fields": {"frames": len(order), "boxes": sum(map(len, found)), "elapsed_ms": _ms(started)}},
+    )
+    return out

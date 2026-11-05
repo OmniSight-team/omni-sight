@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from app.clip_encoder import ALLOW_PATTERNS as CLIP_ALLOW_PATTERNS
 from app.clip_encoder import ClipTextEncoder
+from app.detector import WEIGHTS_FILE, BoxDetector
 from app.embed_worker import EmbedWorker
 from app.encoder import FrameTextEncoder, ensure_checkpoint
 from app.logging_conf import configure_logging
@@ -31,7 +32,28 @@ from app.settings import settings
 configure_logging()
 logger = logging.getLogger("app.encoder")
 
-state: dict[str, FrameTextEncoder | ClipTextEncoder] = {}
+state: dict[str, FrameTextEncoder | ClipTextEncoder | BoxDetector] = {}
+
+
+def _load_detector() -> None:
+    """OMNI-X02. Boxes are an extra on search results: if the detector cannot load, the
+    encoders and search carry on and /detect answers 503."""
+    started = time.perf_counter()
+    try:
+        detector = BoxDetector(settings.detector_model_dir, settings.detect_min_score, settings.detect_max_boxes)
+        # Loads CLIP's text side and runs the model once, so the first search does not wait.
+        with tempfile.TemporaryDirectory() as scratch:
+            blank = Path(scratch) / "warm-up.jpg"
+            Image.new("RGB", (640, 360)).save(blank)
+            detector.detect([blank], ["warm-up"])
+    except Exception as exc:  # noqa: BLE001 - any failure leaves the rest of the service up
+        logger.error("box detector not loaded", extra={"extra_fields": {"error": repr(exc)[:500]}})
+        return
+    state["detector"] = detector
+    logger.info(
+        "box detector loaded",
+        extra={"extra_fields": {"weights": WEIGHTS_FILE, "load_s": round(time.perf_counter() - started, 1)}},
+    )
 
 
 @asynccontextmanager
@@ -72,6 +94,8 @@ async def lifespan(_app: FastAPI):
             "load_s": round(time.perf_counter() - started, 1),
         }},
     )
+    if settings.detector_enabled:
+        _load_detector()
     worker = None
     if settings.embed_consumer_enabled:
         worker = EmbedWorker(
@@ -120,6 +144,8 @@ def health() -> dict:
         "clip_model": settings.clip_model_id,
         "clip_model_revision": settings.clip_model_revision,
         "loaded": "encoder" in state and "clip" in state,
+        # Not part of `loaded`: search works without boxes.
+        "detector_loaded": "detector" in state,
     }
 
 
@@ -134,3 +160,32 @@ def encode_clip_text(body: TextQuery) -> Embedding:
     """The query in InternVideo2's space, to search clip vectors (Algorithm 3 line 2)."""
     [vector] = _encoder("clip").encode_texts([body.q])
     return Embedding(vector=vector.tolist(), model=settings.clip_model_id, model_revision=settings.clip_model_revision)
+
+
+class DetectRequest(BaseModel):
+    # query sends one search's results (at most 50, GET /search/boxes).
+    frame_paths: list[str] = Field(min_length=1, max_length=50)
+    prompts: list[str] = Field(min_length=1, max_length=10)
+
+
+class Box(BaseModel):
+    label: str
+    score: float
+    # x1, y1, x2, y2 in fractions of the frame's width and height (0-1).
+    box: list[float]
+
+
+class DetectResponse(BaseModel):
+    boxes: list[list[Box]]
+    elapsed_ms: float
+
+
+@app.post("/detect")
+def detect(body: DetectRequest) -> DetectResponse:
+    """OMNI-X02: boxes for `prompts` in each stored frame, in the order given (D-42)."""
+    detector = state.get("detector")
+    if detector is None:
+        raise HTTPException(status_code=503, detail="the box detector is not loaded")
+    started = time.perf_counter()
+    boxes = detector.detect(body.frame_paths, body.prompts)
+    return DetectResponse(boxes=boxes, elapsed_ms=round((time.perf_counter() - started) * 1000, 1))

@@ -5,13 +5,17 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   type MatchedBy,
+  type SearchBox,
+  type SearchBoxes,
   type SearchHit,
   type SearchMode,
   type SearchResponse,
   type SearchScope,
   getEmbeddingStatus,
+  getSearchBoxes,
   searchMoments,
 } from "@/lib/api-client";
+import { BoxOverlay } from "@/components/box-overlay";
 
 // Natural-language search inside one video or one camera's frames (OMNI-712, FR-4, D-39).
 // The search itself runs inside the vector search, on that footage only.
@@ -60,19 +64,38 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
   );
 }
 
-function HitCard({ hit, rank, onPick }: { hit: SearchHit; rank?: number; onPick: (hit: SearchHit) => void }) {
+function HitCard({
+  hit,
+  rank,
+  boxes,
+  onPick,
+}: {
+  hit: SearchHit;
+  rank?: number;
+  boxes?: SearchBox[];
+  onPick: (hit: SearchHit, boxes: SearchBox[]) => void;
+}) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
   return (
     <button
       type="button"
-      onClick={() => onPick(hit)}
+      onClick={() => onPick(hit, boxes ?? [])}
       className="block overflow-hidden rounded-lg border border-zinc-200 text-left transition hover:ring-2 hover:ring-indigo-500 dark:border-zinc-800"
     >
-      <div className="aspect-video w-full bg-zinc-100 dark:bg-zinc-800">
+      <div className="relative aspect-video w-full bg-zinc-100 dark:bg-zinc-800">
         {hit.thumb_url && (
           // Thumbnails are served directly by nginx (OMNI-307), not through Next's image optimizer.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={hit.thumb_url} alt="Matching frame" className="h-full w-full object-cover" />
+          <img
+            src={hit.thumb_url}
+            alt="Matching frame"
+            className="h-full w-full object-cover"
+            onLoad={(event) =>
+              setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
+            }
+          />
         )}
+        <BoxOverlay boxes={boxes} width={size.width} height={size.height} fit="cover" labelSize={0.09} withScore={false} />
       </div>
       <div className="space-y-1 px-2 py-2 text-xs text-zinc-500 dark:text-zinc-400">
         <p className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
@@ -106,9 +129,11 @@ export function MomentSearch({
 }: {
   scope: SearchScope;
   withDates?: boolean;
-  onPick: (hit: SearchHit) => void;
+  // With the result's boxes (OMNI-X02), empty when it has none or they have not arrived yet.
+  onPick: (hit: SearchHit, boxes: SearchBox[]) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [boxes, setBoxes] = useState<SearchBoxes>({});
   const [mode, setMode] = useState<SearchMode>("fused");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -154,6 +179,14 @@ export function MomentSearch({
     const ticket = ++latest.current;
     setQuery(text);
     setRunning(true);
+    setBoxes({});
+    // OMNI-X02: the boxes are a second request, sent once the results are on the screen.
+    const askForBoxes = (results: SearchHit[]) => {
+      const ids = [...new Set(results.map((hit) => hit.segment_id))];
+      void getSearchBoxes(text, ids).then((found) => {
+        if (ticket === latest.current) setBoxes(found);
+      });
+    };
     try {
       if (comparing) {
         const scope = JSON.parse(scopeKey) as SearchScope;
@@ -171,6 +204,7 @@ export function MomentSearch({
         if (ticket !== latest.current) return;
         setColumns({ frame, clip, fused });
         setError(null);
+        askForBoxes([...frame.results, ...clip.results, ...fused.results]);
         return;
       }
       const answer = await searchMoments({
@@ -183,6 +217,7 @@ export function MomentSearch({
       if (ticket !== latest.current) return;
       setResponse(answer);
       setError(null);
+      askForBoxes(answer.results);
     } catch (err) {
       if (ticket !== latest.current) return;
       setResponse(null);
@@ -321,7 +356,7 @@ export function MomentSearch({
                 {column.results.length > 0 ? (
                   <div className="grid grid-cols-1 gap-3">
                     {column.results.map((hit, index) => (
-                      <HitCard key={hit.segment_id} hit={hit} rank={index + 1} onPick={onPick} />
+                      <HitCard key={hit.segment_id} hit={hit} rank={index + 1} boxes={boxes[hit.segment_id]} onPick={onPick} />
                     ))}
                   </div>
                 ) : (
@@ -343,7 +378,7 @@ export function MomentSearch({
           {response.results.length > 0 ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
               {response.results.map((hit) => (
-                <HitCard key={hit.segment_id} hit={hit} onPick={onPick} />
+                <HitCard key={hit.segment_id} hit={hit} boxes={boxes[hit.segment_id]} onPick={onPick} />
               ))}
             </div>
           ) : response.message || !hasVectors(mode, coverage) ? (

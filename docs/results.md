@@ -51,6 +51,8 @@ are in `known-issues.md`; how the work went is in `context/`.
 | NFR-2 | Search results in under 3 s | 1,800 requests through nginx, 50 queries, 3 rounds, 3 modes, on the product's vectors: fused uncached on this CPU p50 1.14 s, p95 1.62 s, **max 2.02 s**; combined figure (GPU text, D-31) max 217 ms; repeated or filtered about 55-65 ms, max 264 ms; 0 errors | **Pass**, on the CPU too (preliminary: one machine, small collections; TC-4 is the large one) | 2026-10-31 | OMNI-714 |
 | TC-4 (D-37: VIRAT archive, 35,704 frames, not 100,000) | Both collections loaded; plain-language search; fused recall@5 at least 85% and every query under 3 s | 35,704 frames of 275 videos in both scratch collections, 50 SM-1 queries, 3 rounds, the product's own search code, no Postgres join: fused recall@5 **74%** (scene 92%, action 56%); frame 72%, clip 50%. Search + fusion max 0.20 s; slowest query **10.9 s**, the first one, a cold text encoder (K-26) | **Measured** (D-41): 74% against Phase A's 85%, which no published result supports (K-30); latency met except that one cold query (preliminary: one machine, one run; 100,000 not verified, D-37) | 2026-11-01 | OMNI-715 |
 | SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Measured** (D-41): 85% and the lift on actions not met; no published result supports them (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
+| Boxes on search results (addition, D-42; no Phase A target) | Labelled boxes on the right thing; record how many are right, wrong or missing | 4 queries in VIRAT video 3230, top 5 each, by eye: *a blue car* 5 of 5 on the blue pickup (top box each time) and 10 more on other parked cars; *a person walking* 5 of 5; *a white truck* none in the footage, 15 boxes all on real vehicles; *a person opening a trunk* the person at the truck boxed in 1 of 4 frames (3 missed). 0 boxes on a non-vehicle or non-person. On screen: thumbnails, the paused player (video 3231) and the live viewer (camera 2446) | **Measured** (preliminary: one look, one person, no ground truth, one video) | 2026-11-05 | OMNI-X02 |
+| YOLO-World cost on this laptop's CPU (D-42; no Phase A target) | ms per frame and for 5 frames; ai_workers still fits Docker's 7.6 GiB | 1 frame: median 397 ms (290-570, 20 calls); 5 frames: median 2.64 s (1.60-3.62, 20 calls); the first box request after a start 11.2 s, then 2.9-4.2 s. ai_workers 2.31 GiB idle after start, 3.44 GiB after the run | **Fits** (preliminary: one run, the embed queue idle) | 2026-11-05 | OMNI-X02 |
 | FR-9, dashboard aggregates (no Phase A target) | The summary's counts equal a direct count; both endpoints measured with the archive at full size | Equal to a direct count before and after an upload, a re-gate and a delete on the real pipeline. 146,807 rows (D-26's archive): summary p50 41 ms, p95 72 ms; activity p50 15 ms, p95 36 ms, 100 calls each | **Pass** (preliminary: two runs, one machine; storage misses 1.05 GB of orphan files, K-21) | 2026-10-11 | OMNI-610 |
 | FR-9, Operations Dashboard (no Phase A target) | Each number matches the API and leads somewhere; refresh every 30 s, paused while hidden | 5 figures equal to the API, before and after a clip was added and removed, without a reload; each links (analysts: cameras unlinked, no access to the wall); requests 30 s apart, none while hidden, one on return | **Pass** (one pass, admin; `/datasets` arrives in OMNI-612) | 2026-10-11 | OMNI-611 |
 | FR-9, Datasets screen (no Phase A target) | Load 10 more CCD clips from the screen and watch the count and the dashboard move (read under D-26: the 30 sampled CCD clips were all loaded, so 10 were deleted and loaded again) | CCD 20 / 30 → 30 / 30 in 28 s (10 clips, ~2.8 s each), polled every 2 s; dashboard 50 → 60 videos, 146,307 → 146,807 segments, 500 in the current hour; 30 verdicts kept; windows and verdict counts equal to the database (4,500 / 30 / 30 CCD, 3,260 / 30 / 23 UCF-Crime) | **Pass** (one pass, admin) | 2026-10-15 | OMNI-612 |
@@ -2385,3 +2387,51 @@ because of that one cold start; the search at this size is never above 0.2 s.
 **Not covered:** fused latency with an uncached encode: frame and clip modes ran first and cached every text, so all 150 fused runs were
 cached (NFR-2 measured fused uncached on the product's small collections: max 2.02 s); the GPU text encode (D-31); 100,000 embeddings; the
 Postgres join; concurrent searches; one run.
+
+---
+
+## OMNI-X02 · Boxes on search results: the check by eye and the CPU cost · 2026-11-05
+
+An addition on top of FR-4 (D-42), not a Phase A requirement. **Preliminary:** one look, one person, no ground
+truth, one video, one run.
+
+**Conditions:** the running stack (`docker compose up -d`) on the laptop above, CPU only, the embed queue idle.
+YOLO-World `yolov8s-worldv2` (D-42), score at least 0.25, at most 3 boxes a frame. VIRAT video 3230
+(`VIRAT_S_040000_06`, a parking lot, 1920x1080), each query searched in it as the player does (Combined, top 5),
+then `GET /search/boxes`. `scripts/measure_search_boxes.py`; the 20 frames with their boxes drawn, the report
+and three screenshots of the screen are in `docs/evidence/search-boxes/`.
+
+**The check by eye** (right = on the thing searched; other = a real car or person, not the one searched; wrong =
+on something else; missed = the searched thing visible and not boxed):
+
+| Query | Prompts | Right | Other | Wrong | Missed |
+|---|---|---|---|---|---|
+| *a blue car* | a blue car, car | 5 of 5 frames (the blue pickup, the top score each time, 0.73-0.87) | 10 (two parked cars a frame, at the 3-box cap) | 0 | 0 |
+| *a person walking* | a person walking, person | 5 of 5 (scores 0.52-0.65) | 0 | 0 | 0 |
+| *a white truck* | a white truck, car | none possible: search returned frames of the blue pickup; no white truck in them | 15 (the pickup in all 5, parked cars) | 0 | - |
+| *a person opening a trunk* | a person opening a trunk, person | 1 of 4 frames with the person at the truck's door; the 5th result is a walker, boxed | - | 0 | 3 (the person at the door, against the truck) |
+
+On the person queries, 7 of the 10 frames that show a person got a box on them: the small people are found when they
+stand clear of other objects and missed when against the truck. Not "most results missed", so OWLv2 was not tried
+(the ticket's stop rule).
+
+**On the screen** (Chrome through nginx, admin): *a blue car* in video 3231 (3230 does not play, K-32): five thumbnails
+with labelled boxes; a click paused the player at 1:05.2 with three boxes labelled *car* (0.94 on the light-blue car),
+aligned with the picture; playing removed them, pausing elsewhere did not bring them back. The live viewer, camera 2446,
+*a person*: thumbnails with *person* boxes; the opened frame, letterboxed, with its three boxes in place.
+
+**CPU cost**, through ai_workers' `POST /detect` from inside the stack, the prompts already set (the same query's):
+
+| | Calls | Median | Min - max |
+|---|---|---|---|
+| 1 frame | 20 | 397 ms | 290 - 570 ms |
+| 5 frames (the screen's request) | 20 | 2.64 s | 1.60 - 3.62 s |
+
+`GET /search/boxes` as the screen calls it, the first time per query: 11.2 s for the first after a start (the detector
+not used since its warm-up), then 2.9-4.2 s. **Memory** (`docker stats`): ai_workers 2.31 GiB idle after start, 3.44 GiB
+after the run, of Docker's 7.6 GiB. The detector loaded in 45.5 s at start (first start: CLIP's 338 MB downloaded).
+
+**Not covered:** other VIRAT videos and scenes; any count against annotations; the boxes while the embed queue encodes
+(both share the CPU); two searches at once (the detector serves one request at a time); ai_workers' memory without the
+detector on the same run (OMNI-706's 3.84-4.17 GiB was after 400 queries); the screen with ai_workers down (the API's
+empty answer is tested, the screen's fallback only by reading the code).

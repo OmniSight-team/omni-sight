@@ -642,6 +642,29 @@ export async function searchMoments(params: SearchParams): Promise<SearchRespons
   return request<SearchResponse>(`/search?${query}`);
 }
 
+// OMNI-X02 (D-42): where the searched thing is in a result's frame.
+export interface SearchBox {
+  label: string;
+  score: number;
+  // x1, y1, x2, y2 in fractions of the frame's width and height (0-1).
+  box: [number, number, number, number];
+}
+
+export type SearchBoxes = Record<number, SearchBox[]>;
+
+// Asked for after the results are shown, so search itself is not slowed. Boxes are an extra:
+// any failure gives no boxes, never an error on the screen.
+export async function getSearchBoxes(q: string, segmentIds: number[]): Promise<SearchBoxes> {
+  if (segmentIds.length === 0) return {};
+  const query = new URLSearchParams({ q });
+  for (const id of segmentIds) query.append("segment_ids", String(id));
+  try {
+    return await request<SearchBoxes>(`/search/boxes?${query}`);
+  } catch {
+    return {};
+  }
+}
+
 export interface EmbeddingStatus {
   video_id: number | null;
   camera_id: number | null;

@@ -77,3 +77,21 @@ def text_vector(text: str, *, path: str, model: str, model_revision: str) -> tup
         raise WrongModelError(f"ai_workers encodes with {body['model']}@{body['model_revision']}, not {model}@{model_revision}")
     cache.put(key, body["vector"])
     return body["vector"], False
+
+
+def detect_boxes(frame_paths: list[str], prompts: list[str]) -> list[list[dict]]:
+    """OMNI-X02: ai_workers' boxes for each frame, in the order given. Raises
+    AiWorkersUnavailableError if ai_workers cannot answer (down, or its detector not loaded)."""
+    try:
+        response = httpx.post(
+            f"{settings.ai_workers_base_url}/detect",
+            json={"frame_paths": frame_paths, "prompts": prompts},
+            timeout=settings.ai_workers_timeout_s,
+        )
+        response.raise_for_status()
+        boxes = response.json()["boxes"]
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        raise AiWorkersUnavailableError(str(exc)) from exc
+    if len(boxes) != len(frame_paths):
+        raise AiWorkersUnavailableError(f"{len(boxes)} answers for {len(frame_paths)} frames")
+    return boxes

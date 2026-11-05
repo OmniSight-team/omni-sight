@@ -47,6 +47,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
 | D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done |
 | D-41 | SM-1 and TC-4 reported as measured, against chance and the frame-only baseline, not pass or fail against Phase A's 85% (no published evidence for it) | 2026-11-04 | Done |
+| D-42 | **Addition (not Phase A):** labelled boxes on search results from YOLO-World, pinned, in `ai_workers`, as a separate request after the search | 2026-11-05 | Done |
 
 ---
 
@@ -1040,3 +1041,44 @@ the frame-only baseline. The numbers do not change: SM-1 76.0% fused (60.0% with
 stays written beside them as the target that was not met. K-30 stays open as a finding.
 
 **Not done:** no new target chosen from our own result.
+
+## D-42 · **Addition (not Phase A):** labelled boxes on search results from YOLO-World · 2026-11-05
+
+**What:** an extra on top of FR-4, not a Phase A requirement. Search says which frame matches; an
+open-vocabulary detector says where in it, from the same words. Each result thumbnail, and the player
+paused at a picked result's second (or the live viewer's stored frame), shows the box and its label.
+
+**The model, pinned:** YOLO-World `yolov8s-worldv2.pt`, SHA-256
+**`9b2c17ab6124a913e9b3a5c170617920d91b0f01111a8479da69f00e2cf27792`** (25.9 MB, the ultralytics
+assets release v8.3.0), run by `ultralytics==8.4.202`. Downloaded to `models/pretrained/yolo-world` on
+the first start if missing, like D-30; a file with another hash is never used. Its prompts are encoded
+by OpenAI CLIP ViT-B/32 (338 MB, same folder; the `clip` package checks the file's SHA-256 itself).
+**Licence:** ultralytics and the weights are AGPL-3.0, fine for a college project that is not
+distributed as a product; recorded here.
+
+**How it runs (`services/ai_workers/app/detector.py`):** only `ai_workers` loads it. `POST /detect`
+reads the stored full-frame JPEG (`frame_path`), keeps boxes with score at least `detect_min_score`
+(0.25, YOLO-World's default), at most `detect_max_boxes` (3) a frame, in fractions of the frame's width
+and height. If the detector cannot load, the encoders and search carry on and `/detect` answers 503.
+`query`'s `GET /search/boxes` turns that, or any failure, into empty lists: boxes never cause an error,
+and `GET /search` itself is unchanged (NFR-2).
+
+**The prompts (`services/common/omnisight_common/box_prompts.py`):** the query as typed, then the
+prompt for each object word it contains, from a fixed list (person, man, woman, people → *person*;
+car, vehicle, truck, van → *car*; bike, bicycle → *bicycle*; bag; box; object). Whole words only,
+no plurals. A constant, not tuned.
+
+**Two choices beyond the ticket, so the acceptance holds:**
+
+- **Overlapping boxes are merged across prompts** (ultralytics' `agnostic_nms`). By default it merges
+  only boxes of the same prompt, so one car got a box for *a blue car* and another for *car*
+- **The label is the object word** when the box was found by the whole query: *car*, not *a blue car*.
+  A query with no object word labels its boxes with itself
+
+**Packaging:** ultralytics would `pip install` CLIP from GitHub at run time; it is a dependency instead,
+pinned to commit `7ffa84b` of ultralytics' CLIP fork (an archive URL, so the image needs no git).
+ultralytics also asks for the full `opencv-python`, which needs libGL the slim image does not have; a uv
+override leaves it out and the headless build (already ingestion's) provides `cv2`. Usage events to
+Ultralytics are turned off (`sync: False`).
+
+**Not done:** a box that follows the object while the video plays (tracking).

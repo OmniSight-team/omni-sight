@@ -27,6 +27,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-29 | A camera keeps admitted frames, never a video, so a camera search result opens a still frame and cannot play at that second | OMNI-712's playback line, for cameras | OMNI-712 | Ahmad's call: a recording is a new piece of ingestion |
 | K-31 | The embed worker adds up to about 1.5 s around each batch, and one GPU at 108 ms a frame holds about 9 frames a second: 10 cameras at `cam05`'s 1.3 a second would be about 13 | NFR-1's margin, NFR-4 with search | OMNI-714 | Before NFR-1 is judged with several cameras |
 | K-30 | SM-1 fails: after D-40 fused is 76.0% against 85%, with no lift on action queries (60.0%, frame only 60.0%). The clip list adds nothing on actions | SM-1, TC-4's pass, the Definition of done, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
+| K-32 | 7 of the 9 VIRAT videos on the stack have no playback copy: they are MPEG-4 Part 2, which Chrome does not play, so the player stays grey and a search result cannot be watched | FR-4 on the screen (jump to that second), the demo | OMNI-X02 | Before the demo: make the missing playback copies |
 
 ---
 
@@ -170,6 +171,16 @@ closing-trunk event (89.5-119.9 s); Action's top 5 (27, 2, 1, 16, 17 s) are outs
 open at 87 and 89 s and closed by 91 s: the closing is at about 89-91 s, a car about 200 px wide in the top right of 1920 x 1080. The
 annotation's box stays on the parked car for the whole 30 s, so 108-111 s is inside the label but shows nothing happening. SM-1's answer
 rule (a frame inside the event) is therefore generous for this type.**
+
+## K-32 · Most VIRAT videos cannot be played in the browser
+
+2026-11-05, found in OMNI-X02's screen check. Video 3230 (`VIRAT_S_040000_06`) gave `MEDIA_ERR_SRC_NOT_SUPPORTED` in
+Chrome: the player stays grey and a picked result's second cannot be seen. `ffprobe`: `mpeg4`, Simple Profile (MPEG-4
+Part 2), as CCD. `videos.playback_path` is set for 3226 and 3231 only; 3227-3230 and 3232-3234 have none, so
+`/media/` serves the original. Over all 69 dataset videos on the stack, 32 have a copy. **Not checked:** why these 7
+got none, nor which of the other 30 without a copy are already H.264 (those need none). **Fix candidate, not tried:**
+make the missing H.264 copies (D-7's transcode) for every video whose `playback_path` is empty and whose codec is not
+H.264.
 
 ## K-31 · The embed worker's added time, and one GPU's limit
 

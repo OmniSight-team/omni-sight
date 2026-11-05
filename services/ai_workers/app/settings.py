@@ -23,5 +23,14 @@ class Settings(CommonSettings):
     # Off for a process that only serves text queries.
     embed_consumer_enabled: bool = True
 
+    # OMNI-X02 (D-42): YOLO-World's boxes on search results. Its weights (pinned by SHA-256 in
+    # detector.py) and CLIP's are kept here, downloaded on the first start if missing.
+    detector_model_dir: str = "/models/pretrained/yolo-world"
+    # YOLO-World's own default confidence; at most this many boxes a frame.
+    detect_min_score: float = Field(0.25, gt=0, lt=1)
+    detect_max_boxes: int = Field(3, ge=1)
+    # Off: /detect answers 503 and nothing else changes.
+    detector_enabled: bool = True
+
 
 settings = Settings()
