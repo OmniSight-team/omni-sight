@@ -13,7 +13,7 @@ again instead of adding a second one.
 
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, computed_field, field_validator
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
@@ -25,11 +25,16 @@ from omnisight_common.settings import CommonSettings
 FRAME_VECTOR_SIZE = 1152
 
 # Filtered inside the vector search (OMNI-706), not after it, so each needs an index.
-# `captured_at` is a datetime index, which takes RFC 3339 strings.
+# `captured_at` is a datetime index, which takes RFC 3339 strings. `source_type` and
+# `dataset` are for the Search page's source filter (D-43); `footage` groups its results by
+# video or camera (D-44).
 PAYLOAD_INDEXES: dict[str, models.PayloadSchemaType] = {
     "camera_id": models.PayloadSchemaType.INTEGER,
     "video_id": models.PayloadSchemaType.INTEGER,
     "captured_at": models.PayloadSchemaType.DATETIME,
+    "source_type": models.PayloadSchemaType.KEYWORD,
+    "dataset": models.PayloadSchemaType.KEYWORD,
+    "footage": models.PayloadSchemaType.KEYWORD,
 }
 
 
@@ -51,6 +56,19 @@ class FramePayload(BaseModel):
     thumb_path: str | None
     model: str
     model_revision: str
+    # The dataset a clip was loaded from (`dataset_manifest.dataset`: `virat`, `ccd`,
+    # `ucf_crime`...), None for a plain upload or a camera (D-43). Dataset clips are stored
+    # as uploads, so this is the only way Qdrant tells them apart. Points written before
+    # D-43 may lack the key until `scripts/backfill_search_payload.py` has run.
+    dataset: str | None = None
+
+    @computed_field
+    @property
+    def footage(self) -> str:
+        """The video or camera a frame belongs to, as one key on every point: `video:{id}` or
+        `camera:{id}` (D-44). Qdrant groups on one field, and a null `video_id` or `camera_id`
+        is not stored at all."""
+        return f"video:{self.video_id}" if self.video_id is not None else f"camera:{self.camera_id}"
 
     @field_validator("timestamp_s")
     @classmethod

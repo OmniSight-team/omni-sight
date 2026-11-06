@@ -49,6 +49,8 @@ are in `known-issues.md`; how the work went is in `context/`.
 | Algorithm 3's modality classifier (OMNI-711; no Phase A target) | Record its cross-validated accuracy | 98.0% (98 of 100), 5-fold; held-out mean `w_f` 0.695 on scene queries, 0.302 on action queries. On its own training queries only, not on SM-1's | Recorded | 2026-10-30 | OMNI-711 |
 | NFR-1, complete (combined figure, D-31) | From capture, searchable in under 5 s | One camera (`cam05`), 10 min, 784 frames, the real queue, batching and Qdrant, the encode at the GPU's measured 108 ms a frame (L4): p50 1.06 s, p95 3.14 s, **max 3.35 s**, no trend, none lost. On this laptop's CPU encoder, end to end (information, 20 s of capture, 31 frames): p50 170.8 s, max 270.0 s, so it fails there | **Pass** on the combined figure (preliminary: one camera, one run, GPU time not run live); laptop CPU run is information only | 2026-10-31 | OMNI-714 |
 | NFR-2 | Search results in under 3 s | 1,800 requests through nginx, 50 queries, 3 rounds, 3 modes, on the product's vectors: fused uncached on this CPU p50 1.14 s, p95 1.62 s, **max 2.02 s**; combined figure (GPU text, D-31) max 217 ms; repeated or filtered about 55-65 ms, max 264 ms; 0 errors | **Pass**, on the CPU too (preliminary: one machine, small collections; TC-4 is the large one) | 2026-10-31 | OMNI-714 |
+| NFR-2, whole archive (D-43) | Search results in under 3 s, unscoped, as the Search page searches | 1,800 requests through nginx, as OMNI-714, on 1,110 frame points (was 85) and 1,039 clip points: fused uncached on this CPU p50 1.19 s, p95 1.88 s, max **3.31 s** (1 of 1,800 over 3 s, its encode 3.08 s; vector search at most 79 ms); combined figure (GPU text, D-31) max 283 ms, 0 over; repeated or filtered p50 46-68 ms; 0 errors | **Pass** (combined, D-31; on the CPU alone 1 of 1,800 over; preliminary, one machine) | 2026-11-06 | OMNI-X03 |
+| FR-4, search over all footage (D-43) | One query returns moments from several videos and the datasets; the source and camera filters work inside the search | Unscoped on the page: one query's 16 hits from 2 VIRAT videos, the same query with Cameras ticked from camera 2446; `source` equals a direct count in both collections (camera 21, upload 20, dataset 1,039 frame points; dataset 1,039 clip points); two cameras with vectors: 2446 ranks first unfiltered, filtered to 2452 all 30 hits are 2452 and 2446 never appears (2 queries, frame and fused) | **Pass** | 2026-11-06 | OMNI-X03 |
 | TC-4 (D-37: VIRAT archive, 35,704 frames, not 100,000) | Both collections loaded; plain-language search; fused recall@5 at least 85% and every query under 3 s | 35,704 frames of 275 videos in both scratch collections, 50 SM-1 queries, 3 rounds, the product's own search code, no Postgres join: fused recall@5 **74%** (scene 92%, action 56%); frame 72%, clip 50%. Search + fusion max 0.20 s; slowest query **10.9 s**, the first one, a cold text encoder (K-26) | **Measured** (D-41): 74% against Phase A's 85%, which no published result supports (K-30); latency met except that one cold query (preliminary: one machine, one run; 100,000 not verified, D-37) | 2026-11-01 | OMNI-715 |
 | SM-1 | The correct clip in the top 5 for at least 85% of queries, with a lift on action queries over a frame-only baseline | After D-40: fused 76.0% overall (frame only 74.0%, clip only 46.0%, B.3 as written 60.0%). Action queries: fused 60.0%, frame only 60.0%, no lift. Scene queries: fused 92.0%, frame only 88.0%. Chance 25.1% | **Measured** (D-41): 85% and the lift on actions not met; no published result supports them (preliminary: 50 queries by one author) | 2026-10-31 | OMNI-713, D-40 |
 | Boxes on search results (addition, D-42; no Phase A target) | Labelled boxes on the right thing; record how many are right, wrong or missing | 4 queries in VIRAT video 3230, top 5 each, by eye: *a blue car* 5 of 5 on the blue pickup (top box each time) and 10 more on other parked cars; *a person walking* 5 of 5; *a white truck* none in the footage, 15 boxes all on real vehicles; *a person opening a trunk* the person at the truck boxed in 1 of 4 frames (3 missed). 0 boxes on a non-vehicle or non-person. On screen: thumbnails, the paused player (video 3231) and the live viewer (camera 2446) | **Measured** (preliminary: one look, one person, no ground truth, one video) | 2026-11-05 | OMNI-X02 |
@@ -2435,3 +2437,53 @@ after the run, of Docker's 7.6 GiB. The detector loaded in 45.5 s at start (firs
 (both share the CPU); two searches at once (the detector serves one request at a time); ai_workers' memory without the
 detector on the same run (OMNI-706's 3.84-4.17 GiB was after 400 queries); the screen with ai_workers down (the API's
 empty answer is tested, the screen's fallback only by reading the code).
+
+## OMNI-X03 · Search over all footage: the source filter, two cameras and NFR-2 again · 2026-11-06
+
+**Conditions:** this laptop (no GPU), whole stack up, no camera capturing, nothing encoding during NFR-2. Collections:
+`frame_vectors` 1,110 points (1,039 VIRAT, 21 camera 2446, 30 camera 2452, 20 uploads), `clip_vectors` 1,039 (VIRAT).
+
+**The `dataset` payload backfill** (then `scripts/backfill_dataset_payload.py`, now `backfill_search_payload.py`, D-44): first run set `virat` on 1,039 points in each
+collection; a second run changed 0 in both. qdrant-client drops `None` values from a payload it sends, so no null is ever
+stored: "no dataset" is a missing key, which the filter's `IsEmpty` covers.
+
+**The `source` filter against a direct count** (every point of the pinned models scrolled with the API's own filter,
+against Postgres: `segments.source_type` and `dataset_manifest.video_id`):
+
+| Collection | camera | upload | dataset |
+|---|---:|---:|---:|
+| `frame_vectors`, filter / direct | 21 / 21 | 20 / 20 | 1,039 / 1,039 |
+| `clip_vectors`, filter / direct | 0 / 0 | 0 / 0 | 1,039 / 1,039 |
+
+The same id sets, not only the same counts.
+
+**Two cameras with vectors, on the real stack:** a temporary camera `omnix03-test` (2452) on the simulator's `cam05`
+(a UCF-Crime normal clip), 20 s captured, 30 admitted frames, all encoded in about 4.5 min. Beside 2446 (`cam03`, VIRAT,
+21 frames). Queries *people walking in front of a building* and *a person with a backpack on a sidewalk*, `k` 50, frame
+and fused: with `source=camera` the best hit is 2446's; with `camera_id=2452` 30 hits, all 2452, 2446 never appears.
+
+**NFR-2 again, unscoped** (`scripts/measure_nfr2.py --camera 2446 --video 3226`, unchanged; its `first` and `repeat`
+passes search without a filter). 50 queries, 3 rounds, 3 modes, 1,800 requests, `k` 5, `query` restarted before each mode
+and round. Evidence: `docs/evidence/search-all/nfr2-2026-11-06.json`.
+
+| ms, all 3 rounds | Client: p50 | p95 | **max** | Combined: p50 | p95 | **max** | Encode p50 | Search p50 / max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Frame, first | 943 | 1,366 | 2,194 | 83 | 144 | 225 | 875 | 14 / 42 |
+| Clip, first | 242 | 346 | 416 | 64 | 101 | 177 | 185 | 10 / 19 |
+| **Fused, first** | **1,195** | **1,881** | **3,312** | 103 | 171 | 283 | 1,113 | 23 / 79 |
+| Frame / clip / fused, repeated | 55 / 52 / 68 | 70 / 72 / 167 | 181 / 155 / 256 | | | | 0 | |
+| Fused, camera / video filter | 59 / 63 | 86 / 280 | 123 / 614 | | | | 0 | |
+
+**Beside the old run (OMNI-714, 85 frame points):** fused first max 2.02 s then, 3.31 s now; p50 1.14 s then, 1.19 s now.
+The vector search grew from p50 24 ms to 23 ms (no change at this size); the slow request is SigLIP 2's text encode on the
+CPU (3.08 s of its 3.31 s). **Pass on the combined figure (D-31), as OMNI-714 was judged: 0 of 1,800 over 3 s, 0
+errors. On the CPU alone 1 of 1,800 is over.**
+
+**Not covered:** a collection near TC-4's size behind the page (TC-4 measured 35,704 frames on its own, OMNI-715); search
+while a camera captures or frames encode; more than one client; the page's own timing in the browser (it showed 0.03-1.77 s
+for the searches tried, not measured); the boxes request, which follows the search and is not part of it (D-42).
+
+**Added the same day, D-44 (at most 2 moments of one video or camera, the Search page).** *a person holding an
+umbrella*, k 16: without it, 16 of 16 from one video (top 50: 2 videos); with `per_footage=2`, 8 sources in Scene and 9 in
+Combined. Search step, 20 cached repeats: frame median 16 ms → 65 ms (max 177), fused 72 ms → 148 ms (max 257). The
+NFR-2 run above was before D-44 and without it (the script does not set `per_footage`).

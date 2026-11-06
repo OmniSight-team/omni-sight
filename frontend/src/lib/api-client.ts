@@ -576,12 +576,16 @@ export async function getDashboardActivity(hours = 24): Promise<DashboardHour[]>
 
 export type SearchMode = "frame" | "clip" | "fused";
 export type MatchedBy = "frame" | "clip" | "both";
+// D-43: a dataset clip is stored as an upload; `upload` means one that is not a dataset clip.
+export type SearchSource = "camera" | "upload" | "dataset";
 
 export interface SearchHit {
   segment_id: number;
   // Null for a live camera frame, which has no recording to play.
   video_id: number | null;
   filename: string | null;
+  // D-43: the dataset a clip was loaded from (virat, ccd, ucf_crime...); null otherwise.
+  dataset: string | null;
   camera: { id: number; name: string } | null;
   // Seconds into the recording; Unix time for a live camera frame.
   timestamp_s: number;
@@ -606,8 +610,14 @@ export interface SearchResponse {
 export interface SearchParams {
   q: string;
   mode: SearchMode;
+  // 1 to 50; the API's default is 5.
+  k?: number;
   video_id?: number;
   camera_id?: number;
+  // Any of them; none means every source.
+  source?: SearchSource[];
+  // D-44: at most this many moments of one video or camera; none = the best k overall.
+  per_footage?: number;
   from?: string;
   to?: string;
 }
@@ -637,6 +647,9 @@ export async function searchMoments(params: SearchParams): Promise<SearchRespons
   const query = new URLSearchParams({ q: params.q, mode: params.mode });
   if (params.video_id != null) query.set("video_id", String(params.video_id));
   if (params.camera_id != null) query.set("camera_id", String(params.camera_id));
+  if (params.k != null) query.set("k", String(params.k));
+  if (params.per_footage != null) query.set("per_footage", String(params.per_footage));
+  for (const source of params.source ?? []) query.append("source", source);
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
   return request<SearchResponse>(`/search?${query}`);
@@ -673,9 +686,10 @@ export interface EmbeddingStatus {
   clips_embedded: number;
 }
 
-export type SearchScope = { video_id: number } | { camera_id: number };
+// Empty: all footage, for the Search page (D-43).
+export type SearchScope = { video_id: number } | { camera_id: number } | Record<string, never>;
 
-// How much of one video's or one camera's footage can be searched so far.
+// How much of one video's or one camera's footage (or of all of it) can be searched so far.
 export async function getEmbeddingStatus(scope: SearchScope): Promise<EmbeddingStatus[]> {
   const query = new URLSearchParams(Object.entries(scope).map(([name, id]) => [name, String(id)]));
   return request<EmbeddingStatus[]>(`/embeddings/status?${query}`);

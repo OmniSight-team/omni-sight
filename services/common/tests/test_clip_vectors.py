@@ -69,7 +69,7 @@ def test_point_id_is_the_segment_id_so_a_second_import_overwrites(client):
 
     assert client.count(NAME).count == 1
     [point] = client.retrieve(NAME, [42], with_payload=True)
-    assert set(point.payload) == set(FramePayload.model_fields)
+    assert set(point.payload) == set(FramePayload.model_fields) | set(FramePayload.model_computed_fields)
 
 
 def test_a_vector_of_the_wrong_size_is_refused():

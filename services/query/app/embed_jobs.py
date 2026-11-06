@@ -6,6 +6,7 @@ needs no database: everything it stores next to the vector comes from here.
 The domain is not on a segment. It is taken from, in order: the frame's camera (a live
 frame), the video's camera, the dataset the video was loaded from (`dataset_manifest`),
 and otherwise `surveillance` (D-34): a plain upload with no camera has no domain recorded.
+The dataset's name comes from the same `dataset_manifest` row (D-43); None if there is none.
 """
 
 from collections.abc import Iterable, Iterator
@@ -33,6 +34,12 @@ def _jobs_query() -> Select:
         .limit(1)
         .scalar_subquery()
     )
+    manifest_dataset = (
+        select(DatasetManifest.dataset)
+        .where(DatasetManifest.video_id == Segment.video_id)
+        .limit(1)
+        .scalar_subquery()
+    )
     return (
         select(
             Segment.id,
@@ -44,6 +51,7 @@ def _jobs_query() -> Select:
             Segment.thumb_path,
             Video.created_at.label("uploaded_at"),
             func.coalesce(frame_camera.domain, video_camera.domain, manifest_domain).label("domain"),
+            manifest_dataset.label("dataset"),
         )
         .outerjoin(Video, Video.id == Segment.video_id)
         .outerjoin(frame_camera, frame_camera.id == Segment.camera_id)
@@ -63,6 +71,7 @@ def _job(row) -> EmbedJob:
         captured_at=captured_at(row.source_type, row.timestamp_s, row.uploaded_at),
         frame_path=row.frame_path,
         thumb_path=row.thumb_path,
+        dataset=row.dataset,
     )
 
 

@@ -9,7 +9,7 @@ import { getNavRoutes, type NavRoute } from "@/lib/api-client";
 // The screens that have a real page so far — everything else on the map is
 // a future slice. This is presentation-only (which links are clickable),
 // not a role/security decision, so it stays local to the sidebar.
-const BUILT_ROUTES = new Set(["/", "/live", "/cameras", "/videos"]);
+const BUILT_ROUTES = new Set(["/", "/live", "/search", "/cameras", "/videos"]);
 
 export function Sidebar() {
   const pathname = usePathname();
