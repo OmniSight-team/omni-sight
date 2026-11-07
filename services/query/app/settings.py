@@ -87,7 +87,8 @@ class Settings(CommonSettings):
     extraction_poll_s: float = Field(0.25, gt=0)
 
     video_storage_path: str = "/data/videos"
-    max_upload_size_mb: int = 500
+    # D-45: 2,048 MB (was 500, OMNI-205), so the demo set's long videos can come in.
+    max_upload_size_mb: int = 2048
     # OMNI-608: the local dataset mirror (`data/`), mounted read-only. Dataset footage
     # is read from here and goes through the same upload path as any file.
     datasets_path: str = "/datasets"

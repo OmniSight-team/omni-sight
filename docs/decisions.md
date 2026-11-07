@@ -50,6 +50,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-42 | **Addition (not Phase A):** labelled boxes on search results from YOLO-World, pinned, in `ai_workers`, as a separate request after the search | 2026-11-05 | Done |
 | D-43 | The Search page comes back over all footage (Phase A's Search screen), with a `source` filter; the search in the player and the viewer stays. Revises D-39 | 2026-11-06 | Done |
 | D-44 | **Deviation:** the Search page shows at most 2 moments of one video or camera, grouped inside Qdrant's search; B.3's plain top K stays everywhere else | 2026-11-06 | Done |
+| D-45 | The upload limit is raised from 500 MB to 2,048 MB, for the demo set; the 900 s extraction timeout stays | 2026-11-08 | Done |
 
 ---
 
@@ -1132,3 +1133,22 @@ weights decide (D-40).
 
 **Not done:** the 62 of 74 videos and cameras with no vectors at all (dataset clips never encoded on this laptop, D-32)
 still cannot appear; grouping does not change that.
+
+## D-45 · The upload limit is raised from 500 MB to 2,048 MB · 2026-11-08
+
+**Ahmad's decision,** before the demo set (`docs/tickets/extra-demo-set.md`): long footage (UCF-Crime's long videos,
+SoccerNet at 720p) is what the demo set exists to show, and 500 MB would refuse some of it.
+
+**Reverses** D-25's "reverted the same day" and the D-26 amendment's "the limits are not raised for demo footage".
+Those said the limit stays at 500 MB until there is a reason that still holds; the demo set is that reason. Not a
+Phase A change: the limit is a setting of OMNI-205, not a requirement.
+
+**How:** `settings.max_upload_size_mb` 2,048 (`services/query/app/settings.py`) and nginx's `client_max_body_size
+2048m` (`infra/nginx/default.conf`), kept equal as the nginx comment asks. Every upload gets the new limit, not only
+dataset clips: one path for all footage (D-25).
+
+**Kept:** the 900 s extraction timeout. A file under 2,048 MB can still fail extraction if it is long (VIRAT scenes
+`0000` and `0001` were also past 900 s, D-26); the demo set chooses videos that fit, or cuts them.
+
+**Not changed:** the VIRAT demo sample (`datasets/demo/virat_sample.csv`) was drawn under the 500 MB rule and stays as
+committed; `omnisight_common.datasets.demo.MAX_BYTES` keeps 500 MB, so a re-run gives the same 9 videos.
