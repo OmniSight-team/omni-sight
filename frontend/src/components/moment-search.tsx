@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
+  type Camera,
   type MatchedBy,
   type SearchBox,
   type SearchBoxes,
@@ -11,19 +12,27 @@ import {
   type SearchMode,
   type SearchResponse,
   type SearchScope,
+  type SearchSource,
   getEmbeddingStatus,
   getSearchBoxes,
+  listCameras,
   searchMoments,
 } from "@/lib/api-client";
 import { BoxOverlay } from "@/components/box-overlay";
 
-// Natural-language search inside one video or one camera's frames (OMNI-712, FR-4, D-39).
-// The search itself runs inside the vector search, on that footage only.
+// Natural-language search inside one video or one camera's frames (OMNI-712, FR-4, D-39),
+// or over all footage on the Search page (D-43). Every filter runs inside the vector search.
 
 const MODES: { value: SearchMode; label: string }[] = [
   { value: "frame", label: "Scene" },
   { value: "clip", label: "Action" },
   { value: "fused", label: "Combined" },
+];
+
+const SOURCES: { value: SearchSource; label: string }[] = [
+  { value: "camera", label: "Cameras" },
+  { value: "upload", label: "Uploads" },
+  { value: "dataset", label: "Datasets" },
 ];
 
 const MATCHED_BY: Record<MatchedBy, string> = {
@@ -64,15 +73,40 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
   );
 }
 
+// Where a hit comes from (D-43): the camera, or the video and, for a dataset clip, its dataset.
+function SourceLine({ hit }: { hit: SearchHit }) {
+  if (hit.camera && hit.video_id === null) {
+    return (
+      <p className="truncate text-zinc-700 dark:text-zinc-300" title={hit.camera.name}>
+        Camera · {hit.camera.name}
+      </p>
+    );
+  }
+  return (
+    <p className="flex items-center gap-1.5 text-zinc-700 dark:text-zinc-300">
+      {hit.dataset && (
+        <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+          {hit.dataset}
+        </span>
+      )}
+      <span className="truncate" title={hit.filename ?? undefined}>
+        {hit.filename ?? `Video ${hit.video_id}`}
+      </span>
+    </p>
+  );
+}
+
 function HitCard({
   hit,
   rank,
   boxes,
+  showSource = false,
   onPick,
 }: {
   hit: SearchHit;
   rank?: number;
   boxes?: SearchBox[];
+  showSource?: boolean;
   onPick: (hit: SearchHit, boxes: SearchBox[]) => void;
 }) {
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -98,6 +132,7 @@ function HitCard({
         <BoxOverlay boxes={boxes} width={size.width} height={size.height} fit="cover" labelSize={0.09} withScore={false} />
       </div>
       <div className="space-y-1 px-2 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {showSource && <SourceLine hit={hit} />}
         <p className="font-medium tabular-nums text-zinc-900 dark:text-zinc-50">
           {rank !== undefined && <span className="mr-1.5 text-indigo-600 dark:text-indigo-400">#{rank}</span>}
           {hit.video_id === null ? new Date(hit.captured_at).toLocaleString() : `At ${formatPosition(hit.timestamp_s)}`}
@@ -122,32 +157,110 @@ function hasVectors(mode: SearchMode, coverage: Coverage | null): boolean {
   return coverage.frames > 0 || coverage.clips > 0;
 }
 
+type Filters = {
+  mode: SearchMode;
+  from: string;
+  to: string;
+  compare: boolean;
+  sources: SearchSource[];
+  cameraId: number | null;
+};
+
+const MODE_VALUES = new Set<string>(MODES.map((option) => option.value));
+const SOURCE_VALUES = new Set<string>(SOURCES.map((option) => option.value));
+
+// K-33: the Search page keeps its search in its own URL, so going back from a result opens
+// the same search again (a repeated query's text vector is cached, so it is quick).
+function searchToUrl(text: string, filters: Filters): string {
+  const query = new URLSearchParams({ q: text, mode: filters.mode });
+  if (filters.compare) query.set("compare", "1");
+  for (const source of filters.sources) query.append("source", source);
+  if (filters.cameraId !== null) query.set("camera", String(filters.cameraId));
+  if (filters.from) query.set("from", filters.from);
+  if (filters.to) query.set("to", filters.to);
+  return `?${query}`;
+}
+
+function searchFromUrl(search: string): { text: string; filters: Filters } | null {
+  const query = new URLSearchParams(search);
+  const text = query.get("q")?.trim() ?? "";
+  if (!text) return null;
+  const mode = query.get("mode") ?? "";
+  const camera = Number(query.get("camera"));
+  return {
+    text,
+    filters: {
+      mode: MODE_VALUES.has(mode) ? (mode as SearchMode) : "fused",
+      compare: query.get("compare") === "1",
+      sources: query.getAll("source").filter((value) => SOURCE_VALUES.has(value)) as SearchSource[],
+      cameraId: query.get("camera") && Number.isInteger(camera) ? camera : null,
+      from: query.get("from") ?? "",
+      to: query.get("to") ?? "",
+    },
+  };
+}
+
 export function MomentSearch({
   scope,
   withDates = false,
+  withFilters = false,
+  showSource = false,
+  k,
+  perFootage,
+  inUrl = false,
+  savedUrl,
   onPick,
 }: {
   scope: SearchScope;
   withDates?: boolean;
-  // With the result's boxes (OMNI-X02), empty when it has none or they have not arrived yet.
-  onPick: (hit: SearchHit, boxes: SearchBox[]) => void;
+  // The Search page (D-43): source and camera filters.
+  withFilters?: boolean;
+  // Where each hit comes from (D-43).
+  showSource?: boolean;
+  // Results per mode; the API's default (5) when not given.
+  k?: number;
+  // D-44: at most this many moments of one video or camera.
+  perFootage?: number;
+  // K-33: keep the search in the page's URL; `savedUrl` is that URL's query on opening, whose
+  // search runs again (on coming back from a result too).
+  inUrl?: boolean;
+  savedUrl?: string;
+  // With the result's boxes (OMNI-X02), empty when it has none or they have not arrived yet,
+  // and the query that found it.
+  onPick: (hit: SearchHit, boxes: SearchBox[], query: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  // Read once, on opening: later URL changes are this panel's own.
+  const [saved] = useState(() => (inUrl && savedUrl ? searchFromUrl(savedUrl) : null));
+  const [draft, setDraft] = useState(saved?.text ?? "");
   const [boxes, setBoxes] = useState<SearchBoxes>({});
-  const [mode, setMode] = useState<SearchMode>("fused");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [mode, setMode] = useState<SearchMode>(saved?.filters.mode ?? "fused");
+  const [from, setFrom] = useState(saved?.filters.from ?? "");
+  const [to, setTo] = useState(saved?.filters.to ?? "");
   const [query, setQuery] = useState("");
   const [running, setRunning] = useState(false);
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   // Comparison (OMNI-716): the same query answered in all three modes, side by side.
-  const [compare, setCompare] = useState(false);
+  const [compare, setCompare] = useState(saved?.filters.compare ?? false);
   const [columns, setColumns] = useState<Record<SearchMode, SearchResponse> | null>(null);
+  // D-43: none ticked means every source.
+  const [sources, setSources] = useState<SearchSource[]>(saved?.filters.sources ?? []);
+  const [cameraId, setCameraId] = useState<number | null>(saved?.filters.cameraId ?? null);
+  const [cameras, setCameras] = useState<Camera[]>([]);
   // Only the newest search may show its answer: an older, slower one is ignored.
   const latest = useRef(0);
   const scopeKey = JSON.stringify(scope);
+  const pickHit = (hit: SearchHit, found: SearchBox[]) => onPick(hit, found, query);
+
+  useEffect(() => {
+    if (!withFilters) return;
+    listCameras()
+      .then(setCameras)
+      .catch(() => {
+        // Non-fatal: the search works without the camera filter.
+      });
+  }, [withFilters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,8 +287,22 @@ export function MomentSearch({
     };
   }, [scopeKey]);
 
-  async function run(text: string, nextMode: SearchMode, nextFrom: string, nextTo: string, comparing = compare) {
+  // Each call names what the click changed; the rest is the current state (the click's own
+  // setState is not visible here yet).
+  async function run(text: string, changed: Partial<Filters> = {}) {
+    const next: Filters = { mode, from, to, compare, sources, cameraId, ...changed };
     if (!text) return;
+    if (inUrl) window.history.replaceState(null, "", searchToUrl(text, next));
+    const params = {
+      q: text,
+      k,
+      per_footage: perFootage,
+      ...(JSON.parse(scopeKey) as SearchScope),
+      ...(next.cameraId !== null ? { camera_id: next.cameraId } : {}),
+      source: next.sources.length > 0 ? next.sources : undefined,
+      from: next.from ? dayStart(next.from) : undefined,
+      to: next.to ? dayEnd(next.to) : undefined,
+    };
     const ticket = ++latest.current;
     setQuery(text);
     setRunning(true);
@@ -188,18 +315,9 @@ export function MomentSearch({
       });
     };
     try {
-      if (comparing) {
-        const scope = JSON.parse(scopeKey) as SearchScope;
+      if (next.compare) {
         const [frame, clip, fused] = await Promise.all(
-          MODES.map((option) =>
-            searchMoments({
-              q: text,
-              mode: option.value,
-              ...scope,
-              from: nextFrom ? dayStart(nextFrom) : undefined,
-              to: nextTo ? dayEnd(nextTo) : undefined,
-            }),
-          ),
+          MODES.map((option) => searchMoments({ ...params, mode: option.value })),
         );
         if (ticket !== latest.current) return;
         setColumns({ frame, clip, fused });
@@ -207,13 +325,7 @@ export function MomentSearch({
         askForBoxes([...frame.results, ...clip.results, ...fused.results]);
         return;
       }
-      const answer = await searchMoments({
-        q: text,
-        mode: nextMode,
-        ...(JSON.parse(scopeKey) as SearchScope),
-        from: nextFrom ? dayStart(nextFrom) : undefined,
-        to: nextTo ? dayEnd(nextTo) : undefined,
-      });
+      const answer = await searchMoments({ ...params, mode: next.mode });
       if (ticket !== latest.current) return;
       setResponse(answer);
       setError(null);
@@ -227,9 +339,19 @@ export function MomentSearch({
     }
   }
 
+  // K-33: on opening (also on coming back from a result), the search in the URL runs again.
+  useEffect(() => {
+    if (saved === null) return;
+    // Started after this render, not inside it; a second mount (development) cancels the first.
+    const timer = setTimeout(() => void run(saved.text, saved.filters), 0);
+    return () => clearTimeout(timer);
+    // Once, on opening: `run` is given every filter, so it needs nothing from this render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved]);
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    void run(draft.trim(), mode, from, to);
+    void run(draft.trim());
   }
 
   const input = "rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
@@ -264,7 +386,7 @@ export function MomentSearch({
               aria-pressed={mode === option.value}
               onClick={() => {
                 setMode(option.value);
-                void run(query, option.value, from, to);
+                void run(query, { mode: option.value });
               }}
               className={`rounded-md px-3 py-1 font-medium transition ${
                 mode === option.value
@@ -283,7 +405,7 @@ export function MomentSearch({
           onClick={() => {
             const next = !compare;
             setCompare(next);
-            void run(query, mode, from, to, next);
+            void run(query, { compare: next });
           }}
           className={`rounded-lg border px-3 py-1 font-medium transition ${
             compare
@@ -302,7 +424,7 @@ export function MomentSearch({
                 value={from}
                 onChange={(event) => {
                   setFrom(event.target.value);
-                  void run(query, mode, event.target.value, to);
+                  void run(query, { from: event.target.value });
                 }}
                 className={input}
               />
@@ -314,10 +436,61 @@ export function MomentSearch({
                 value={to}
                 onChange={(event) => {
                   setTo(event.target.value);
-                  void run(query, mode, from, event.target.value);
+                  void run(query, { to: event.target.value });
                 }}
                 className={input}
               />
+            </label>
+          </>
+        )}
+        {withFilters && (
+          <>
+            <div
+              role="group"
+              aria-label="Source"
+              className="inline-flex rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800"
+            >
+              {SOURCES.map((option) => {
+                const on = sources.includes(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => {
+                      const nextSources = on ? sources.filter((s) => s !== option.value) : [...sources, option.value];
+                      setSources(nextSources);
+                      void run(query, { sources: nextSources });
+                    }}
+                    className={`rounded-md px-3 py-1 font-medium transition ${
+                      on
+                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                        : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <label className="flex items-center gap-1.5">
+              Camera
+              <select
+                value={cameraId ?? ""}
+                onChange={(event) => {
+                  const nextCamera = event.target.value ? Number(event.target.value) : null;
+                  setCameraId(nextCamera);
+                  void run(query, { cameraId: nextCamera });
+                }}
+                className={input}
+              >
+                <option value="">Any</option>
+                {cameras.map((camera) => (
+                  <option key={camera.id} value={camera.id}>
+                    {camera.name}
+                  </option>
+                ))}
+              </select>
             </label>
           </>
         )}
@@ -356,7 +529,14 @@ export function MomentSearch({
                 {column.results.length > 0 ? (
                   <div className="grid grid-cols-1 gap-3">
                     {column.results.map((hit, index) => (
-                      <HitCard key={hit.segment_id} hit={hit} rank={index + 1} boxes={boxes[hit.segment_id]} onPick={onPick} />
+                      <HitCard
+                        key={hit.segment_id}
+                        hit={hit}
+                        rank={index + 1}
+                        boxes={boxes[hit.segment_id]}
+                        showSource={showSource}
+                        onPick={pickHit}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -378,7 +558,13 @@ export function MomentSearch({
           {response.results.length > 0 ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
               {response.results.map((hit) => (
-                <HitCard key={hit.segment_id} hit={hit} boxes={boxes[hit.segment_id]} onPick={onPick} />
+                <HitCard
+                  key={hit.segment_id}
+                  hit={hit}
+                  boxes={boxes[hit.segment_id]}
+                  showSource={showSource}
+                  onPick={pickHit}
+                />
               ))}
             </div>
           ) : response.message || !hasVectors(mode, coverage) ? (
@@ -388,7 +574,9 @@ export function MomentSearch({
             </Notice>
           ) : (
             <Notice title="No results">
-              {from || to ? "Nothing matches these dates. Widen or clear them." : "Nothing here matched this search."}
+              {from || to || sources.length > 0 || cameraId !== null
+                ? "Nothing matches these filters. Widen or clear them."
+                : "Nothing here matched this search."}
             </Notice>
           )}
         </>

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/api-client";
 import { BoxOverlay } from "@/components/box-overlay";
 import { MomentSearch } from "@/components/moment-search";
+import { takePickBoxes } from "@/lib/search-pick";
 
 // How far from the picked second the player may be and still show that result's boxes.
 const BOX_AT_TOLERANCE_S = 0.05;
@@ -250,8 +251,20 @@ function FrameGrid({
 }
 
 export default function VideoPlayerPage() {
+  // `?t=` is read from the URL, which is only known in the browser.
+  return (
+    <Suspense>
+      <VideoPlayer />
+    </Suspense>
+  );
+}
+
+function VideoPlayer() {
   const params = useParams<{ id: string }>();
   const videoId = Number(params.id);
+  const router = useRouter();
+  // Opened from a Search page result (`?t=`, D-43): back goes to those results (K-33).
+  const fromSearch = useSearchParams().has("t");
 
   const [video, setVideo] = useState<Video | null>(null);
   const [allFrames, setAllFrames] = useState<Frame[]>([]);
@@ -374,12 +387,22 @@ export default function VideoPlayerPage() {
 
   return (
     <main className="p-6">
-      <Link
-        href="/videos"
-        className="mb-4 inline-block text-sm text-zinc-500 hover:underline dark:text-zinc-400"
-      >
-        ← Video Archive
-      </Link>
+      {fromSearch ? (
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="mb-4 inline-block text-sm text-zinc-500 hover:underline dark:text-zinc-400"
+        >
+          ← Search results
+        </button>
+      ) : (
+        <Link
+          href="/videos"
+          className="mb-4 inline-block text-sm text-zinc-500 hover:underline dark:text-zinc-400"
+        >
+          ← Video Archive
+        </Link>
+      )}
 
       {loadError && (
         <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
@@ -405,9 +428,21 @@ export default function VideoPlayerPage() {
               controls
               // block: no inline gap under it, so the overlay covers exactly the video.
               className="block aspect-video w-full"
-              onLoadedMetadata={(event) =>
-                setVideoSize({ width: event.currentTarget.videoWidth, height: event.currentTarget.videoHeight })
-              }
+              onLoadedMetadata={(event) => {
+                const player = event.currentTarget;
+                setVideoSize({ width: player.videoWidth, height: player.videoHeight });
+                // Opened from the Search page (D-43): `?t=` is the result's second; paused there, with its boxes.
+                const raw = new URLSearchParams(window.location.search).get("t");
+                const t = Number(raw);
+                if (raw !== null && raw !== "" && Number.isFinite(t) && t >= 0) {
+                  player.pause();
+                  seekTo(t);
+                  void takePickBoxes(videoId, t).then((boxes) =>
+                    // Only if the player is still paused at that second (a play or a seek hides them).
+                    setShownBoxes(player.paused && Math.abs(player.currentTime - t) <= BOX_AT_TOLERANCE_S ? { at: t, boxes } : null),
+                  );
+                }
+              }}
               // The boxes belong to one second of a paused player: playing or moving away hides them.
               onPlay={() => setShownBoxes(null)}
               onSeeked={(event) => {

@@ -90,7 +90,7 @@ def test_payload_is_stored_as_plain_json():
 
     assert stored["source_type"] == "upload"
     assert stored["domain"] == "surveillance"
-    assert set(stored) == set(FramePayload.model_fields)
+    assert set(stored) == set(FramePayload.model_fields) | set(FramePayload.model_computed_fields)
 
 
 def test_timestamp_is_kept_to_the_microsecond():

@@ -21,7 +21,7 @@ from app.db import SessionLocal
 from app.embed_jobs import job_for_frame, jobs_for_segments
 from app.embeddings import get_qdrant
 from app.main import app
-from app.models import Camera, Segment, User, Video
+from app.models import Camera, DatasetManifest, Segment, User, Video
 from app.security import hash_password
 from app.settings import settings
 from fastapi.testclient import TestClient
@@ -31,6 +31,7 @@ from omnisight_common.clip_vectors import (
     clip_point,
     ensure_clip_collection,
 )
+from omnisight_common.datasets import AnnotationSource
 from omnisight_common.frame_vectors import (
     FRAME_VECTOR_SIZE,
     ensure_frame_collection,
@@ -65,6 +66,7 @@ def cleanup():
     yield
     ai_workers_client.cache.clear()
     with SessionLocal() as session:
+        session.query(DatasetManifest).filter(DatasetManifest.clip_key.like(f"{NAME_PREFIX}%")).delete(synchronize_session=False)
         session.query(Video).filter(Video.filename.like(f"{NAME_PREFIX}%")).delete(synchronize_session=False)
         camera_ids = [c.id for c in session.query(Camera).filter(Camera.name.like(f"{NAME_PREFIX}%"))]
         session.query(Segment).filter(Segment.camera_id.in_(camera_ids)).delete(synchronize_session=False)
@@ -699,3 +701,128 @@ def test_boxes_need_a_token(qdrant, ai_workers):
 @pytest.mark.parametrize("role", [Role.OPERATOR, Role.ANALYST, Role.ADMIN])
 def test_every_role_that_searches_may_ask_for_boxes(qdrant, ai_workers, role):
     assert _boxes("a person", [1], headers=_headers(role)).status_code == 200
+
+
+# --- D-43: the source filter and the dataset's name -----------------------------------------
+
+
+def _dataset_video(dataset: str) -> int:
+    """A video loaded from a dataset: an upload with a manifest row pointing at it."""
+    video_id = _video()
+    with SessionLocal() as session:
+        session.add(DatasetManifest(
+            dataset=dataset, clip_key=f"{NAME_PREFIX}{uuid.uuid4().hex[:8]}", domain=Domain.SURVEILLANCE,
+            annotation_source=AnnotationSource.NORMAL, video_id=video_id, video_relpath="x.mp4",
+        ))
+        session.commit()
+    return video_id
+
+
+def _ids(**params) -> set[int]:
+    return {h["segment_id"] for h in _search(k=50, **params).json()["results"]}
+
+
+def test_each_source_returns_only_its_own_footage(qdrant, ai_workers):
+    # An upload stored before D-43 (no `dataset` key), an upload with `dataset` null, a dataset
+    # clip, a camera frame.
+    no_key = _frame(qdrant, 0.5, video_id=_video())
+    qdrant.delete_payload(settings.frame_collection, keys=["dataset"], points=[no_key])
+    assert "dataset" not in qdrant.retrieve(settings.frame_collection, [no_key])[0].payload
+    null = _frame(qdrant, 0.6, video_id=_video())
+    clip = _frame(qdrant, 0.7, video_id=_dataset_video("virat"))
+    frame = _frame(qdrant, 0.8, camera_id=_camera(), at=1_790_000_000.0)
+
+    assert _ids(source="upload") == {no_key, null}
+    assert _ids(source="dataset") == {clip}
+    assert _ids(source="camera") == {frame}
+    assert _ids(source=["camera", "dataset"]) == {frame, clip}
+    assert _ids() == {no_key, null, clip, frame}
+
+
+def test_the_source_filter_is_applied_inside_the_search(qdrant, ai_workers):
+    clip = _frame(qdrant, 0.4, video_id=_dataset_video("ccd"))
+    upload = _video()
+    for c in (0.95, 0.9, 0.85, 0.8, 0.75):
+        _frame(qdrant, c, video_id=upload)
+    assert clip not in [h["segment_id"] for h in _search(k=5).json()["results"]]
+
+    assert [h["segment_id"] for h in _search(k=5, source="dataset").json()["results"]] == [clip]
+
+
+def test_the_source_filter_holds_in_both_searches_of_fused(qdrant, ai_workers, equal_weights):
+    clip = _frame(qdrant, 0.3, video_id=_dataset_video("ucf_crime"))
+    _clip(qdrant, clip, 0.3)
+    upload = _frame(qdrant, 0.9, video_id=_video())
+    _clip(qdrant, upload, 0.9)
+
+    assert [h["segment_id"] for h in _search(mode="fused", source="dataset").json()["results"]] == [clip]
+
+
+def test_a_hit_says_which_dataset_it_comes_from(qdrant, ai_workers, equal_weights):
+    clip = _frame(qdrant, 0.9, video_id=_dataset_video("virat"))
+    _clip(qdrant, clip, 0.9)
+    upload = _frame(qdrant, 0.5, video_id=_video())
+    frame = _frame(qdrant, 0.4, camera_id=_camera(), at=1_790_000_000.0)
+
+    for mode in ("frame", "fused"):
+        by_id = {h["segment_id"]: h for h in _search(mode=mode, k=50).json()["results"]}
+        assert by_id[clip]["dataset"] == "virat"
+        assert by_id[clip]["filename"].startswith(NAME_PREFIX)
+        assert by_id[upload]["dataset"] is None
+        assert by_id[frame]["dataset"] is None and by_id[frame]["camera"] is not None
+
+
+def test_an_unknown_source_is_refused(qdrant, ai_workers):
+    assert _search(source="youtube").status_code == 422
+
+
+# --- D-44: at most N moments of one video or camera -----------------------------------------
+
+
+def _one_strong_video_and_two_weak_sources(qdrant, *, clips=False):
+    video = _video()
+    strong = [_frame(qdrant, c, video_id=video) for c in (0.95, 0.9, 0.85, 0.8, 0.75)]
+    other = _frame(qdrant, 0.4, video_id=_video())
+    frame = _frame(qdrant, 0.3, camera_id=_camera(), at=1_790_000_000.0)
+    if clips:
+        for segment_id, c in zip([*strong, other, frame], (0.95, 0.9, 0.85, 0.8, 0.75, 0.4, 0.3), strict=True):
+            _clip(qdrant, segment_id, c)
+    return video, strong, other, frame
+
+
+def test_without_per_footage_one_video_can_fill_the_list(qdrant, ai_workers):
+    _, strong, _, _ = _one_strong_video_and_two_weak_sources(qdrant)
+    assert [h["segment_id"] for h in _search(k=5).json()["results"]] == strong
+
+
+@pytest.mark.parametrize("per_footage", [1, 2])
+def test_per_footage_brings_up_other_videos_and_cameras(qdrant, ai_workers, per_footage):
+    _, strong, other, frame = _one_strong_video_and_two_weak_sources(qdrant)
+
+    ids = [h["segment_id"] for h in _search(k=5, per_footage=per_footage).json()["results"]]
+
+    assert ids == [*strong[:per_footage], other, frame]
+
+
+def test_per_footage_in_fused(qdrant, ai_workers, equal_weights):
+    _, strong, other, frame = _one_strong_video_and_two_weak_sources(qdrant, clips=True)
+
+    ids = [h["segment_id"] for h in _search(mode="fused", k=5, per_footage=1).json()["results"]]
+
+    assert ids == [strong[0], other, frame]
+
+
+def test_per_footage_still_stops_at_k(qdrant, ai_workers):
+    for _ in range(4):
+        video = _video()
+        for c in (0.9, 0.8):
+            _frame(qdrant, c, video_id=video)
+
+    body = _search(k=3, per_footage=2).json()
+
+    assert body["total"] == 3
+
+
+@pytest.mark.parametrize("per_footage", [0, 51])
+def test_per_footage_outside_1_to_50_is_refused(qdrant, ai_workers, per_footage):
+    assert _search(per_footage=per_footage).status_code == 422

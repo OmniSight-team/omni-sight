@@ -254,6 +254,8 @@ class SearchHitOut(BaseModel):
     video_id: int | None
     # The recording's name; None for a live camera frame, which has no recording.
     filename: str | None
+    # D-43: the dataset a clip was loaded from (`virat`, `ccd`, `ucf_crime`...); None otherwise.
+    dataset: str | None = None
     camera: SearchCameraOut | None
     timestamp_s: float
     captured_at: datetime

@@ -2,13 +2,18 @@
 of the most relevant moments (Phase A FR-4).
 
     query text -> ai_workers (SigLIP 2 and / or InternVideo2 text, cached by exact text)
-               -> Qdrant `frame_vectors` and / or `clip_vectors`: cosine, top k, camera and
-                  date filtered inside the search, only vectors of the pinned model
+               -> Qdrant `frame_vectors` and / or `clip_vectors`: cosine, top k, video, camera,
+                  source and date filtered inside the search, only vectors of the pinned model
                -> `fused`: Algorithm 3, the two lists merged by rank (`omnisight_common.fusion`)
                -> Postgres: each hit joined to its segment, video and camera
 
 `mode=frame` and `mode=clip` score by cosine; `mode=fused` by B.3's reciprocal rank score,
 which is on another scale.
+
+`per_footage` (D-44, the Search page): at most that many moments of one video or camera.
+Each vector search is then grouped by the payload's `footage` inside Qdrant (best groups,
+best hits of each), `fused` merges those grouped lists by B.3's rule, and the merged list
+keeps at most `per_footage` of each footage. Without it, nothing changes (B.3 as before).
 
 A hit whose segment no longer exists or is no longer admitted (a deleted or re-gated
 video's old point, K-24) is left out, counted in `dropped` and logged; the response then
@@ -57,6 +62,15 @@ class SearchMode(StrEnum):
     FUSED = "fused"
 
 
+class SearchSource(StrEnum):
+    """D-43: where footage comes from. A dataset clip is stored as an upload; the payload's
+    `dataset` (its name, or empty) is what tells the two apart."""
+
+    CAMERA = "camera"
+    UPLOAD = "upload"
+    DATASET = "dataset"
+
+
 @dataclass(frozen=True)
 class Stream:
     """One of Algorithm 3's two sides: its text encoder and its index."""
@@ -77,6 +91,8 @@ class RankedHit:
     score: float
     matched_by: str
     captured_at: str
+    dataset: str | None
+    footage: str | None
 
 
 def _ms(since: float) -> float:
@@ -97,18 +113,43 @@ def _same_model(stream: Stream) -> list[models.FieldCondition]:
     ]
 
 
+def _no_dataset() -> models.IsEmptyCondition:
+    # Empty = no `dataset` key (a point from before D-43's backfill) or null: both mean "not a
+    # dataset clip".
+    return models.IsEmptyCondition(is_empty=models.PayloadField(key="dataset"))
+
+
+def _source_condition(source: SearchSource) -> models.Filter:
+    if source is SearchSource.CAMERA:
+        return models.Filter(must=[models.FieldCondition(key="source_type", match=models.MatchValue(value="camera"))])
+    if source is SearchSource.UPLOAD:
+        return models.Filter(must=[
+            models.FieldCondition(key="source_type", match=models.MatchValue(value="upload")),
+            _no_dataset(),
+        ])
+    return models.Filter(must_not=[_no_dataset()])
+
+
 def _filter(
-    stream: Stream, video_id: int | None, camera_id: int | None, start: datetime | None, end: datetime | None
+    stream: Stream,
+    video_id: int | None,
+    camera_id: int | None,
+    start: datetime | None,
+    end: datetime | None,
+    sources: list[SearchSource] | None = None,
 ) -> models.Filter:
     """Applied by Qdrant during the search (indexed payload, OMNI-703), so a video's or a
-    camera's best match is found even when other footage ranks above it."""
-    must = _same_model(stream)
+    camera's best match is found even when other footage ranks above it. Several sources
+    are one condition that any of them satisfies (D-43)."""
+    must: list = _same_model(stream)
     if video_id is not None:
         must.append(models.FieldCondition(key="video_id", match=models.MatchValue(value=video_id)))
     if camera_id is not None:
         must.append(models.FieldCondition(key="camera_id", match=models.MatchValue(value=camera_id)))
     if start is not None or end is not None:
         must.append(models.FieldCondition(key="captured_at", range=models.DatetimeRange(gte=start, lte=end)))
+    if sources:
+        must.append(models.Filter(should=[_source_condition(s) for s in dict.fromkeys(sources)]))
     return models.Filter(must=must)
 
 
@@ -136,6 +177,40 @@ def _weights(frame_vector: list[float]) -> tuple[float, float]:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=WRONG_CLASSIFIER) from exc
 
 
+PAYLOAD = ["captured_at", "dataset", "footage"]
+
+
+def _ranked_points(
+    qdrant: QdrantClient, stream: Stream, vector: list[float], query_filter: models.Filter, k: int, per_footage: int | None
+) -> list[models.ScoredPoint]:
+    """One stream's ranked list. With `per_footage`, Qdrant groups by `footage`: the `k` best
+    videos or cameras, each with up to `per_footage` of its best hits, by score (D-44)."""
+    if per_footage is None:
+        return qdrant.query_points(
+            collection_name=stream.collection, query=vector, query_filter=query_filter, limit=k, with_payload=PAYLOAD
+        ).points
+    groups = qdrant.query_points_groups(
+        collection_name=stream.collection, group_by="footage", query=vector, query_filter=query_filter,
+        limit=k, group_size=per_footage, with_payload=PAYLOAD,
+    ).groups
+    return sorted((hit for group in groups for hit in group.hits), key=lambda hit: hit.score, reverse=True)
+
+
+def _per_footage(ranked: list[RankedHit], per_footage: int | None, k: int) -> list[RankedHit]:
+    """The first `k`, at most `per_footage` of each video or camera, in rank order."""
+    if per_footage is None:
+        return ranked[:k]
+    kept: list[RankedHit] = []
+    seen: dict[str | None, int] = {}
+    for hit in ranked:
+        if seen.get(hit.footage, 0) < per_footage:
+            seen[hit.footage] = seen.get(hit.footage, 0) + 1
+            kept.append(hit)
+            if len(kept) == k:
+                break
+    return kept
+
+
 @router.get("", response_model=SearchOut)
 def search(
     q: str = Query(..., max_length=1000),
@@ -145,6 +220,10 @@ def search(
     camera_id: int | None = None,
     start: datetime | None = Query(None, alias="from"),
     end: datetime | None = Query(None, alias="to"),
+    # D-43: one or several, e.g. `?source=camera&source=dataset`; none means every source.
+    source: list[SearchSource] | None = Query(None),
+    # D-44: at most this many moments of one video or camera (the Search page); none = B.3 as is.
+    per_footage: int | None = Query(None, ge=1, le=MAX_K),
     db: Session = Depends(get_db),
     qdrant: QdrantClient = Depends(get_qdrant),
     # Phase A: operators and analysts search (§3.4, use cases); admins can do everything.
@@ -167,13 +246,7 @@ def search(
     step = time.perf_counter()
     try:
         lists = [
-            qdrant.query_points(
-                collection_name=stream.collection,
-                query=vector,
-                query_filter=_filter(stream, video_id, camera_id, start, end),
-                limit=k,
-                with_payload=["captured_at"],
-            ).points
+            _ranked_points(qdrant, stream, vector, _filter(stream, video_id, camera_id, start, end, source), k, per_footage)
             for stream, (vector, _) in zip(streams, encoded, strict=True)
         ]
         indexed = any(lists) or any(
@@ -188,13 +261,25 @@ def search(
     step = time.perf_counter()
     if mode is SearchMode.FUSED:
         w_f, w_c = _weights(encoded[0][0])
-        captured = {int(hit.id): hit.payload["captured_at"] for hits in lists for hit in hits}
+        payloads = {int(hit.id): hit.payload for hits in lists for hit in hits}
+        # Grouped lists can be longer than k: everything is merged, then cut below.
+        depth = k if per_footage is None else len(payloads)
         ranked = [
-            RankedHit(hit.segment_id, hit.score, hit.matched_by, captured[hit.segment_id])
-            for hit in fuse([int(h.id) for h in lists[0]], [int(h.id) for h in lists[1]], w_f, w_c, k)
+            RankedHit(
+                hit.segment_id, hit.score, hit.matched_by, payloads[hit.segment_id]["captured_at"],
+                payloads[hit.segment_id].get("dataset"), payloads[hit.segment_id].get("footage"),
+            )
+            for hit in fuse([int(h.id) for h in lists[0]], [int(h.id) for h in lists[1]], w_f, w_c, depth)
         ]
     else:
-        ranked = [RankedHit(int(hit.id), hit.score, mode.value, hit.payload["captured_at"]) for hit in lists[0]]
+        ranked = [
+            RankedHit(
+                int(hit.id), hit.score, mode.value, hit.payload["captured_at"],
+                hit.payload.get("dataset"), hit.payload.get("footage"),
+            )
+            for hit in lists[0]
+        ]
+    ranked = _per_footage(ranked, per_footage, k)
     fusion_ms = _ms(step)
 
     step = time.perf_counter()
@@ -217,6 +302,7 @@ def search(
             segment_id=row.id,
             video_id=row.video_id,
             filename=row.filename,
+            dataset=hit.dataset,
             camera=None if row.camera_id is None else SearchCameraOut(id=row.camera_id, name=row.name),
             timestamp_s=row.timestamp_s,
             captured_at=hit.captured_at,

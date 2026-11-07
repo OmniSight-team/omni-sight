@@ -36,6 +36,8 @@ class EmbedJob(BaseModel):
     captured_at: str
     frame_path: str
     thumb_path: str | None
+    # Defaults to None so a job queued before D-43 still parses.
+    dataset: str | None = None
 
     def payload(self, model: str, model_revision: str) -> FramePayload:
         return FramePayload(**self.model_dump(), model=model, model_revision=model_revision)

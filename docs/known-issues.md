@@ -28,6 +28,7 @@ one is fixed, move it to the bottom with the date and the result that shows it.
 | K-31 | The embed worker adds up to about 1.5 s around each batch, and one GPU at 108 ms a frame holds about 9 frames a second: 10 cameras at `cam05`'s 1.3 a second would be about 13 | NFR-1's margin, NFR-4 with search | OMNI-714 | Before NFR-1 is judged with several cameras |
 | K-30 | SM-1 fails: after D-40 fused is 76.0% against 85%, with no lift on action queries (60.0%, frame only 60.0%). The clip list adds nothing on actions | SM-1, TC-4's pass, the Definition of done, the clip vectors slice 10 trains on | OMNI-713 | Ahmad and the supervisor, before slice 9 pins anything on the clip encoder |
 | K-32 | 7 of the 9 VIRAT videos on the stack have no playback copy: they are MPEG-4 Part 2, which Chrome does not play, so the player stays grey and a search result cannot be watched | FR-4 on the screen (jump to that second), the demo | OMNI-X02 | Before the demo: make the missing playback copies |
+| K-33 (fixed 2026-11-06) | Going back from the player to the Search page showed an empty page: the query, filters and results were not kept. Fixed: the search is kept in the page's URL and runs again on coming back; the player shows *← Search results* when opened from a result. Seen in Chrome: same query, filter and 16 results after the round trip | FR-4 on the screen (D-43) | OMNI-X03 | Ahmad asked for it the same day |
 
 ---
 

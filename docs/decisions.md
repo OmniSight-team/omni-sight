@@ -44,10 +44,12 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-36 | Search is open to operators, analysts and admins (Phase A), not operators and admins only (the ticket) | 2026-10-28 | Done |
 | D-37 | **Deviation:** TC-4 runs on the VIRAT evaluation archive only (about 30,000 estimated), not 100,000 embeddings with distractors | 2026-10-29 | Done |
 | D-38 | Algorithm 3's classifier: logistic regression on the SigLIP 2 text vector, in a small file in `services/common` | 2026-10-30 | Done |
-| D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Done |
+| D-39 | **Deviation:** no Search screen; search lives inside the video player and the live camera viewer, on that footage only | 2026-10-31 | Revised by D-43 |
 | D-40 | **Deviation:** fused search uses fixed weights per kind of query, chosen on a tuning set, not the classifier's own weights | 2026-10-31 | Done |
 | D-41 | SM-1 and TC-4 reported as measured, against chance and the frame-only baseline, not pass or fail against Phase A's 85% (no published evidence for it) | 2026-11-04 | Done |
 | D-42 | **Addition (not Phase A):** labelled boxes on search results from YOLO-World, pinned, in `ai_workers`, as a separate request after the search | 2026-11-05 | Done |
+| D-43 | The Search page comes back over all footage (Phase A's Search screen), with a `source` filter; the search in the player and the viewer stays. Revises D-39 | 2026-11-06 | Done |
+| D-44 | **Deviation:** the Search page shows at most 2 moments of one video or camera, grouped inside Qdrant's search; B.3's plain top K stays everywhere else | 2026-11-06 | Done |
 
 ---
 
@@ -1082,3 +1084,51 @@ override leaves it out and the headless build (already ingestion's) provides `cv
 Ultralytics are turned off (`sync: False`).
 
 **Not done:** a box that follows the object while the video plays (tracking).
+## D-43 · The Search page comes back, beside the search in the player and the viewer · 2026-11-06
+
+**Ahmad's decision.** Revises D-39. A **Search** page in the menu, for operators, analysts and
+admins (D-36), searches every footage the user may see at once: uploaded videos, dataset clips and
+camera frames. It is Phase A's own Search screen (Appendix: *"results are ranked clips with their
+camera, timestamp, and match score"*).
+
+**Why:** the point of the system is that the user does not know *where* or *when* something
+happened. With search only inside one video or one camera (D-39), no screen searched the archive,
+so FR-4 was Partial.
+
+**Kept:** the search panel under the video player and in the live viewer stays as it is (D-39),
+on that footage only. Fusion stays D-40's. `GET /search` without a scope already searched
+everything (D-39, "Kept"); the page uses it.
+
+**Added for the page:** a `source` filter (`camera`, `upload`, `dataset`) inside both Qdrant
+searches, on a new `dataset` payload field (the dataset's name, or empty for an upload that is
+not a dataset clip), since dataset clips are stored as uploads and Qdrant could not tell them
+apart.
+
+**Closes D-39's "Open" note:** Compare (OMNI-716) is no longer only in the player, on one video;
+it works from the Search page too, over everything.
+
+## D-44 · **Deviation:** the Search page shows at most 2 moments of one video or camera · 2026-11-06
+
+**Ahmad's request,** after trying the Search page: *a person holding an umbrella* filled all 16 results with one VIRAT
+video (`VIRAT_S_010005_01`), and only one other video reached the top 50 (at rank 39). One video's frames a second
+apart look alike, so they all score alike; the page should show the best moments from different footage.
+
+**Departs from:** Appendix B.3, which ranks the top K frames overall, and Phase A's *"results are ranked clips"* only in
+that the ranking now keeps at most 2 of each video or camera on the Search page.
+
+**How:** `GET /search?per_footage=N`. Each vector search is grouped inside Qdrant (`query_points_groups` on the new
+payload key `footage`, `video:{id}` or `camera:{id}`): the `k` best videos or cameras, each with up to N of its best hits.
+`fused` merges the two grouped lists by B.3's rule (lines 4-9 unchanged) and keeps at most N of each footage, then the
+first `k`. The page asks for N = 2 and k = 16. `footage` is computed on `FramePayload`, so every write path stores it;
+`scripts/backfill_search_payload.py` set it on the 1,110 frame and 1,039 clip points already stored.
+
+**Kept:** without `per_footage`, search is B.3 exactly as before. The player's and the live viewer's search (one footage
+anyway), SM-1, TC-4 and NFR-2 do not use it.
+
+**Result:** the umbrella query, k 16: 8 different sources in Scene (2 each), 9 in Combined. The search step costs about
+50-80 ms more (frame median 65 ms against 16 ms; fused 148 ms against 72 ms, 20 cached repeats each), far inside 3 s.
+In Combined the umbrella video is fourth, not first: the clip list's grouping ranks other footage above it, and B.3's
+weights decide (D-40).
+
+**Not done:** the 62 of 74 videos and cameras with no vectors at all (dataset clips never encoded on this laptop, D-32)
+still cannot appear; grouping does not change that.
