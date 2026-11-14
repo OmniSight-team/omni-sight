@@ -10,13 +10,13 @@ import { openShortcuts } from "@/components/keyboard-shortcuts";
 // The screens that have a real page so far — everything else on the map is
 // a future slice. This is presentation-only (which links are clickable),
 // not a role/security decision, so it stays local to the sidebar.
-const BUILT_ROUTES = new Set(["/", "/live", "/search", "/cameras", "/videos"]);
+const BUILT_ROUTES = new Set(["/", "/live", "/search", "/cameras", "/videos", "/datasets"]);
 
 // "Night shift" (frontend redesign): the screens an operator watches with, then the ones that set
 // the system up. Which routes a role sees still comes from `GET /nav`; only the grouping and the
 // plainer names are decided here.
 const WATCH = ["/", "/live", "/search", "/videos"];
-const SET_UP = ["/cameras"];
+const SET_UP = ["/cameras", "/datasets"];
 
 const LABELS: Record<string, string> = {
   "/": "Dashboard",

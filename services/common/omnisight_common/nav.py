@@ -23,6 +23,8 @@ NAV_ROUTES: tuple[NavRoute, ...] = (
     NavRoute("/reports", "Incident Reports", (Role.ANALYST, Role.ADMIN)),
     NavRoute("/videos", "Video Archive", (Role.OPERATOR, Role.ANALYST, Role.ADMIN)),
     NavRoute("/cameras", "Cameras", (Role.OPERATOR, Role.ADMIN)),
+    # The dataset samples in the product (OMNI-612): research footage, for analysts and admins.
+    NavRoute("/datasets", "Datasets", (Role.ANALYST, Role.ADMIN)),
     NavRoute("/integrations", "Integrations", (Role.ADMIN,)),
     NavRoute("/admin", "Administration", (Role.ADMIN,)),
 )

@@ -39,6 +39,17 @@
      results while it runs. Both are applied with `motion-safe:` so reduced motion stops them. */
   --animate-ns-breathe: ns-breathe 2.4s ease-in-out infinite;
   --animate-ns-scan: ns-scan 1.4s ease-in-out infinite;
+  /* The time ribbon draws in once, bar by bar (each bar sets its own delay). */
+  --animate-ns-draw: ns-draw 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+
+  @keyframes ns-draw {
+    from {
+      transform: scaleY(0);
+    }
+    to {
+      transform: scaleY(1);
+    }
+  }
 
   @keyframes ns-breathe {
     0%,
