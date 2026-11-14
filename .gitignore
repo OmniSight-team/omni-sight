@@ -40,3 +40,8 @@ Thumbs.db
 .pytest_cache/
 
 .codegraphy/*
+
+# Agent skills installed on this machine (Claude Code, npx skills): not part of the project
+.agents/
+.claude/
+skills-lock.json
