@@ -19,6 +19,7 @@ import {
   searchMoments,
 } from "@/lib/api-client";
 import { BoxOverlay } from "@/components/box-overlay";
+import { SEARCH_INPUT_ID, isTyping } from "@/components/keyboard-shortcuts";
 
 // Natural-language search inside one video or one camera's frames (OMNI-712, FR-4, D-39),
 // or over all footage on the Search page (D-43). Every filter runs inside the vector search.
@@ -46,6 +47,8 @@ const ENCODER_UNAVAILABLE = "the text encoder (ai_workers) is unreachable";
 
 // How often the "searchable so far" line is refreshed while frames are still being encoded.
 const STATUS_POLL_MS = 10_000;
+
+const number = new Intl.NumberFormat();
 
 type Coverage = { total: number; frames: number; clips: number };
 
@@ -150,6 +153,196 @@ function HitCard({
   );
 }
 
+// ---- The Search page's look ("Night shift", frontend redesign) -------------------------------
+// Only `variant="page"` uses what follows; the player's and the live viewer's search panels keep
+// their look until their own screens are redesigned.
+
+// "Both" reads plainer than "Combined" for an operator; the request is the same `fused` mode.
+const PAGE_MODE_LABELS: Record<SearchMode, string> = { frame: "Scene", clip: "Action", fused: "Both" };
+
+const PAGE_MATCHED_BY: Record<MatchedBy, string> = {
+  frame: "Scene",
+  clip: "Action",
+  both: "Scene and action",
+};
+
+const DATASET_NAMES: Record<string, string> = { virat: "VIRAT", ccd: "CCD", ucf_crime: "UCF-Crime" };
+
+// Fixed examples under the box, to show what kind of sentence works; not suggestions from the system.
+const EXAMPLES = ["a car parking", "two people talking", "someone running"];
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded border border-ns-line-strong px-1.5 font-[inherit] text-[11px] text-ns-soft">{children}</kbd>
+  );
+}
+
+// D-44: one video or camera, the same key the API groups by.
+function footageKey(hit: SearchHit): string {
+  return hit.video_id !== null ? `video:${hit.video_id}` : `camera:${hit.camera?.id ?? "none"}`;
+}
+
+function footageName(hit: SearchHit): string {
+  if (hit.video_id === null) return hit.camera?.name ?? "Camera";
+  return hit.filename ?? `Video ${hit.video_id}`;
+}
+
+function footageKind(hit: SearchHit): string {
+  if (hit.video_id === null) return "Camera, stored frames";
+  if (hit.dataset) return `${DATASET_NAMES[hit.dataset] ?? hit.dataset} dataset clip`;
+  if (hit.camera) return `Recording from ${hit.camera.name}`;
+  return "Upload";
+}
+
+function momentTime(hit: SearchHit): string {
+  return hit.video_id === null ? new Date(hit.captured_at).toLocaleString() : formatPosition(hit.timestamp_s);
+}
+
+type FootageGroup = { key: string; hits: SearchHit[] };
+
+// In rank order: a group sits where its best moment ranked.
+function groupByFootage(hits: SearchHit[]): FootageGroup[] {
+  const groups = new Map<string, SearchHit[]>();
+  for (const hit of hits) {
+    const key = footageKey(hit);
+    groups.set(key, [...(groups.get(key) ?? []), hit]);
+  }
+  return [...groups].map(([key, groupHits]) => ({ key, hits: groupHits }));
+}
+
+// One moment: its frame, its time, and how strongly it matched next to the best result of this
+// search (the bar). The raw score shows on hover or keyboard focus.
+function MomentTile({
+  hit,
+  top,
+  boxes,
+  withSource = false,
+  onPick,
+}: {
+  hit: SearchHit;
+  top: number;
+  boxes?: SearchBox[];
+  withSource?: boolean;
+  onPick: (hit: SearchHit, boxes: SearchBox[]) => void;
+}) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const strength = top > 0 ? Math.max(4, Math.round((hit.score / top) * 100)) : 0;
+  const score = hit.score.toFixed(4);
+  const common = {
+    "data-moment": true,
+    title: `Score ${score}`,
+    "aria-label": `${footageName(hit)} at ${momentTime(hit)}, ${PAGE_MATCHED_BY[hit.matched_by]}, score ${score}`,
+    className:
+      "group block w-full min-w-0 rounded-md text-left text-ns-text no-underline outline-none focus-visible:ring-2 focus-visible:ring-ns-accent",
+  };
+  const body = (
+    <>
+      <div className="relative aspect-video w-full overflow-hidden rounded-md bg-ns-raised ring-ns-accent transition group-hover:ring-2">
+        {hit.thumb_url && (
+          // Thumbnails are served directly by nginx (OMNI-307), not through Next's image optimizer.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={hit.thumb_url}
+            alt=""
+            width={320}
+            height={180}
+            loading="lazy"
+            className="h-full w-full object-cover"
+            onLoad={(event) =>
+              setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
+            }
+          />
+        )}
+        <BoxOverlay boxes={boxes} width={size.width} height={size.height} fit="cover" labelSize={0.09} withScore={false} />
+        <span className="absolute bottom-2 left-2 rounded bg-[#0c0f13]/85 px-2 py-0.5 text-[13px] font-medium text-ns-text">
+          {momentTime(hit)}
+        </span>
+      </div>
+      {withSource && <p className="mt-2 truncate text-sm font-medium text-ns-text">{footageName(hit)}</p>}
+      <div className="mt-2 flex items-center gap-2.5">
+        <span className="h-1 min-w-8 flex-1 overflow-hidden rounded-sm bg-ns-line" aria-hidden="true">
+          <span className="block h-full bg-ns-accent" style={{ width: `${strength}%` }} />
+        </span>
+        <span className="shrink-0 text-[13px] text-ns-muted">
+          {PAGE_MATCHED_BY[hit.matched_by]}
+          <span className="hidden text-ns-soft group-hover:inline group-focus-visible:inline">, {score}</span>
+        </span>
+      </div>
+    </>
+  );
+
+  // A video moment is a real link to the player at that second, so Ctrl/Cmd-click and a middle
+  // click open it in a new tab; a plain click goes through `onPick`, which also hands over the
+  // result's boxes. A camera moment has no page of its own: it is a button.
+  if (hit.video_id !== null) {
+    return (
+      <a
+        {...common}
+        href={`/videos/${hit.video_id}?t=${hit.timestamp_s}`}
+        onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onPick(hit, boxes ?? []);
+        }}
+      >
+        {body}
+      </a>
+    );
+  }
+  return (
+    <button type="button" {...common} onClick={() => onPick(hit, boxes ?? [])}>
+      {body}
+    </button>
+  );
+}
+
+function PageNotice({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-ns-line bg-ns-panel px-5 py-8 text-center">
+      <p className="font-medium text-ns-text">{title}</p>
+      <p className="mt-1 text-sm text-ns-muted">{children}</p>
+    </div>
+  );
+}
+
+// Buttons joined into one control: the mode, the sources. Every filter on the page is this
+// shape, a select or a date field, all the same height.
+function Segmented({
+  label,
+  options,
+  isOn,
+  onToggle,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  isOn: (value: string) => boolean;
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-ns-muted">{label}</span>
+      <div role="group" aria-label={label} className="inline-flex overflow-hidden rounded-md border border-ns-line-strong">
+        {options.map((option, index) => {
+          const on = isOn(option.value);
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onToggle(option.value)}
+              className={`h-9 px-3.5 outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ns-accent ${
+                index > 0 ? "border-l border-ns-line-strong" : ""
+              } ${on ? "bg-ns-selected font-medium text-ns-text" : "text-ns-soft hover:bg-ns-raised hover:text-ns-text"}`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function hasVectors(mode: SearchMode, coverage: Coverage | null): boolean {
   if (coverage === null) return true;
   if (mode === "frame") return coverage.frames > 0;
@@ -209,9 +402,12 @@ export function MomentSearch({
   perFootage,
   inUrl = false,
   savedUrl,
+  variant = "panel",
   onPick,
 }: {
   scope: SearchScope;
+  // "page": the Search page's own look (frontend redesign); "panel": the player and live viewer.
+  variant?: "panel" | "page";
   withDates?: boolean;
   // The Search page (D-43): source and camera filters.
   withFilters?: boolean;
@@ -252,6 +448,29 @@ export function MomentSearch({
   const latest = useRef(0);
   const scopeKey = JSON.stringify(scope);
   const pickHit = (hit: SearchHit, found: SearchBox[]) => onPick(hit, found, query);
+  // The Search page's results, for J and K (frontend redesign).
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // J and K move the keyboard focus through the results in rank order; Enter opens the focused one
+  // (each result is a button). Only on the Search page, and never while typing.
+  useEffect(() => {
+    if (variant !== "page") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (key !== "j" && key !== "k") return;
+      const moments = [...(resultsRef.current?.querySelectorAll<HTMLElement>("[data-moment]") ?? [])];
+      if (moments.length === 0) return;
+      event.preventDefault();
+      const at = moments.indexOf(document.activeElement as HTMLElement);
+      const next =
+        at === -1 ? (key === "j" ? 0 : moments.length - 1) : Math.min(moments.length - 1, Math.max(0, at + (key === "j" ? 1 : -1)));
+      moments[next].focus();
+      moments[next].scrollIntoView({ block: "nearest" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [variant]);
 
   useEffect(() => {
     if (!withFilters) return;
@@ -352,6 +571,315 @@ export function MomentSearch({
   function submit(event: FormEvent) {
     event.preventDefault();
     void run(draft.trim());
+  }
+
+  if (variant === "page") {
+    const control =
+      "h-9 rounded-md border border-ns-line-strong bg-ns-ground px-2.5 text-ns-text outline-none [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-ns-accent";
+    const filtered = Boolean(from || to || sources.length > 0 || cameraId !== null);
+    const groups = response ? groupByFootage(response.results) : [];
+    const bestOf = (hits: SearchHit[]) => hits.reduce((best, hit) => Math.max(best, hit.score), 0);
+    const top = response ? bestOf(response.results) : 0;
+    const partial = coverage !== null && coverage.total > 0 && coverage.frames < coverage.total;
+
+    return (
+      <section className="space-y-5">
+        <form onSubmit={submit} className="space-y-3.5 rounded-lg border border-ns-line bg-ns-panel p-5">
+          <div className="flex flex-wrap gap-2.5">
+            <div className="relative min-w-0 flex-[1_1_360px]">
+              <label htmlFor={SEARCH_INPUT_ID} className="sr-only">
+                Describe what happened
+              </label>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+                className="pointer-events-none absolute top-[17px] left-4 text-ns-muted"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" strokeLinecap="round" />
+              </svg>
+              <input
+                id={SEARCH_INPUT_ID}
+                name="q"
+                type="search"
+                autoComplete="off"
+                // The one thing to do on this page: the cursor is in the box on arrival, unless a
+                // search from the URL is already showing its results.
+                autoFocus={saved === null}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  // Esc leaves the box (so J and K work) without clearing what was typed, which a
+                  // search field does by default.
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder="a person opening the trunk of a car…"
+                maxLength={1000}
+                className="h-[52px] w-full rounded-md border border-ns-line-strong bg-ns-ground pr-4 pl-11 text-lg text-ns-text outline-none placeholder:text-ns-muted focus-visible:border-ns-accent focus-visible:ring-3 focus-visible:ring-ns-accent/25"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!draft.trim()}
+              className="h-[52px] rounded-md bg-ns-accent px-7 font-semibold text-ns-accent-ink outline-none transition hover:bg-ns-accent-hover focus-visible:ring-2 focus-visible:ring-ns-text disabled:opacity-50"
+            >
+              Search
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-[13px] text-ns-muted">
+            <span>Try</span>
+            {EXAMPLES.map((example) => (
+              <button
+                key={example}
+                type="button"
+                onClick={() => {
+                  setDraft(example);
+                  void run(example);
+                }}
+                className="h-7 rounded-full border border-ns-line-strong px-2.5 text-ns-soft transition hover:border-ns-accent hover:text-ns-text focus-visible:ring-2 focus-visible:ring-ns-accent focus-visible:outline-none"
+              >
+                {example}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm">
+            {!compare && (
+              <Segmented
+                label="Match by"
+                options={MODES.map((option) => ({ value: option.value, label: PAGE_MODE_LABELS[option.value] }))}
+                isOn={(value) => mode === value}
+                onToggle={(value) => {
+                  setMode(value as SearchMode);
+                  void run(query, { mode: value as SearchMode });
+                }}
+              />
+            )}
+            {withFilters && (
+              <Segmented
+                label="Footage"
+                options={SOURCES}
+                isOn={(value) => sources.includes(value as SearchSource)}
+                onToggle={(value) => {
+                  const source = value as SearchSource;
+                  const nextSources = sources.includes(source)
+                    ? sources.filter((s) => s !== source)
+                    : [...sources, source];
+                  setSources(nextSources);
+                  void run(query, { sources: nextSources });
+                }}
+              />
+            )}
+            {withFilters && (
+              <label className="flex items-center gap-2 text-ns-muted">
+                Camera
+                <select
+                  value={cameraId ?? ""}
+                  onChange={(event) => {
+                    const nextCamera = event.target.value ? Number(event.target.value) : null;
+                    setCameraId(nextCamera);
+                    void run(query, { cameraId: nextCamera });
+                  }}
+                  className={control}
+                >
+                  <option value="">Any camera</option>
+                  {cameras.map((camera) => (
+                    <option key={camera.id} value={camera.id}>
+                      {camera.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {withDates && (
+              <>
+                <label className="flex items-center gap-2 text-ns-muted">
+                  From
+                  <input
+                    type="date"
+                    value={from}
+                    onChange={(event) => {
+                      setFrom(event.target.value);
+                      void run(query, { from: event.target.value });
+                    }}
+                    className={control}
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-ns-muted">
+                  To
+                  <input
+                    type="date"
+                    value={to}
+                    onChange={(event) => {
+                      setTo(event.target.value);
+                      void run(query, { to: event.target.value });
+                    }}
+                    className={control}
+                  />
+                </label>
+              </>
+            )}
+            <button
+              type="button"
+              aria-pressed={compare}
+              onClick={() => {
+                const next = !compare;
+                setCompare(next);
+                void run(query, { compare: next });
+              }}
+              className={`h-9 rounded-md border px-3.5 outline-none transition focus-visible:ring-2 focus-visible:ring-ns-accent lg:ml-auto ${
+                compare
+                  ? "border-ns-accent bg-ns-selected font-medium text-ns-text"
+                  : "border-ns-line-strong text-ns-soft hover:bg-ns-raised hover:text-ns-text"
+              }`}
+            >
+              {compare ? "Back to one list" : "Compare scene and action"}
+            </button>
+          </div>
+        </form>
+
+        {partial && (
+          <p className="text-sm text-ns-muted">
+            Not every frame is searchable yet: {number.format(coverage.frames)} of {number.format(coverage.total)} by
+            scene, {number.format(coverage.clips)} by action.
+          </p>
+        )}
+
+        {running && (
+          <div role="status" className="space-y-2.5">
+            <p className="text-ns-muted">Searching every video, dataset clip and camera…</p>
+            <div aria-hidden="true" className="h-0.5 overflow-hidden rounded-full bg-ns-line">
+              <div className="h-full w-2/5 bg-ns-accent motion-safe:animate-ns-scan" />
+            </div>
+          </div>
+        )}
+
+        {!running && error &&
+          (error instanceof ApiError && error.message === ENCODER_UNAVAILABLE ? (
+            <PageNotice title="The search model is not answering">
+              It may still be starting. Try again in a minute.
+            </PageNotice>
+          ) : (
+            <p className="rounded-md border border-ns-fault/40 bg-ns-fault/10 px-4 py-3 text-sm text-ns-text">
+              {error instanceof ApiError ? error.message : "Could not run this search."}
+            </p>
+          ))}
+
+        <div ref={resultsRef} className="space-y-4">
+        {!running && compare && columns && (
+          <div className="grid gap-6 md:grid-cols-3">
+            {MODES.map((option) => {
+              const column = columns[option.value];
+              const columnTop = bestOf(column.results);
+              return (
+                <div key={option.value} className="space-y-3">
+                  <h2 className="font-semibold text-ns-text">
+                    {PAGE_MODE_LABELS[option.value]}
+                    <span className="ml-2 text-sm font-normal text-ns-muted">
+                      {column.total} in {(column.elapsed_ms / 1000).toFixed(1)}&nbsp;s
+                    </span>
+                  </h2>
+                  {column.results.length > 0 ? (
+                    <ol className="space-y-4">
+                      {column.results.map((hit) => (
+                        <li key={hit.segment_id}>
+                          <MomentTile
+                            hit={hit}
+                            top={columnTop}
+                            boxes={boxes[hit.segment_id]}
+                            withSource
+                            onPick={pickHit}
+                          />
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <PageNotice title="No results">{column.message ?? "Nothing here matched this search."}</PageNotice>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {!running && !compare && response && (
+          <>
+            {response.results.length > 0 && (
+              <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+                <p className="text-base text-ns-text">
+                  <span className="font-semibold">
+                    {response.total} moment{response.total === 1 ? "" : "s"}
+                  </span>{" "}
+                  from {groups.length === 1 ? "1 video or camera" : `${groups.length} videos and cameras`}, found in{" "}
+                  {(response.elapsed_ms / 1000).toFixed(1)}&nbsp;s
+                </p>
+                <p className="flex gap-3.5 text-[13px] text-ns-muted">
+                  <span>
+                    <Kbd>J</Kbd> <Kbd>K</Kbd> next and previous
+                  </span>
+                  <span>
+                    <Kbd>Enter</Kbd> open
+                  </span>
+                </p>
+              </div>
+            )}
+            {response.results.length > 0 ? (
+              <ol className="overflow-hidden rounded-lg border border-ns-line bg-ns-panel">
+                {groups.map((group, index) => {
+                  const first = group.hits[0];
+                  return (
+                    <li
+                      key={group.key}
+                      className={`flex flex-wrap gap-x-6 gap-y-4 px-5 py-4 ${index > 0 ? "border-t border-ns-line" : ""}`}
+                    >
+                      <div className="flex min-w-[200px] flex-[0_1_260px] gap-3.5">
+                        <span className="flex size-7 flex-none items-center justify-center rounded-full bg-ns-raised text-[13px] font-semibold text-ns-soft">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-medium break-words text-ns-text">{footageName(first)}</p>
+                          <p className="mt-0.5 text-[13px] text-ns-muted">{footageKind(first)}</p>
+                        </div>
+                      </div>
+                      <div className="flex min-w-0 flex-[1_1_480px] flex-wrap gap-3">
+                        {group.hits.map((hit) => (
+                          <div key={hit.segment_id} className="min-w-[200px] flex-[0_1_280px]">
+                            <MomentTile hit={hit} top={top} boxes={boxes[hit.segment_id]} onPick={pickHit} />
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : response.message || !hasVectors(mode, coverage) ? (
+              <PageNotice title="Nothing is indexed for this search yet">
+                This footage has no {mode === "clip" ? "action" : "scene or action"} vectors so far.
+                {mode === "clip" && " Try Scene or Both."}
+              </PageNotice>
+            ) : (
+              <PageNotice title="No results">
+                {filtered
+                  ? "Nothing matches these filters. Widen the dates or clear a filter."
+                  : mode === "fused"
+                    ? "Nothing matched. Try fewer words, or match by Scene instead of Both."
+                    : "Nothing matched. Try fewer words, or match by Both."}
+              </PageNotice>
+            )}
+          </>
+        )}
+        </div>
+      </section>
+    );
   }
 
   const input = "rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";

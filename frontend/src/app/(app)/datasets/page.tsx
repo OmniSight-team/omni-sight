@@ -30,9 +30,22 @@ const STATUS_STYLES: Record<Dataset["status"], string> = {
 
 const number = new Intl.NumberFormat();
 
-// GET /datasets may list a dataset the window screens have no label for yet.
+// GET /datasets may list a dataset the window screens have no label for: VIRAT has no
+// lead-up windows (search only, D-26 amended), so it is named here.
+const OTHER_LABELS: Record<string, string> = { virat: "VIRAT" };
+
 function datasetLabel(name: string): string {
-  return (DATASET_LABELS as Record<string, string>)[name] ?? name;
+  return (DATASET_LABELS as Record<string, string>)[name] ?? OTHER_LABELS[name] ?? name;
+}
+
+// Only the datasets the window screens know have lead-up windows and a hand check.
+function hasWindows(name: string): boolean {
+  return name in DATASET_LABELS;
+}
+
+// Which committed sample a dataset's clips come from (D-26): VIRAT's is the demo sample.
+function sampleName(name: string): string {
+  return name === "virat" ? "demo sample" : "hand-check sample";
 }
 
 function LoadControl({ dataset, busy, onQueued }: { dataset: Dataset; busy: boolean; onQueued: () => void }) {
@@ -143,15 +156,23 @@ function DatasetCard({
         <Stat
           label="Videos loaded"
           value={`${number.format(dataset.videos_loaded)} / ${number.format(dataset.total)}`}
-          detail={dataset.failed > 0 ? `${dataset.failed} failed` : "of the hand-check sample"}
+          detail={dataset.failed > 0 ? `${dataset.failed} failed` : `of the ${sampleName(dataset.name)}`}
         />
-        <Stat label="Windows derived" value={number.format(dataset.windows_derived)} detail="whole dataset" />
-        <Stat label="Hand-checked" value={number.format(dataset.windows_checked)} />
-        <Stat
-          label="Verified correct"
-          value={number.format(dataset.windows_verified)}
-          detail={dataset.windows_checked > 0 ? `of ${dataset.windows_checked} checked` : undefined}
-        />
+        {hasWindows(dataset.name) ? (
+          <>
+            <Stat label="Windows derived" value={number.format(dataset.windows_derived)} detail="whole dataset" />
+            <Stat label="Hand-checked" value={number.format(dataset.windows_checked)} />
+            <Stat
+              label="Verified correct"
+              value={number.format(dataset.windows_verified)}
+              detail={dataset.windows_checked > 0 ? `of ${dataset.windows_checked} checked` : undefined}
+            />
+          </>
+        ) : (
+          <p className="col-span-1 self-center text-sm text-zinc-500 sm:col-span-3 dark:text-zinc-400">
+            Used for search only: no lead-up windows and no hand check.
+          </p>
+        )}
       </div>
 
       <Progress dataset={dataset} />
@@ -162,12 +183,14 @@ function DatasetCard({
         ) : (
           <span />
         )}
-        <Link
-          href={`/windows?dataset=${dataset.name}`}
-          className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-        >
-          Windows →
-        </Link>
+        {hasWindows(dataset.name) && (
+          <Link
+            href={`/windows?dataset=${dataset.name}`}
+            className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Windows →
+          </Link>
+        )}
       </div>
     </section>
   );
@@ -203,7 +226,8 @@ export default function DatasetsPage() {
       <div>
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Datasets</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          The product holds the hand-check sample; the full datasets stay on Drive for the model runs on Colab.
+          The product holds the hand-check sample and the VIRAT demo sample; the full datasets stay on Drive for
+          the model runs on Colab.
         </p>
       </div>
 

@@ -254,6 +254,9 @@ UCF-Crime last (`scripts/backfill_embeddings.py --only`).
 product's UCF-Crime frames on Colab's GPU with the same code and import the points (the
 D-32 pattern for clip vectors). **Decided 2026-10-28 (D-35):** neither for now; OMNI-705
 is proved on one video, and only VIRAT is queued, when search needs it.
+**Seen again 2026-11-14 (frontend redesign, not measured):** after a live camera had run, `ai-workers` sat at
+about 420% CPU encoding its frames (8 frames in about 110 s); a search with a new sentence waited more than 25 s
+for its text vector, while a sentence searched before (cached) answered in 1-2 s. The search screen was not the cause.
 
 ## K-23 · On VIRAT the gate keeps almost only heartbeats
 

@@ -10,6 +10,54 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* The "Night shift" look's typeface (frontend redesign). Used where a screen opts in. */
+  --font-console: var(--font-ibm-plex);
+}
+
+/* "Night shift": a graphite console for long shifts. Colour means a state: one accent for
+   what can be clicked or is selected, and live / attention / fault for what is happening.
+   Screens move onto these one at a time; until then the rest keep their zinc look. */
+@theme {
+  --color-ns-ground: #14181d;
+  --color-ns-chrome: #171c22;
+  --color-ns-panel: #1b2128;
+  --color-ns-raised: #232a33;
+  --color-ns-line: #2e3742;
+  --color-ns-line-strong: #3a4552;
+  --color-ns-text: #e3e7eb;
+  --color-ns-soft: #c3cad2;
+  --color-ns-muted: #9aa4af;
+  --color-ns-accent: #7fb2e5;
+  --color-ns-accent-hover: #a9cdf0;
+  --color-ns-accent-ink: #0f1a26;
+  --color-ns-selected: #2b3a4a;
+  --color-ns-live: #4cc38a;
+  --color-ns-attention: #f0b44c;
+  --color-ns-fault: #f07167;
+
+  /* Motion, used once and kept calm: the live dot breathes; a search sweeps one line across the
+     results while it runs. Both are applied with `motion-safe:` so reduced motion stops them. */
+  --animate-ns-breathe: ns-breathe 2.4s ease-in-out infinite;
+  --animate-ns-scan: ns-scan 1.4s ease-in-out infinite;
+
+  @keyframes ns-breathe {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  @keyframes ns-scan {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(250%);
+    }
+  }
 }
 
 @media (prefers-color-scheme: dark) {

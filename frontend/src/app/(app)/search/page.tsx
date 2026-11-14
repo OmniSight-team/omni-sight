@@ -60,18 +60,19 @@ function SearchView() {
     setSrc(null);
   }
 
+  // The first screen in the "Night shift" look (frontend redesign): graphite ground, IBM Plex.
   return (
-    <main className="space-y-4 p-6">
+    <main className="min-h-full space-y-5 bg-ns-ground px-8 pt-7 pb-10 font-console text-[15px] leading-normal text-ns-text tabular-nums [color-scheme:dark]">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Search</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <h1 className="text-2xl leading-tight font-semibold">Search</h1>
+        <p className="mt-1 text-ns-muted">
           Describe what happened. Every video, dataset clip and camera is searched at once.
         </p>
       </div>
 
       {picked && (
         <div className="space-y-3">
-          <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-black dark:border-zinc-800">
+          <div className="relative overflow-hidden rounded-lg border border-ns-line bg-black">
             {src && (
               // An object URL from an authenticated fetch.
               // eslint-disable-next-line @next/next/no-img-element
@@ -85,17 +86,17 @@ function SearchView() {
               />
             )}
             {src && <BoxOverlay boxes={boxes} width={size.width} height={size.height} fit="contain" />}
-            {error && <p className="p-6 text-sm text-red-300">{error}</p>}
-            <span className="absolute left-3 top-3 rounded-md bg-black/70 px-2 py-1 text-xs font-semibold text-zinc-100">
-              {picked.camera?.name} · {new Date(picked.captured_at).toLocaleString()}
+            {error && <p className="p-6 text-sm text-ns-fault">{error}</p>}
+            <span className="absolute top-3 left-3 rounded bg-[#0c0f13]/85 px-2 py-1 text-[13px] font-medium text-ns-text">
+              {picked.camera?.name}, {new Date(picked.captured_at).toLocaleString()}
             </span>
           </div>
           <button
             type="button"
             onClick={back}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="h-9 rounded-md border border-ns-line-strong px-3.5 text-sm text-ns-soft outline-none transition hover:bg-ns-raised hover:text-ns-text focus-visible:ring-2 focus-visible:ring-ns-accent"
           >
-            ← Back to results
+            Back to results
           </button>
         </div>
       )}
@@ -111,6 +112,7 @@ function SearchView() {
           perFootage={PER_FOOTAGE}
           inUrl
           savedUrl={searchParams.toString()}
+          variant="page"
           onPick={pick}
         />
       </div>

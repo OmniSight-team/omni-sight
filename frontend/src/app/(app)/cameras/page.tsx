@@ -11,9 +11,11 @@ import {
   type CameraInput,
   type CameraStatus,
   type CameraTestResult,
+  type LiveState,
   createCamera,
   deleteCamera,
   listCameras,
+  listLiveCameras,
   testCameraConnection,
   updateCamera,
 } from "@/lib/api-client";
@@ -34,6 +36,32 @@ const STATUS_STYLES: Record<CameraStatus, string> = {
   unreachable: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400",
   disabled: "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600",
 };
+
+// What the camera is doing now, from `GET /cameras/live`: the same evidence and the same
+// words as Live monitoring. The stored `status` only says how the last connection test
+// went, so a camera nobody captures still read "connected" here while the wall said
+// "Stopped" (app/live_state.py explains why a stored flag cannot be trusted for this).
+const LIVE_LABELS: Record<LiveState, string> = {
+  live: "Live",
+  frozen: "Frozen",
+  offline: "Offline",
+  stopped: "Stopped",
+};
+
+const LIVE_STYLES: Record<LiveState, string> = {
+  live: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400",
+  frozen: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
+  offline: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400",
+  stopped: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+};
+
+function LiveBadge({ state }: { state: LiveState }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${LIVE_STYLES[state]}`}>
+      {LIVE_LABELS[state]}
+    </span>
+  );
+}
 
 function StatusBadge({ status }: { status: CameraStatus }) {
   return (
@@ -73,10 +101,24 @@ export default function CamerasPage() {
   const [rowTestResult, setRowTestResult] = useState<{ id: number; result: CameraTestResult } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
+  // camera id -> what it is doing now; empty when `GET /cameras/live` failed, and the
+  // row then falls back to the stored status.
+  const [liveStates, setLiveStates] = useState<Map<number, LiveState>>(new Map());
+
+  async function loadLiveStates(): Promise<Map<number, LiveState>> {
+    try {
+      const rows = await listLiveCameras();
+      return new Map(rows.map((r) => [r.camera_id, r.state]));
+    } catch {
+      return new Map();
+    }
+  }
+
   async function refresh() {
     try {
-      const rows = await listCameras();
+      const [rows, states] = await Promise.all([listCameras(), loadLiveStates()]);
       setCameras(rows);
+      setLiveStates(states);
       setListError(null);
     } catch (err) {
       setListError(errorMessage(err, "could not load cameras"));
@@ -84,9 +126,10 @@ export default function CamerasPage() {
   }
 
   useEffect(() => {
-    listCameras()
-      .then((rows) => {
+    Promise.all([listCameras(), loadLiveStates()])
+      .then(([rows, states]) => {
         setCameras(rows);
+        setLiveStates(states);
         setListError(null);
       })
       .catch((err) => {
@@ -296,7 +339,11 @@ export default function CamerasPage() {
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{camera.location}</td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{camera.group}</td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={camera.status} />
+                    {camera.status !== "disabled" && liveStates.has(camera.id) ? (
+                      <LiveBadge state={liveStates.get(camera.id)!} />
+                    ) : (
+                      <StatusBadge status={camera.status} />
+                    )}
                     {rowTestResult?.id === camera.id && (
                       <p
                         className={`mt-1 text-xs ${
