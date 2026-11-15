@@ -31,7 +31,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-23 | The SM-3 target rule, written before CCD's footage was measured | 2026-10-08 | Done (mTTA ≥ 1.80 s) |
 | D-24 | How lead-up windows are cut, and when an event gets none | 2026-10-09 | Done |
 | D-25 | Dataset footage enters through the upload function | 2026-10-09 | Done |
-| D-26 | Model measurements on Colab; the product holds only the hand-check sample (and, since OMNI-702, a 9-video VIRAT demo sample) | 2026-10-09, 10-18 | Done |
+| D-26 | Model measurements on Colab; the product holds only the hand-check sample (and, since OMNI-702, a 9-video VIRAT demo sample); since 2026-11-15 only the VIRAT sample | 2026-10-09, 10-18, 11-15 | Done |
 | D-27 | The hand-check criterion, written before any window was checked | 2026-10-10 | Done |
 | D-28 | The dashboard's rollup is kept by triggers on `segments` | 2026-10-11 | Done |
 | D-29 | **Deviation:** `frame_vectors` point id = segment id (B.2 line 4); `captured_at` absolute for every source; payload times to the microsecond | 2026-10-19 | Done |
@@ -611,6 +611,20 @@ D-25's path (`POST /datasets/virat/load`). SM-1 still runs on Colab over all 275
   scenes 0000 and 0001; the rule was added and the sample redrawn, which also changes the
   other scenes' picks
 - The 9 videos: 1,120.6 MB, 23,057 frames in all (OMNI-608's probe), the largest 490.6 MB
+
+**Amended 2026-11-15 (Ahmad): the product keeps only the VIRAT demo sample.** The hand check is
+done and its 60 verdicts are stored per window (`event_windows`, linked to `dataset_manifest`, not
+to a video), so the 60 hand-check clips were deleted, with the one test upload and every saved
+camera frame (5,282). What was removed: 61 videos (1.05 GB), their frame and thumbnail files, the
+camera frames' files, and the Qdrant points of all of it (frame_vectors 1,666 → 1,039; clip_vectors
+1,039, all VIRAT, unchanged), plus the embed queue's 2,660 jobs for those frames and orphan files
+left by earlier deletes (a video `2001`, test cameras `2035` and `2291`, four September uploads).
+The deletes followed `DELETE /videos/{id}`'s order (rows, then files); that endpoint does not
+remove vectors, so the points were deleted directly. The 4 cameras stay, with no frames.
+- **Kept:** the 9 VIRAT videos, 23,057 frame rows (1,039 kept), and their vectors
+- **What it costs:** the Windows screen (OMNI-609) has no clip to play; Datasets shows CCD and
+  UCF-Crime as 0 of 30 loaded. Reloading them is `POST /datasets/{name}/load` with the `data/`
+  subset present (about 36 min of extraction on this laptop)
 
 ## D-27 · The hand-check criterion, written before any window was checked · 2026-10-10
 
