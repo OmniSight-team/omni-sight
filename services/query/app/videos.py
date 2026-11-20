@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import uuid
 from collections.abc import Callable
@@ -116,6 +117,9 @@ def store_video(
     staging_path = storage_dir / f"{stored_name}.part"
 
     total_bytes = len(header)
+    # OMNI-X05 (D-47): the file's fingerprint, hashed as it streams past, so it costs no
+    # second read.
+    digest = hashlib.sha256(header)
     try:
         with open(staging_path, "wb") as out:
             out.write(header)
@@ -124,6 +128,7 @@ def store_video(
                 if total_bytes > max_bytes:
                     raise UploadRejected(status.HTTP_413_CONTENT_TOO_LARGE, _size_limit_message())
                 out.write(chunk)
+                digest.update(chunk)
     except Exception:
         staging_path.unlink(missing_ok=True)
         raise
@@ -140,6 +145,7 @@ def store_video(
         path=str(final_path),
         source=source,
         size_bytes=total_bytes,
+        fingerprint=digest.hexdigest(),
         status=VideoStatus.UPLOADED,
         created_at=created_at,
         retention_until=None

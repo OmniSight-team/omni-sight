@@ -22,6 +22,7 @@ from omnisight_common import (
 )
 from sqlalchemy.orm import Session
 
+from app import colab_vectors
 from app.db import SessionLocal
 from app.ingestion_client import IngestionUnavailableError
 from app.ingestion_client import extract_file as ingestion_extract_file
@@ -131,12 +132,12 @@ def claim_extraction(db: Session, video_id: int) -> str | None:
     return extraction_id if claimed else None
 
 
-def run_extraction(video_id: int, extraction_id: str) -> None:
+def run_extraction(video_id: int, extraction_id: str, ready=None) -> None:
     """Replace a video's segments with a fresh extraction. Called as a
     background task after the video has been marked `extracting` and given
     `extraction_id`."""
     try:
-        _extract(video_id, extraction_id)
+        _extract(video_id, extraction_id, ready)
     except Exception as exc:  # noqa: BLE001 - nothing may leave a video stuck on `extracting`
         _fail(video_id, f"extraction failed: {exc}")
 
@@ -160,7 +161,7 @@ def _wait_for_segments(video_id: int, expected: int) -> str | None:
         time.sleep(settings.extraction_poll_s)
 
 
-def _extract(video_id: int, extraction_id: str) -> None:
+def _extract(video_id: int, extraction_id: str, ready=None) -> None:
     with SessionLocal() as db:
         video = db.get(Video, video_id)
         if video is None:
@@ -174,6 +175,11 @@ def _extract(video_id: int, extraction_id: str) -> None:
         db.query(Segment).filter_by(video_id=video_id).delete(synchronize_session=False)
         db.commit()
     remove_segment_files(video_id, old_paths)
+
+    # OMNI-X05: `ready` is a video made ready on Colab (scripts/add_from_drive.py), None for
+    # a normal upload. Decided before anything is published, so the consumer knows whether
+    # to queue CPU embed jobs for this video's frames.
+    ready = colab_vectors.prepare(video_id, ready)
 
     try:
         result = ingestion_publish_extraction(
@@ -199,7 +205,7 @@ def _extract(video_id: int, extraction_id: str) -> None:
     with SessionLocal() as db:
         # Only the run that is still current may finish the video: if it was
         # failed or replaced while we waited, this changes nothing.
-        db.query(Video).filter(
+        finished = db.query(Video).filter(
             Video.id == video_id,
             Video.extraction_id == extraction_id,
             Video.status == VideoStatus.EXTRACTING,
@@ -219,6 +225,9 @@ def _extract(video_id: int, extraction_id: str) -> None:
             synchronize_session=False,
         )
         db.commit()
+
+    if finished and ready is not None:
+        colab_vectors.finish(video_id, ready)
 
 
 def run_gate(

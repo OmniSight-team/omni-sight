@@ -51,6 +51,7 @@ marked **Deviation**. Measurements themselves are in `results.md`.
 | D-43 | The Search page comes back over all footage (Phase A's Search screen), with a `source` filter; the search in the player and the viewer stays. Revises D-39 | 2026-11-06 | Done |
 | D-44 | **Deviation:** the Search page shows at most 2 moments of one video or camera, grouped inside Qdrant's search; B.3's plain top K stays everywhere else | 2026-11-06 | Done |
 | D-45 | The upload limit is raised from 500 MB to 2,048 MB, for the demo set; the 900 s extraction timeout stays | 2026-11-08 | Done |
+| D-47 | A video is known by its fingerprint (SHA-256 of the file); Colab's ready folders are added by a host script, not a mount | 2026-11-20 | Done |
 
 ---
 
@@ -1166,3 +1167,17 @@ dataset clips: one path for all footage (D-25).
 
 **Not changed:** the VIRAT demo sample (`datasets/demo/virat_sample.csv`) was drawn under the 500 MB rule and stays as
 committed; `omnisight_common.datasets.demo.MAX_BYTES` keeps 500 MB, so a re-run gives the same 9 videos.
+
+## D-47 · A video is known by its fingerprint, the SHA-256 of its file · 2026-11-20
+
+**Addition (not Phase A).** OMNI-X05 makes a video's vectors on Colab and adds them to the system later. The two
+sides need a name for "the same video" that a rename does not change and that proves the system's copy is the file
+Colab encoded: the SHA-256 of the file's bytes. Stored on `videos.fingerprint` (hashed while the upload streams to
+disk); it names the folder on Drive (`omnisight/ready/{fingerprint}/`).
+
+**How the vectors get in:** `scripts/add_from_drive.py`, run on the host, copies a ready folder into `query` and adds
+it, as the VIRAT imports do. Not a mount: Docker Desktop does not see Google Drive for desktop's `G:` drive (a mount
+of it comes up empty). Not a button yet (Ahmad, 2026-11-20).
+
+**Kept:** the vectors are only used if made with the pinned models (D-30, D-33) and ingestion's extraction settings,
+and only if every admitted frame matches; otherwise nothing is imported and the frames go to the CPU encoder (D-32).

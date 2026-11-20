@@ -122,6 +122,14 @@ class Video(Base):
     # or was replaced instead of writing an old run's frame into a newer run's
     # video. NULL until a video is first extracted.
     extraction_id: Mapped[str | None] = mapped_column(String)
+    # OMNI-X05 (D-47): the SHA-256 of the file's bytes, hex, set at upload. What a vector
+    # file made on Colab is named by, so a renamed copy still finds it. NULL for a video
+    # stored before D-47 (`scripts/import_upload_vectors.py` fills it in).
+    fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    # OMNI-X05: this extraction's vectors come from a Colab file, so the consumer queues no
+    # CPU embed job for its frames. Set when an extraction starts, from whether the file is
+    # there and was made with the pinned models and the gate's settings.
+    colab_vectors: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

@@ -22,6 +22,16 @@ def probe_stream(rtsp_url: str) -> dict:
     return resp.json()
 
 
+def extraction_settings() -> dict:
+    """The gate's and the frame files' settings ingestion extracts with (OMNI-X05)."""
+    try:
+        resp = httpx.get(f"{settings.ingestion_base_url}/extraction-settings", timeout=REQUEST_TIMEOUT_S)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise IngestionUnavailableError(str(exc)) from exc
+    return resp.json()
+
+
 def extract_file(
     video_id: int,
     path: str,

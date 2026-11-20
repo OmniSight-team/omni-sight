@@ -140,6 +140,29 @@ def playback_file_route(payload: PlaybackRequest) -> PlaybackResponse:
     return PlaybackResponse(ok=True, playback_path=playback_path)
 
 
+# OMNI-X05: every setting that decides which frames a file keeps and what their JPEGs look
+# like. The names are this service's own fields and the keys `scripts/encode_virat_archive.py`
+# writes into a Colab vector file, so query can compare the two one for one.
+EXTRACTION_SETTINGS = (
+    "motion_stride_s",
+    "motion_grid_size",
+    "motion_cell_threshold",
+    "motion_min_active_cells",
+    "motion_blur_kernel",
+    "heartbeat_interval_s",
+    "thumb_width_px",
+    "frame_jpeg_quality",
+    "thumb_jpeg_quality",
+)
+
+
+@app.get("/extraction-settings")
+def extraction_settings_route() -> dict[str, float | int]:
+    """The settings a file is extracted with when no override is sent (a first extraction).
+    Query asks before it trusts vectors made on Colab for the same file (OMNI-X05)."""
+    return {name: getattr(settings, name) for name in EXTRACTION_SETTINGS}
+
+
 def _gate_for(
     payload: FileExtractRequest | None = None, *, start_s: float = 0.0
 ) -> tuple[HeartbeatGate, dict[str, float | int]]:

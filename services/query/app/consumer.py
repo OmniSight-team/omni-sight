@@ -282,6 +282,12 @@ def queue_embedding(channel, body: bytes) -> bool:
     if not message.admitted:
         return False
     with SessionLocal() as db:
+        # OMNI-X05: this video's vectors come from a Colab file, imported once all of its
+        # frames are stored; if that import fails, extraction queues the jobs itself.
+        if message.video_id is not None and db.scalar(
+            select(Video.colab_vectors).where(Video.id == message.video_id)
+        ):
+            return False
         job = job_for_frame(
             db,
             video_id=message.video_id,
